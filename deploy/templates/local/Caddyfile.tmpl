@@ -1,0 +1,19 @@
+{
+ admin 127.0.0.1:2019
+ auto_https off
+ servers {
+  protocols h1 h2
+ }
+}
+https://@@CONTROL_HOST@@:@@CONTROL_PORT@@ {
+ tls /etc/netgo/tls/control.crt /etc/netgo/tls/control.key
+ @private path /oauth2/netgo/*
+ respond @private 404
+ @netgo path /netgo/* /netgo-ui/* /assets/* /
+ handle @netgo {
+  reverse_proxy 127.0.0.1:8081
+ }
+ handle {
+  reverse_proxy h2c://127.0.0.1:8080
+ }
+}

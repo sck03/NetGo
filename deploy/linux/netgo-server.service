@@ -1,0 +1,19 @@
+[Unit]
+Description=NetGo local control service
+After=network-online.target netgo-helper.service netbird-server.service
+Requires=netgo-helper.service
+[Service]
+User=netgo
+Group=netgo
+ExecStart=/opt/netgo/current/netgo-server -config /etc/netgo/site.json
+Restart=on-failure
+RestartSec=3
+UMask=0077
+NoNewPrivileges=true
+ProtectSystem=strict
+ProtectHome=true
+PrivateTmp=true
+ReadWritePaths=/var/lib/netgo /run/netgo-helper
+RestrictAddressFamilies=AF_UNIX AF_INET AF_INET6
+[Install]
+WantedBy=multi-user.target

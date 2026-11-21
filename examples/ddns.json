@@ -1,0 +1,1 @@
+{"ZoneID":"replace-zone-id","RecordID":"replace-record-id","Name":"control.site.example","Type":"A","TokenFile":"/etc/netgo/dns.token","Witnesses":["https://YOUR-INDEPENDENT-IP-WITNESS-1.example","https://YOUR-INDEPENDENT-IP-WITNESS-2.example"],"IntervalSeconds":60}

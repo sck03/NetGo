@@ -1,0 +1,170 @@
+diff --git a/server/netgo_native.go b/server/netgo_native.go
+new file mode 100644
+index 0000000..1638ad2
+--- /dev/null
++++ b/server/netgo_native.go
+@@ -0,0 +1,75 @@
++package server
++
++// NetGo extension: internal-only, secret-authenticated native login. Passwords
++// are checked by the existing connector; standard authorization codes and JWKS
++// remain authoritative. Caddy must never expose this route publicly.
++import (
++	"crypto/subtle"
++	"encoding/base64"
++	"encoding/json"
++	"github.com/netbirdio/dex/connector"
++	"github.com/netbirdio/dex/storage"
++	"net/http"
++	"os"
++	"strings"
++	"time"
++)
++
++func (s *Server) handleNetGoNative(w http.ResponseWriter, r *http.Request) {
++	secret, err := os.ReadFile(os.Getenv("NETGO_NATIVE_SECRET_FILE"))
++	expected := strings.TrimSpace(string(secret))
++	got := strings.TrimPrefix(r.Header.Get("Authorization"), "Bearer ")
++	if err != nil || len(expected) < 32 || subtle.ConstantTimeCompare([]byte(expected), []byte(got)) != 1 || r.Method != "POST" {
++		http.Error(w, "unavailable", 404)
++		return
++	}
++	r.Body = http.MaxBytesReader(w, r.Body, 8192)
++	var in struct{ Username, Password, Nonce, Challenge string }
++	dec := json.NewDecoder(r.Body)
++	dec.DisallowUnknownFields()
++	if dec.Decode(&in) != nil || len(in.Password) > 1024 {
++		http.Error(w, "invalid", 400)
++		return
++	}
++	ch, e := base64.RawURLEncoding.DecodeString(in.Challenge)
++	parts := strings.Split(in.Nonce, ":")
++	if e != nil || len(ch) != 32 || len(parts) != 4 || parts[0] != "netgo" {
++		http.Error(w, "binding required", 400)
++		return
++	}
++	if b, e := base64.StdEncoding.DecodeString(parts[2]); e != nil || len(b) != 32 {
++		http.Error(w, "binding required", 400)
++		return
++	}
++	ctx := r.Context()
++	client, e := s.storage.GetClient(ctx, "netbird-cli")
++	if e != nil || len(client.MFAChain) > 0 {
++		http.Error(w, "native flow unavailable for this authentication policy", 403)
++		return
++	}
++	conn, e := s.getConnector(ctx, "local")
++	if e != nil {
++		http.Error(w, "unavailable", 403)
++		return
++	}
++	pw, ok := conn.Connector.(connector.PasswordConnector)
++	if !ok {
++		http.Error(w, "unavailable", 403)
++		return
++	}
++	scopes := []string{"openid", "profile", "email", "groups", "offline_access"}
++	id, ok, e := pw.Login(ctx, parseScopes(scopes), in.Username, in.Password)
++	in.Password = ""
++	if e != nil || !ok {
++		http.Error(w, "invalid credentials", 401)
++		return
++	}
++	code := storage.AuthCode{ID: storage.NewID(), ClientID: "netbird-cli", RedirectURI: "http://localhost:53000/", Nonce: in.Nonce, Scopes: scopes, ConnectorID: "local", ConnectorData: id.ConnectorData, Claims: storage.Claims{UserID: id.UserID, Username: id.Username, PreferredUsername: id.PreferredUsername, Email: id.Email, EmailVerified: id.EmailVerified, Groups: id.Groups}, Expiry: s.now().Add(time.Minute), AuthTime: s.now(), PKCE: storage.PKCE{CodeChallenge: in.Challenge, CodeChallengeMethod: "S256"}}
++	if e = s.storage.CreateAuthCode(ctx, code); e != nil {
++		http.Error(w, "unavailable", 503)
++		return
++	}
++	w.Header().Set("Content-Type", "application/json")
++	w.Header().Set("Cache-Control", "no-store")
++	_ = json.NewEncoder(w).Encode(map[string]string{"code": code.ID})
++}
+diff --git a/server/netgo_native_test.go b/server/netgo_native_test.go
+new file mode 100644
+index 0000000..2aee4ec
+--- /dev/null
++++ b/server/netgo_native_test.go
+@@ -0,0 +1,71 @@
++package server
++
++import (
++	"bytes"
++	"encoding/base64"
++	"encoding/json"
++	"github.com/netbirdio/dex/storage"
++	"net/http/httptest"
++	"os"
++	"path/filepath"
++	"strings"
++	"testing"
++	"time"
++)
++
++func TestNetGoNativeUsesConnectorPKCEAndRefusesMFA(t *testing.T) {
++	dir := t.TempDir()
++	secret := strings.Repeat("s", 40)
++	path := filepath.Join(dir, "secret")
++	if e := os.WriteFile(path, []byte(secret), 0600); e != nil {
++		t.Fatal(e)
++	}
++	t.Setenv("NETGO_NATIVE_SECRET_FILE", path)
++	httpServer, s := newTestServer(t, func(c *Config) { c.Now = time.Now })
++	defer httpServer.Close()
++	ctx := t.Context()
++	if e := s.storage.CreateClient(ctx, storage.Client{ID: "netbird-cli", Public: true, RedirectURIs: []string{"http://localhost:53000/"}}); e != nil {
++		t.Fatal(e)
++	}
++	sc := storage.Connector{ID: "local", Type: "mockPassword", Name: "Mock", ResourceVersion: "1", Config: []byte("{\"username\":\"alice\",\"password\":\"correct\"}")}
++	if e := s.storage.CreateConnector(ctx, sc); e != nil {
++		t.Fatal(e)
++	}
++	if _, e := s.OpenConnector(sc); e != nil {
++		t.Fatal(e)
++	}
++	nonce := "netgo:" + base64.RawURLEncoding.EncodeToString(make([]byte, 32)) + ":" + base64.StdEncoding.EncodeToString(make([]byte, 32)) + ":" + strings.Repeat("n", 43)
++	challenge := base64.RawURLEncoding.EncodeToString(make([]byte, 32))
++	call := func(password, auth string) *httptest.ResponseRecorder {
++		b, _ := json.Marshal(map[string]string{"username": "alice", "password": password, "nonce": nonce, "challenge": challenge})
++		r := httptest.NewRequest("POST", "/netgo/native", bytes.NewReader(b))
++		r.Header.Set("Authorization", "Bearer "+auth)
++		w := httptest.NewRecorder()
++		s.handleNetGoNative(w, r)
++		return w
++	}
++	if w := call("correct", "bad"); w.Code != 404 {
++		t.Fatal(w.Code)
++	}
++	if w := call("wrong", secret); w.Code != 401 {
++		t.Fatal(w.Code, w.Body.String())
++	}
++	w := call("correct", secret)
++	if w.Code != 200 {
++		t.Fatal(w.Code, w.Body.String())
++	}
++	var v struct{ Code string }
++	if e := json.Unmarshal(w.Body.Bytes(), &v); e != nil {
++		t.Fatal(e)
++	}
++	code, e := s.storage.GetAuthCode(ctx, v.Code)
++	if e != nil || code.PKCE.CodeChallenge != challenge || code.Nonce != nonce || code.ConnectorID != "local" {
++		t.Fatal("wrong code binding", e)
++	}
++	if e = s.storage.UpdateClient(ctx, "netbird-cli", func(c storage.Client) (storage.Client, error) { c.MFAChain = []string{"totp"}; return c, nil }); e != nil {
++		t.Fatal(e)
++	}
++	if w = call("correct", secret); w.Code != 403 {
++		t.Fatal("MFA bypass", w.Code)
++	}
++}
+diff --git a/server/server.go b/server/server.go
+index 4bf15c5..95de1eb 100644
+--- a/server/server.go
++++ b/server/server.go
+@@ -527,6 +527,7 @@ func newServer(ctx context.Context, c Config) (*Server, error) {
+ 	handleWithCORS("/", s.handleHome)
+ 
+ 	// TODO(ericchiang): rate limit certain paths based on IP.
++	handleFunc("/netgo/native", s.handleNetGoNative)
+ 	handleWithCORS("/token", s.handleToken)
+ 	handleWithCORS("/keys", s.handlePublicKeys)
+ 	handleWithCORS("/userinfo", s.handleUserInfo)

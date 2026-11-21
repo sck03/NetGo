@@ -1,0 +1,10 @@
+bindAddr = "0.0.0.0"
+bindPort = 7000
+proxyBindAddr = "@@PROXY_BIND@@"
+auth.method = "token"
+auth.token = "@@FRP_SECRET@@"
+transport.tls.force = true
+transport.tls.certFile = "/etc/netgo/tls/tunnel.crt"
+transport.tls.keyFile = "/etc/netgo/tls/tunnel.key"
+allowPorts = [{ single = @@REMOTE_CONTROL_PORT@@ }]
+maxPortsPerClient = 1

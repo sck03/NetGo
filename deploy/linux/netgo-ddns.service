@@ -1,0 +1,13 @@
+[Unit]
+Description=NetGo optional independent DDNS
+After=network-online.target
+[Service]
+User=netgo
+ExecStart=/opt/netgo/current/netgo-ddns -config /etc/netgo/ddns.json
+Restart=on-failure
+NoNewPrivileges=true
+ProtectSystem=strict
+ProtectHome=true
+PrivateTmp=true
+[Install]
+WantedBy=multi-user.target

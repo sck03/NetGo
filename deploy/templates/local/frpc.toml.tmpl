@@ -1,0 +1,14 @@
+serverAddr = "@@AUX_HOST@@"
+serverPort = @@TUNNEL_PORT@@
+auth.method = "token"
+auth.token = "@@FRP_SECRET@@"
+transport.tls.enable = true
+transport.tls.disableCustomTLSFirstByte = true
+transport.tls.serverName = "@@TUNNEL_HOST@@"
+transport.tls.trustedCaFile = "/etc/ssl/certs/ca-certificates.crt"
+[[proxies]]
+name = "netgo-control"
+type = "tcp"
+localIP = "127.0.0.1"
+localPort = @@CONTROL_PORT@@
+remotePort = @@REMOTE_CONTROL_PORT@@

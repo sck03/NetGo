@@ -1,0 +1,17 @@
+{
+  "schema": 1,
+  "checked_at": "2026-11-22",
+  "timezone": "Asia/Shanghai",
+  "netbird": {"version":"0.83.2","commit":"6d4814d22726c16961be79409dfbf6a2b2f7537b","source":"https://github.com/netbirdio/netbird","patch":"patches/netbird.patch","license":"BSD-3-Clause; AGPL-3.0 in server directories"},
+  "dex": {"commit":"0319b501f1a6822b9f941dcac82d0d4edca5018b","source":"https://github.com/netbirdio/dex","patch":"patches/dex.patch","license":"Apache-2.0","note":"NetBird-pinned fork"},
+  "openssl": {"version":"4.1.0","commit":"2f4e3a5fec05394068cfa7379890ab552483a8a6","source":"https://github.com/openssl/openssl","license":"Apache-2.0","flags":["mingw64","no-shared","no-tests","no-module","no-asm","no-legacy"]},
+  "json": {"version":"3.12.0","url":"https://raw.githubusercontent.com/nlohmann/json/v3.12.0/single_include/nlohmann/json.hpp","sha256":"aaf127c04cb31c406e5b04a63f1ae89369fccde6d8fa7cdda1ed4f32dfc5de63","license":"MIT"},
+  "wintun": {"version":"0.14.1","url":"https://www.wintun.net/builds/wintun-0.14.1.zip","sha256":"07c256185d6ee3652e09fa55c0b673e2624b565e02c4b9091c79ca7d2f24ef51","authenticode":"Valid on build host","license":"See bundled upstream LICENSE.txt"},
+  "frp": {"version":"0.72.0","source":"https://github.com/fatedier/frp","license":"Apache-2.0","validation_asset":{"name":"frp_0.72.0_windows_amd64.zip","sha256":"5197c1b69564089cdc229fc1260a0e25db1e722b1b7db45fe1542c3c43edf9ae"}},
+  "caddy": {"version":"2.11.9","source":"https://github.com/caddyserver/caddy","license":"Apache-2.0","validation_asset":{"name":"caddy_2.11.9_windows_amd64.zip","sha256":"ad93112d335ee687100c4c9f11bced16ca590377976b7fe7883882b9e797e472"}},
+  "haproxy": {"version":null,"source":"Ubuntu package repository","license":"GPL-2.0 and component notices","status":"record exact installed version before Linux acceptance"},
+  "toolchain": {"go":"1.27.4","node":"26.13.1","gcc":"16.1.0-5 (MSYS2 UCRT64)","cmake":"4.3.4","ninja":"1.13.2","python_test":"3.13; cryptography 48.0.0"},
+  "frontend": {"vue":"3.5.46","vite":"8.3.8","typescript":"6.0.3","vue-tsc":"3.3.14"},
+  "exceptions": ["TypeScript 7.0.2 fails with current vue-tsc; use stable compatible 6.0.3.","NetBird freezes internal dependencies including Dex and Wintun bindings; do not independently upgrade their protocol.","GCC UCRT64 MinSizeRel exposed a static libstdc++ link incompatibility; native release uses -O2 and actual build verification."],
+  "reference": {"source":"https://github.com/sck03/ocserv-openwrt","commit":"1313fcb85606adf92001ed10fedb64de87276f4e","use":"UI and product workflow reference; OpenConnect code not copied"}
+}

@@ -1,0 +1,14 @@
+[Unit]
+Description=NetGo optional reverse control tunnel
+After=network-online.target
+[Service]
+User=netgo
+ExecStart=/opt/netgo/upstream/frpc -c /etc/netgo/frpc.toml
+Restart=always
+RestartSec=3
+NoNewPrivileges=true
+ProtectSystem=strict
+ProtectHome=true
+PrivateTmp=true
+[Install]
+WantedBy=multi-user.target

@@ -1,0 +1,30 @@
+server:
+  listenAddress: "127.0.0.1:8080"
+  exposedAddress: "https://@@CONTROL_HOST@@:443"
+  healthcheckAddress: "127.0.0.1:9000"
+  metricsPort: 9090
+  logLevel: "info"
+  logFile: "console"
+  dataDir: "/var/lib/netbird-server"
+  disableAnonymousMetrics: true
+  disableGeoliteUpdate: true
+  stuns:
+    - uri: "stun:@@LOCAL_RELAY@@:3478"
+@@AUX_STUN@@
+  relays:
+    addresses:
+      - "rels://@@LOCAL_RELAY@@:@@PUBLIC_RELAY_PORT@@"
+@@AUX_RELAY@@
+    credentialsTTL: "12h"
+    secret: "@@RELAY_SECRET@@"
+  auth:
+    issuer: "https://@@CONTROL_HOST@@/oauth2"
+    localAuthDisabled: false
+    signKeyRefreshEnabled: true
+    cliRedirectURIs:
+      - "http://localhost:53000/"
+    dashboardRedirectURIs:
+      - "https://@@CONTROL_HOST@@/nb-auth"
+  store:
+    engine: "sqlite"
+    encryptionKey: "@@STORE_KEY@@"

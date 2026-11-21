@@ -1,0 +1,14 @@
+[Unit]
+Description=NetGo independent local NetBird Relay and STUN
+After=network-online.target
+[Service]
+User=netgo
+EnvironmentFile=/etc/netgo/relay.env
+ExecStart=/opt/netgo/upstream/netbird-relay
+Restart=on-failure
+NoNewPrivileges=true
+ProtectSystem=strict
+ProtectHome=true
+PrivateTmp=true
+[Install]
+WantedBy=multi-user.target

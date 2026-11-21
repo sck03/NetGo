@@ -1,0 +1,14 @@
+[Unit]
+Description=NetGo auxiliary control forwarding
+After=network-online.target
+[Service]
+User=netgo
+ExecStart=/opt/netgo/upstream/frps -c /etc/netgo/frps.toml
+Restart=always
+RestartSec=3
+NoNewPrivileges=true
+ProtectSystem=strict
+ProtectHome=true
+PrivateTmp=true
+[Install]
+WantedBy=multi-user.target

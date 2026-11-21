@@ -1,0 +1,21 @@
+[Unit]
+Description=NetGo restricted lease gate
+After=network-online.target
+Before=netgo-server.service
+[Service]
+User=root
+Group=netgo
+RuntimeDirectory=netgo-helper
+RuntimeDirectoryMode=0750
+ExecStart=/opt/netgo/current/netgo-helper -config /etc/netgo/site.json
+Restart=on-failure
+UMask=0007
+CapabilityBoundingSet=CAP_NET_ADMIN CAP_CHOWN CAP_FOWNER CAP_DAC_OVERRIDE
+NoNewPrivileges=true
+ProtectSystem=strict
+ProtectHome=true
+PrivateTmp=true
+ReadWritePaths=/run/netgo-helper
+RestrictAddressFamilies=AF_UNIX AF_NETLINK
+[Install]
+WantedBy=multi-user.target

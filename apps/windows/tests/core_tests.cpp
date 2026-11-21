@@ -1,0 +1,98 @@
+#include "netgo.hpp"
+#include <iostream>
+#include <openssl/evp.h>
+#include <sddl.h>
+using namespace netgo;
+void require(bool b,const char* message){if(!b)throw Error(message);}
+template<class F>void rejects(F f,const char* message){bool failed=false;try{f();}catch(...){failed=true;}require(failed,message);}
+Json profile(){return {{"Protocol",1},{"ID","test"},{"Name","实验站点"},{"Origin","https://site.example"},{"Candidates",Json::array({{{"ID","direct"},{"Address","127.0.0.1:443"},{"Kind","direct"}}})},{"CA",""},{"GatewayIP","100.96.0.1"},{"GatewayPeerID","gateway"},{"LocalRelay","relay.example"},{"AuxiliaryRelay",""}};}
+int main(int argc,char** argv){
+ try{
+  WSADATA wsa{};WSAStartup(MAKEWORD(2,2),&wsa);
+  if(argc==3&&(std::string(argv[1])=="--tls"||std::string(argv[1])=="--tls-reject")){
+   auto p=Json::parse(readFile(wide(argv[2])));Transport transport(p);
+   if(std::string(argv[1])=="--tls-reject"){rejects([&]{transport.select();},"untrusted TLS accepted");std::cout<<"PASS TLS rejection\n";return 0;}
+   transport.select();require(transport.kind()=="auxiliary","fallback not selected");
+   std::string seed(32,'a');
+   auto out=transport.call("POST","/fixture",{{"native",true}},seed,"fixture-token",randomID());
+   require(out.at("verified")==true,"native signature rejected");std::cout<<"PASS canonical TLS identity, fallback and signed request\n";return 0;
+  }
+  if(argc==3&&std::string(argv[1])=="--ipc"){
+   auto root=std::filesystem::temp_directory_path()/wide("netgo-ipc-"+randomID());secureDirectory(root);
+   testPipe(root);
+   auto binary=wide(argv[2]);std::wstring command=L"\""+binary+L"\" --test-root \""+root.wstring()+L"\"";
+   STARTUPINFOW si{};si.cb=sizeof(si);PROCESS_INFORMATION pi{};
+   require(CreateProcessW(binary.c_str(),command.data(),nullptr,nullptr,FALSE,CREATE_NO_WINDOW,nullptr,nullptr,&si,&pi),"agent did not start");
+   Handle process(pi.hProcess),thread(pi.hThread);bool available=false;
+   for(int i=0;i<40;++i){try{auto s=pipeCall({{"action","status"}});require(s.at("state")=="disconnected","unexpected state");available=true;break;}catch(...){Sleep(100);}}
+   require(available,"native IPC unavailable");
+   auto p=profile();pipeCall({{"action","import"},{"profile",p}});
+   require(pipeCall({{"action","profiles"}}).size()==1,"profile IPC roundtrip");
+   rejects([]{pipeCall({{"action","run"},{"command","cmd.exe"}});},"arbitrary command accepted");
+   {
+    auto limit=Clock::now()+std::chrono::seconds(3);
+    while(!WaitNamedPipeW(pipeName().c_str(),100)){require(Clock::now()<limit,"IPC bound test could not connect");Sleep(25);}
+    Handle pipe(CreateFileW(pipeName().c_str(),GENERIC_READ|GENERIC_WRITE,0,nullptr,OPEN_EXISTING,0,nullptr));
+    require(pipe.value!=INVALID_HANDLE_VALUE,"IPC bound test open");
+    DWORD oversize=0xffffffff,written=0;
+    require(WriteFile(pipe,&oversize,4,&written,nullptr),"IPC bound test write");
+   }
+   require(pipeCall({{"action","status"}}).at("state")=="disconnected","oversized frame blocked agent");
+   rejects([]{pipeCall({{"action","delete"},{"site","../outside"}});},"path traversal accepted");
+   rejects([]{pipeCall({{"action","import"},{"profile",{{"Password","must-not-save"}}}});},"secret config accepted");
+   pipeCall({{"action","delete"},{"site","test"}});
+   pipeCall({{"action","shutdown"}});require(WaitForSingleObject(process,5000)==WAIT_OBJECT_0,"agent shutdown blocked");
+   std::filesystem::remove_all(root);std::cout<<"PASS native IPC actions, bounds, path rejection and shutdown\n";return 0;
+  }
+  auto p=profile();validateProfile(p);require(originHost("https://site.example:8443")=="site.example","origin host");
+  require(address("[::1]:443").host=="::1","IPv6");
+  for(const auto& value:{"site:0","site:65536","https://site:443","site:443\r\nInjected:1","../site:443"})rejects([&]{address(value);},"unsafe candidate");
+  auto bad=p;bad["ID"]="../escape";rejects([&]{validateProfile(bad);},"unsafe site ID");
+  bad=p;bad["Password"]="secret";rejects([&]{validateProfile(bad);},"config stores password");
+  bad=p;bad["Candidates"][0]["Kind"]="auxiliary";rejects([&]{validateProfile(bad);},"no local direct entry");
+  bad=p;bad["CA"]="garbage";rejects([&]{validateProfile(bad);},"invalid CA");
+  require(sha256("abc")=="ba7816bf8f01cfea414140de5dae2223b00361a396177a9cb410ff61f20015ad","SHA256 fixture");
+  require(sha256("abc",true)=="ungWv48Bz-pBQUDeXa4iI7ADYaOWF3qctBD_YfIAFa0","PKCE fixture");
+  require(parseTime("2026-11-22T08:00:00+08:00")==parseTime("2026-11-22T00:00:00Z"),"RFC3339 offset");
+  rejects([]{parseTime("2026-02-31T00:00:00Z");},"invalid date accepted");
+  // RFC8032 test vector: empty message, deterministic Ed25519 seed.
+  const std::string seedHex="9d61b19deffd5a60ba844af492ec2cc44449c5697b326919703bac031cae7f60";
+  std::string seed;for(size_t i=0;i<seedHex.size();i+=2)seed.push_back(char(std::stoi(seedHex.substr(i,2),nullptr,16)));
+  require(publicKey(seed)=="11qYAYKxCrfVS_7TyWQHOg7hcvPapiMlrwIaaPcHURo","Ed25519 public key");
+  const auto actual=signature(seed,"");
+  const std::string sigHex="e5564300c360ac729086e2cc806e828a84877f1eb8e5d974d873e065224901555fb8821590a33bacc61e39701cf9b46bd25bf5f0595bbe24655141438e7a100b";
+  std::string sigBytes;for(size_t i=0;i<sigHex.size();i+=2)sigBytes.push_back(char(std::stoi(sigHex.substr(i,2),nullptr,16)));
+  require(actual==base64url(reinterpret_cast<const unsigned char*>(sigBytes.data()),sigBytes.size()),"Ed25519 RFC signature");
+  auto body=std::string("{}"),message=signedMessage("POST","/netgo/v1/sessions","123","nonce",body,"token");
+  require(message=="POST\n/netgo/v1/sessions\n123\nnonce\n"+sha256(body)+"\n"+sha256("token"),"request signing format");
+  require(decodeHttp("HTTP/1.1 200 OK\r\nContent-Length: 2\r\n\r\n{}").body=="{}","content length");
+  require(decodeHttp("HTTP/1.1 200 OK\r\nTransfer-Encoding: chunked\r\n\r\n2\r\n{}\r\n0\r\n\r\n").body=="{}","chunked response");
+  rejects([]{decodeHttp("HTTP/1.1 200 OK\r\nContent-Length: 3\r\n\r\n{}");},"truncated body");
+  rejects([]{decodeHttp("HTTP/1.1 200 OK\r\nTransfer-Encoding: chunked\r\n\r\n8\r\n{}\r\n0\r\n\r\n");},"truncated chunk");
+  auto target="test/"+randomID();credentialWrite(target,"native-fixture");require(credentialRead(target)=="native-fixture","Credential Manager roundtrip");credentialDelete(target);require(credentialRead(target).empty(),"credential deletion");
+  auto root=std::filesystem::temp_directory_path()/wide("netgo-test-"+randomID());secureDirectory(root);
+  {
+   Controller c(root);c.importProfile(p);require(c.profiles().size()==1,"profile persistence");
+   bad=p;bad["Origin"]="https://other.example";rejects([&]{c.importProfile(bad);},"trust change reused identity");
+   require(c.dispatch({{"action","connect"},{"site","../bad"}}).contains("error"),"path traversal");
+   require(c.dispatch({{"action","run"}}).contains("error"),"unknown action");
+   auto diagnostic=safeDiagnostic({{"token","sensitive"},{"data",{{"ip","sensitive"},{"relay","sensitive"},{"path","direct"}}}},Json::array());
+   require(diagnostic.dump().find("sensitive")==std::string::npos,"diagnostic secret leak");
+  }
+  uint64_t generation=0;
+  p["Candidates"][0]["Address"]="127.0.0.1:1";
+  {
+   Controller c(root);c.importProfile(p);c.connect({{"site","test"},{"alias","fixture"},{"password","fixture-password"}});
+   for(int i=0;i<40&&c.status().at("state")!="failed";++i)Sleep(100);
+   require(c.status().at("state")=="failed","untrusted endpoint did not stop login");
+   generation=c.status().at("generation");c.disconnect();
+  }
+  {
+   Controller c(root);require(c.status().at("generation").get<uint64_t>()>=generation,"restart lost generation");
+   c.connect({{"site","test"},{"alias","fixture"},{"password","fixture-password"}});
+   require(c.status().at("generation").get<uint64_t>()>generation,"restart reused generation");
+   c.disconnect();
+  }
+  std::filesystem::remove_all(root);WSACleanup();std::cout<<"PASS native profile, TLS parser, crypto, credentials, storage, generation restart and diagnostic checks\n";return 0;
+ }catch(const std::exception& e){std::cerr<<"FAIL "<<e.what()<<"\n";return 1;}
+}

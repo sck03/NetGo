@@ -1,0 +1,19 @@
+[Unit]
+Description=NetGo patched NetBird combined server
+After=network-online.target
+[Service]
+User=netgo
+Group=netgo
+Environment=NETGO_NATIVE_SECRET_FILE=/etc/netgo/native.secret
+ExecStart=/opt/netgo/upstream/netbird-server --config /etc/netgo/netbird.yaml
+Restart=on-failure
+StateDirectory=netbird-server
+StateDirectoryMode=0700
+UMask=0077
+NoNewPrivileges=true
+ProtectSystem=strict
+ProtectHome=true
+PrivateTmp=true
+ReadWritePaths=/var/lib/netbird-server
+[Install]
+WantedBy=multi-user.target

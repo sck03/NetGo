@@ -1,0 +1,456 @@
+diff --git a/client/cmd/netgo_rpc.go b/client/cmd/netgo_rpc.go
+new file mode 100644
+index 0000000..ba6da43
+--- /dev/null
++++ b/client/cmd/netgo_rpc.go
+@@ -0,0 +1,229 @@
++package cmd
++
++import (
++	"context"
++	"encoding/json"
++	"errors"
++	"io"
++	"net/url"
++	"regexp"
++	"strings"
++	"time"
++
++	"github.com/netbirdio/netbird/client/internal/profilemanager"
++	"github.com/netbirdio/netbird/client/proto"
++	"github.com/spf13/cobra"
++	"google.golang.org/grpc/metadata"
++)
++
++// This process adapter keeps daemon protobuf and caller authorization in NetBird.
++// Secrets travel on inherited stdin, never in command-line flags or log messages.
++var netgoRPCCmd = &cobra.Command{
++	Use: "netgo-rpc", Hidden: true, Args: cobra.NoArgs,
++	RunE: func(cmd *cobra.Command, _ []string) error {
++		var req netgoRPCRequest
++		decoder := json.NewDecoder(io.LimitReader(cmd.InOrStdin(), 65537))
++		decoder.DisallowUnknownFields()
++		if err := decoder.Decode(&req); err != nil {
++			return json.NewEncoder(cmd.OutOrStdout()).Encode(map[string]string{"error": "engine_invalid_request"})
++		}
++		var tail any
++		if decoder.Decode(&tail) != io.EOF {
++			return json.NewEncoder(cmd.OutOrStdout()).Encode(map[string]string{"error": "engine_invalid_request"})
++		}
++		result, err := netgoRPC(cmd.Context(), req)
++		if err != nil {
++			result = map[string]string{"error": "engine_rpc_failed"}
++		}
++		return json.NewEncoder(cmd.OutOrStdout()).Encode(result)
++	},
++}
++
++func init() { rootCmd.AddCommand(netgoRPCCmd) }
++
++type netgoRPCProfile struct {
++	Protocol                                                                   int
++	ID, Name, Origin, CA, GatewayPeerID, GatewayIP, LocalRelay, AuxiliaryRelay string
++	Candidates                                                                 []struct{ ID, Address, Kind string }
++}
++type netgoRPCRequest struct {
++	Action    string          `json:"action"`
++	Profile   netgoRPCProfile `json:"profile"`
++	IDToken   string          `json:"id_token"`
++	Resources []struct {
++		CIDR               string `json:"cidr"`
++		ID, Name, Protocol string
++		Ports              []uint16
++		Enabled            bool
++	} `json:"resources"`
++}
++
++func netgoRPC(ctx context.Context, req netgoRPCRequest) (any, error) {
++	ctx, cancel := context.WithTimeout(ctx, 20*time.Second)
++	defer cancel()
++	conn, err := DialClientGRPCServer(ctx, daemonAddr)
++	if err != nil {
++		return nil, err
++	}
++	defer conn.Close()
++	client := proto.NewDaemonServiceClient(conn)
++	user, err := profilemanager.InvokingUser()
++	if err != nil {
++		return nil, err
++	}
++	if req.Action == "down" {
++		_, err = client.Down(ctx, &proto.DownRequest{})
++		return map[string]bool{"done": err == nil}, err
++	}
++	p := req.Profile
++	if p.Protocol != 1 || !regexp.MustCompile("^[a-zA-Z0-9][a-zA-Z0-9_.-]{0,62}$").MatchString(p.ID) {
++		return nil, errors.New("invalid profile")
++	}
++	authority, err := url.Parse(p.Origin)
++	if err != nil || authority.Scheme != "https" || authority.Host == "" || authority.User != nil {
++		return nil, errors.New("invalid origin")
++	}
++	name := "netgo-" + p.ID
++	login := func(mode string) (*proto.LoginResponse, error) {
++		md := metadata.Pairs("netgo-mode", mode)
++		for _, c := range p.Candidates {
++			md.Append("netgo-candidate", c.Address)
++		}
++		if p.CA != "" {
++			md.Append("netgo-ca-bin", p.CA)
++		}
++		if mode == "native" {
++			md.Append("netgo-jwt", req.IDToken)
++		}
++		yes, no := true, false
++		return client.Login(metadata.NewOutgoingContext(ctx, md), &proto.LoginRequest{
++			ManagementUrl: p.Origin, ProfileName: &name, Username: &user.Username, DisableAutoConnect: &yes,
++			ServerSSHAllowed: &no, DisableServerRoutes: &yes, DisableIpv6: &yes, BlockInbound: &yes,
++		})
++	}
++	switch req.Action {
++	case "prepare":
++		if _, err = client.Down(ctx, &proto.DownRequest{}); err != nil {
++			return nil, err
++		}
++		profiles, err := client.ListProfiles(ctx, &proto.ListProfilesRequest{Username: user.Username})
++		if err != nil {
++			return nil, err
++		}
++		found := false
++		for _, profile := range profiles.Profiles {
++			if profile.Name == name {
++				if found {
++					return nil, errors.New("ambiguous profile")
++				}
++				found = true
++			}
++		}
++		if !found {
++			if _, err = client.AddProfile(ctx, &proto.AddProfileRequest{Username: user.Username, ProfileName: name}); err != nil {
++				return nil, err
++			}
++		}
++		response, err := login("prepare")
++		if err != nil {
++			return nil, err
++		}
++		if response.UserCode == "" || response.NeedsSSOLogin {
++			return nil, errors.New("native patch required")
++		}
++		return map[string]string{"wireguard_key": response.UserCode}, nil
++	case "login":
++		if req.IDToken == "" {
++			return nil, errors.New("token required")
++		}
++		_, err = login("native")
++		return map[string]bool{"done": err == nil}, err
++	case "up":
++		_, err = client.Up(ctx, &proto.UpRequest{ProfileName: &name, Username: &user.Username, Async: true})
++		return map[string]bool{"done": err == nil}, err
++	case "remove":
++		profiles, err := client.ListProfiles(ctx, &proto.ListProfilesRequest{Username: user.Username})
++		if err != nil {
++			return nil, err
++		}
++		found := false
++		for _, profile := range profiles.Profiles {
++			if profile.Name == name {
++				found = true
++				break
++			}
++		}
++		if !found {
++			return map[string]bool{"done": true}, nil
++		}
++		_, err = client.RemoveProfile(ctx, &proto.RemoveProfileRequest{Username: user.Username, ProfileName: name})
++		return map[string]bool{"done": err == nil}, err
++	case "status":
++		v, err := client.Status(ctx, &proto.StatusRequest{GetFullPeerStatus: true})
++		if err != nil {
++			return nil, err
++		}
++		out := map[string]any{"state": v.Status, "path": "negotiating", "ip": "", "relay": "", "rx": int64(0), "tx": int64(0)}
++		if v.FullStatus != nil {
++			if v.FullStatus.LocalPeerState != nil {
++				out["ip"] = v.FullStatus.LocalPeerState.IP
++			}
++			for _, peer := range v.FullStatus.Peers {
++				if strings.Split(peer.IP, "/")[0] != p.GatewayIP {
++					continue
++				}
++				out["rx"], out["tx"] = peer.BytesRx, peer.BytesTx
++				if !strings.EqualFold(peer.ConnStatus, "connected") {
++					continue
++				}
++				out["path"] = "direct"
++				if peer.Relayed {
++					out["relay"], out["path"] = peer.RelayAddress, "relay_unknown"
++					if p.LocalRelay != "" && strings.Contains(peer.RelayAddress, p.LocalRelay) {
++						out["path"] = "local_relay"
++					} else if p.AuxiliaryRelay != "" && strings.Contains(peer.RelayAddress, p.AuxiliaryRelay) {
++						out["path"] = "auxiliary_relay"
++					}
++				}
++				break
++			}
++		}
++		return out, nil
++	case "routes":
++		if len(req.Resources) == 0 {
++			return nil, errors.New("no authorized routes")
++		}
++		var ids []string
++		deadline := time.Now().Add(15 * time.Second)
++		for {
++			networks, err := client.ListNetworks(ctx, &proto.ListNetworksRequest{})
++			if err != nil {
++				return nil, err
++			}
++			ids = nil
++			for _, r := range req.Resources {
++				for _, n := range networks.Routes {
++					if n.Range == r.CIDR {
++						ids = append(ids, n.ID)
++						break
++					}
++				}
++			}
++			if len(ids) == len(req.Resources) {
++				break
++			}
++			if time.Now().After(deadline) {
++				return nil, errors.New("authorized route unavailable")
++			}
++			select {
++			case <-ctx.Done():
++				return nil, ctx.Err()
++			case <-time.After(200 * time.Millisecond):
++			}
++		}
++		_, err = client.SelectNetworks(ctx, &proto.SelectNetworksRequest{NetworkIDs: ids, Append: false})
++		return map[string]bool{"done": err == nil}, err
++	default:
++		return nil, errors.New("unsupported action")
++	}
++}
+diff --git a/client/grpc/dialer.go b/client/grpc/dialer.go
+index 9a6bc06..73d1c5f 100644
+--- a/client/grpc/dialer.go
++++ b/client/grpc/dialer.go
+@@ -55,6 +55,12 @@ func CreateConnection(ctx context.Context, addr string, tlsEnabled bool, compone
+ 			Timeout: 10 * time.Second,
+ 		}),
+ 	}
++	if option, ok := netgoDialOption(addr); ok && tlsEnabled {
++		opts = append(opts, option)
++	}
++	if option, ok := netgoTLSOption(addr); ok && tlsEnabled {
++		opts = append(opts, option)
++	}
+ 	opts = append(opts, extraOpts...)
+ 
+ 	conn, err := grpc.DialContext(connCtx, addr, opts...)
+diff --git a/client/grpc/netgo.go b/client/grpc/netgo.go
+new file mode 100644
+index 0000000..4d63cdf
+--- /dev/null
++++ b/client/grpc/netgo.go
+@@ -0,0 +1,106 @@
++package grpc
++
++import (
++	"context"
++	"crypto/tls"
++	"crypto/x509"
++	"errors"
++	"google.golang.org/grpc"
++	"google.golang.org/grpc/credentials"
++	"net"
++	"strings"
++	"sync"
++	"time"
++)
++
++var netgoRoutes = struct {
++	sync.RWMutex
++	m     map[string][]string
++	roots map[string]*x509.CertPool
++}{m: map[string][]string{}, roots: map[string]*x509.CertPool{}}
++
++// CA bytes are public trust material received only through an authorized Login.
++// Never accept a caller-supplied filesystem path opened by the privileged daemon.
++func ConfigureNetGoCA(authority, ca string) error {
++	if len(ca) > 256*1024 {
++		return errors.New("NetGo CA too large")
++	}
++	var roots *x509.CertPool
++	if ca != "" {
++		roots, _ = x509.SystemCertPool()
++		if roots == nil {
++			roots = x509.NewCertPool()
++		}
++		if !roots.AppendCertsFromPEM([]byte(ca)) {
++			return errors.New("invalid NetGo CA")
++		}
++	}
++	netgoRoutes.Lock()
++	defer netgoRoutes.Unlock()
++	if roots == nil {
++		delete(netgoRoutes.roots, authority)
++	} else {
++		netgoRoutes.roots[authority] = roots
++	}
++	return nil
++}
++func netgoTLSOption(authority string) (grpc.DialOption, bool) {
++	netgoRoutes.RLock()
++	roots, ok := netgoRoutes.roots[authority]
++	netgoRoutes.RUnlock()
++	if !ok {
++		return nil, false
++	}
++	host, _, err := net.SplitHostPort(authority)
++	if err != nil {
++		host = authority
++	}
++	return grpc.WithTransportCredentials(credentials.NewTLS(&tls.Config{ServerName: host, RootCAs: roots, MinVersion: tls.VersionTLS12})), true
++}
++
++// Called only after the daemon's profile/configuration ownership checks.
++func ConfigureNetGoRoutes(authority string, candidates []string) error {
++	if len(candidates) > 8 {
++		return errors.New("too many NetGo candidates")
++	}
++	for _, addr := range candidates {
++		h, p, e := net.SplitHostPort(addr)
++		if e != nil || h == "" || p == "" || strings.ContainsAny(addr, "\n\r/\\ ") {
++			return errors.New("invalid NetGo candidate")
++		}
++	}
++	netgoRoutes.Lock()
++	defer netgoRoutes.Unlock()
++	netgoRoutes.m[authority] = append([]string(nil), candidates...)
++	return nil
++}
++func netgoDialOption(authority string) (grpc.DialOption, bool) {
++	netgoRoutes.RLock()
++	_, ok := netgoRoutes.m[authority]
++	netgoRoutes.RUnlock()
++	if !ok {
++		return nil, false
++	}
++	return grpc.WithContextDialer(func(ctx context.Context, _ string) (net.Conn, error) {
++		netgoRoutes.RLock()
++		list := append([]string(nil), netgoRoutes.m[authority]...)
++		roots := netgoRoutes.roots[authority]
++		netgoRoutes.RUnlock()
++		host, _, e := net.SplitHostPort(authority)
++		if e != nil {
++			host = authority
++		}
++		for _, addr := range list {
++			probe, cancel := context.WithTimeout(ctx, 3*time.Second)
++			td := tls.Dialer{NetDialer: &net.Dialer{Timeout: 3 * time.Second}, Config: &tls.Config{ServerName: host, RootCAs: roots, MinVersion: tls.VersionTLS12, NextProtos: []string{"h2"}}}
++			c, e := td.DialContext(probe, "tcp", addr)
++			cancel()
++			if e != nil {
++				continue
++			}
++			c.Close()
++			return (&net.Dialer{Timeout: 3 * time.Second, KeepAlive: 30 * time.Second}).DialContext(ctx, "tcp", addr)
++		}
++		return nil, errors.New("no trusted NetGo control candidate")
++	}), true
++}
+diff --git a/client/grpc/netgo_test.go b/client/grpc/netgo_test.go
+new file mode 100644
+index 0000000..77394a9
+--- /dev/null
++++ b/client/grpc/netgo_test.go
+@@ -0,0 +1,3 @@
++package grpc
++import("testing")
++func TestNetGoCandidateValidation(t *testing.T){if e:=ConfigureNetGoRoutes("site.test:443",[]string{"site.test:443","vps.test:8443"});e!=nil{t.Fatal(e)};if _,ok:=netgoDialOption("site.test:443");!ok{t.Fatal("not registered")};if _,ok:=netgoDialOption("another.test:443");ok{t.Fatal("cross-site route leak")};for _,s:=range []string{"no-port","https://site.test:443","bad\n:443"}{if ConfigureNetGoRoutes("site.test:443",[]string{s})==nil{t.Fatal("unsafe candidate",s)}}}
+diff --git a/client/server/server.go b/client/server/server.go
+index c16c5f4..9ee9b12 100644
+--- a/client/server/server.go
++++ b/client/server/server.go
+@@ -22,6 +22,7 @@ import (
+ 	gstatus "google.golang.org/grpc/status"
+ 	"google.golang.org/protobuf/types/known/timestamppb"
+ 
++	netgogrpc "github.com/netbirdio/netbird/client/grpc"
+ 	"github.com/netbirdio/netbird/client/internal/auth"
+ 	"github.com/netbirdio/netbird/client/internal/expose"
+ 	"github.com/netbirdio/netbird/client/internal/ipcauth"
+@@ -773,6 +774,39 @@ func (s *Server) Login(callerCtx context.Context, msg *proto.LoginRequest) (*pro
+ 
+ 	s.localMetrics.Reconcile(config.LocalMetricsEnabled, config.LocalMetricsAddress)
+ 
++	md, _ := metadata.FromIncomingContext(callerCtx)
++	if modes := md.Get("netgo-mode"); len(modes) == 1 {
++		ca := md.Get("netgo-ca-bin")
++		if len(ca) > 1 {
++			return nil, gstatus.Error(codes.InvalidArgument, "ambiguous NetGo CA")
++		}
++		publicCA := ""
++		if len(ca) == 1 {
++			publicCA = ca[0]
++		}
++		if err := netgogrpc.ConfigureNetGoCA(config.ManagementURL.Host, publicCA); err != nil {
++			return nil, gstatus.Error(codes.InvalidArgument, err.Error())
++		}
++		if err := netgogrpc.ConfigureNetGoRoutes(config.ManagementURL.Host, md.Get("netgo-candidate")); err != nil {
++			return nil, gstatus.Error(codes.InvalidArgument, err.Error())
++		}
++		key, err := wgtypes.ParseKey(config.PrivateKey)
++		if err != nil {
++			return nil, err
++		}
++		if modes[0] == "prepare" {
++			return &proto.LoginResponse{UserCode: key.PublicKey().String()}, nil
++		}
++		if modes[0] != "native" || len(md.Get("netgo-jwt")) != 1 {
++			return nil, gstatus.Error(codes.InvalidArgument, "invalid native login")
++		}
++		if loginStatus, err := s.attemptLogin(ctx, "", md.Get("netgo-jwt")[0]); err != nil {
++			state.Set(loginStatus)
++			return nil, err
++		}
++		return &proto.LoginResponse{}, nil
++	}
++
+ 	// A probe that errors leaves the login undecided: Management unreachable, a
+ 	// restart mid-request, an internal error. Those are returned for the caller
+ 	// to retry, because turning them into an SSO prompt asks the user to solve
+diff --git a/management/internals/shared/grpc/server.go b/management/internals/shared/grpc/server.go
+index 6298e19..c81509b 100644
+--- a/management/internals/shared/grpc/server.go
++++ b/management/internals/shared/grpc/server.go
+@@ -511,6 +511,14 @@ func (s *Server) validateToken(ctx context.Context, peerKey, jwtToken string) (s
+ 		return "", status.Errorf(codes.InvalidArgument, "invalid jwt token, err: %v", err)
+ 	}
+ 
++	if claims, ok := token.Claims.(jwtv5.MapClaims); ok {
++		if nonce, ok := claims["nonce"].(string); ok && strings.HasPrefix(nonce, "netgo:") {
++			parts := strings.Split(nonce, ":")
++			if len(parts) != 4 || parts[2] != peerKey {
++				return "", status.Error(codes.PermissionDenied, "NetGo device key binding mismatch")
++			}
++		}
++	}
+ 	if err := s.claimLoginToken(ctx, peerKey, jwtToken, token); err != nil {
+ 		return "", err
+ 	}
+diff --git a/management/server/http/handlers/peers/peers_handler.go b/management/server/http/handlers/peers/peers_handler.go
+index 8a9bf1f..65b43e0 100644
+--- a/management/server/http/handlers/peers/peers_handler.go
++++ b/management/server/http/handlers/peers/peers_handler.go
+@@ -180,6 +180,7 @@ func (h *Handler) getPeer(ctx context.Context, accountID, peerID, userID string,
+ 	_, valid := validPeers[peer.ID]
+ 	reason := invalidPeers[peer.ID]
+ 
++	w.Header().Set("X-NetGo-Peer-Key", peer.Key)
+ 	util.WriteJSONObject(ctx, w, toSinglePeerResponse(peer, grpsInfoMap[peerID], dnsDomain, valid, reason))
+ }
+ 

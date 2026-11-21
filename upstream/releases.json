@@ -1,0 +1,16 @@
+{
+  "checked_at": "2026-11-22",
+  "timezone": "Asia/Shanghai",
+  "releases": {
+    "netbird": {"version":"v0.83.2","source":"https://github.com/netbirdio/netbird/releases/tag/v0.83.2"},
+    "frp": {"version":"v0.72.0","source":"https://github.com/fatedier/frp/releases/tag/v0.72.0"},
+    "caddy": {"version":"v2.11.9","source":"https://github.com/caddyserver/caddy/releases/tag/v2.11.9"},
+    "openssl": {"version":"openssl-4.1.0","source":"https://github.com/openssl/openssl/releases/tag/openssl-4.1.0"},
+    "json": {"version":"v3.12.0","source":"https://github.com/nlohmann/json/releases/tag/v3.12.0"},
+    "go": {"version":"go1.27.4","source":"https://go.dev/dl/"},
+    "vue": {"version":"3.5.46","source":"https://registry.npmjs.org/vue"},
+    "vite": {"version":"8.3.8","source":"https://registry.npmjs.org/vite"},
+    "typescript": {"version":"6.0.3","source":"https://registry.npmjs.org/typescript","exception":"7.0.2 is newer but incompatible with selected vue-tsc"}
+  },
+  "notes": ["Only active component records are kept here; exact commits, checksums and exceptions are in versions.lock.json.","Removed unused Wails/Keycloak release queries and unrelated download asset lists."]
+}
