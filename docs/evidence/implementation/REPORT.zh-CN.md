@@ -30,6 +30,7 @@
 | frpc/frps 0.72.0 verify | PASS | frpc-verify.log / frps-verify.log |
 | Wintun 0.14.1 官方 ZIP hash 与 DLL Authenticode | PASS，签名状态 Valid；输入 hash 在版本锁 | versions.lock.json |
 | Windows exe 导入表 | OpenSSL/C++ 静态链接；仅 Windows 系统 DLL，未引入 WebView/.NET/Qt 运行依赖 | native-imports.txt |
+| 从 GitHub main 全新克隆 | PASS，npm ci/build/test 与所有内部 Go 包测试；验证代码提交 388efc6 | published-verification.log |
 | PowerShell/Bash/Python 脚本静态检查、安装 -Plan | 结果随最终交付校验记录；没有安装或启用实际 VPN 服务 | packaging-checks.log |
 
 自动验证使用 Windows 开发主机的隔离 Go/Node、MSYS2 GCC 16.1.0、OpenSSL 4.1.0 和指定 Python 3.13。TypeScript 7.0.2 与当前 vue-tsc 不兼容，固定 6.0.3。GCC 的 MinSizeRel 暴露静态 libstdc++ 链接问题，改用实际验证通过且不隐藏警告的 -O2。系统 Python 与 MSYS2 Python 不同，构建可用 -Python 指定带 cryptography 的解释器。
@@ -53,3 +54,9 @@
 全部 A01–A33、G1–G6、跨 Windows 用户、休眠/换网、Linux 原生上游 CGO 运行、72 小时和性能测试均未完成。发行门槛保持关闭。
 
 Windows 开发包可审阅/运行普通界面；安装网络服务应放在专用实验机。Linux product development 包只含本项目的交叉编译产物，需在 Linux 原生构建带 CGO 的 NetBird/Dex 才能组成完整服务端。源码包包含完整固定 NetBird、Dex、OpenSSL 源码与本项目补丁；依赖锁/SBOM/哈希另附。
+
+## 发布与清理
+
+源码已推送到 https://github.com/sck03/NetGo 的 main，保留原始提交历史。首次推送漏掉 internal 目录，已在下一提交补齐；全新远端克隆验证通过。有效行为测试保留，旧 Wails 窗口材料、Python 编译缓存和无关版本查询已清理。
+
+本地 dist/packages 包含 Windows 开发包、Linux product development 包、完整源码包、SBOM 和 SHA256SUMS；ZIP CRC 检查通过。Git 不包含这些大二进制、SDK、编译缓存或真实秘密。公开安装计划记录使用已脱敏 SID/路径。
