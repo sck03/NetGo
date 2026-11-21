@@ -1,0 +1,117 @@
+package model
+
+import (
+	"crypto/rand"
+	"crypto/sha256"
+	"encoding/base64"
+	"encoding/hex"
+	"errors"
+	"time"
+)
+
+const Protocol = 1
+const Version = "0.2.0-dev"
+
+var (
+	ErrUnauthorized = errors.New("unauthorized")
+	ErrForbidden    = errors.New("forbidden")
+	ErrConflict     = errors.New("session_conflict")
+	ErrNotFound     = errors.New("not_found")
+)
+
+func ID() string {
+	b := make([]byte, 32)
+	if _, err := rand.Read(b); err != nil {
+		panic(err)
+	}
+	return base64.RawURLEncoding.EncodeToString(b)
+}
+func Hash(s string) string { h := sha256.Sum256([]byte(s)); return hex.EncodeToString(h[:]) }
+func Challenge(s string) string {
+	h := sha256.Sum256([]byte(s))
+	return base64.RawURLEncoding.EncodeToString(h[:])
+}
+
+type User struct {
+	ID          string    `json:"id"`
+	Alias       string    `json:"alias"`
+	Email       string    `json:"email"`
+	Role        string    `json:"role"`
+	Disabled    bool      `json:"disabled"`
+	ExpiresAt   time.Time `json:"expires_at"`
+	MaxDevices  int       `json:"max_devices"`
+	MaxSessions int       `json:"max_sessions"`
+	Resources   []string  `json:"resources"`
+}
+
+func (u User) Active(now time.Time) bool {
+	return !u.Disabled && (u.ExpiresAt.IsZero() || now.Before(u.ExpiresAt))
+}
+
+type Resource struct {
+	ID       string   `json:"id"`
+	Name     string   `json:"name"`
+	CIDR     string   `json:"cidr"`
+	Protocol string   `json:"protocol"`
+	Ports    []uint16 `json:"ports"`
+	Enabled  bool     `json:"enabled"`
+}
+type Device struct {
+	ClientType   string    `json:"client_type,omitempty"`
+	ID           string    `json:"id"`
+	UserID       string    `json:"user_id"`
+	PublicKey    string    `json:"public_key"`
+	WireGuardKey string    `json:"wireguard_key"`
+	PeerID       string    `json:"peer_id"`
+	IP           string    `json:"ip"`
+	CreatedAt    time.Time `json:"created_at"`
+}
+type Lease struct {
+	ID         string     `json:"id"`
+	UserID     string     `json:"user_id"`
+	DeviceID   string     `json:"device_id"`
+	PeerID     string     `json:"peer_id"`
+	IP         string     `json:"ip"`
+	Generation uint64     `json:"generation"`
+	ExpiresAt  time.Time  `json:"expires_at"`
+	Resources  []Resource `json:"resources"`
+}
+type Credential struct {
+	UserID    string    `json:"user_id"`
+	DeviceID  string    `json:"device_id"`
+	ExpiresAt time.Time `json:"expires_at"`
+}
+type Event struct {
+	At     time.Time `json:"at"`
+	Actor  string    `json:"actor"`
+	Action string    `json:"action"`
+	Object string    `json:"object"`
+}
+type Operation struct {
+	Fingerprint string    `json:"fingerprint"`
+	LeaseID     string    `json:"lease_id"`
+	ExpiresAt   time.Time `json:"expires_at"`
+}
+type State struct {
+	Schema           int                   `json:"schema"`
+	Revision         uint64                `json:"revision"`
+	ObservedRevision uint64                `json:"observed_revision"`
+	LastError        string                `json:"last_error,omitempty"`
+	Users            map[string]User       `json:"users"`
+	Resources        map[string]Resource   `json:"resources"`
+	Devices          map[string]Device     `json:"devices"`
+	Leases           map[string]Lease      `json:"leases"`
+	Credentials      map[string]Credential `json:"credentials"`
+	Operations       map[string]Operation  `json:"operations"`
+	Audit            []Event               `json:"audit"`
+}
+
+func NewState() State {
+	return State{Schema: 1, Users: map[string]User{}, Resources: map[string]Resource{}, Devices: map[string]Device{}, Leases: map[string]Lease{}, Credentials: map[string]Credential{}, Operations: map[string]Operation{}, Audit: []Event{}}
+}
+func (s *State) Record(actor, action, object string) {
+	s.Audit = append(s.Audit, Event{time.Now().UTC(), actor, action, object})
+	if len(s.Audit) > 10000 {
+		s.Audit = s.Audit[len(s.Audit)-10000:]
+	}
+}

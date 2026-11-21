@@ -1,0 +1,180 @@
+package controlpath
+
+import (
+	"context"
+	"crypto/tls"
+	"crypto/x509"
+	"encoding/json"
+	"errors"
+	"fmt"
+	"net"
+	"net/http"
+	"net/url"
+	"netgo/internal/site"
+	"sync"
+	"time"
+)
+
+type Selector struct {
+	Profile       site.Profile
+	Roots         *x509.CertPool
+	mu            sync.RWMutex
+	selected      site.Candidate
+	lastSwitch    time.Time
+	successes     int
+	ProbeTimeout  time.Duration
+	FallbackDelay time.Duration
+}
+
+func New(p site.Profile) (*Selector, error) {
+	if e := p.Validate(); e != nil {
+		return nil, e
+	}
+	var roots *x509.CertPool
+	if p.CA != "" {
+		roots, _ = x509.SystemCertPool()
+		if roots == nil {
+			roots = x509.NewCertPool()
+		}
+		if !roots.AppendCertsFromPEM([]byte(p.CA)) {
+			return nil, errors.New("invalid CA certificate")
+		}
+	}
+	return &Selector{Profile: p, Roots: roots, ProbeTimeout: 3 * time.Second, FallbackDelay: 800 * time.Millisecond}, nil
+}
+func (s *Selector) Current() site.Candidate { s.mu.RLock(); defer s.mu.RUnlock(); return s.selected }
+func (s *Selector) transport(c site.Candidate) *http.Transport {
+	u, _ := url.Parse(s.Profile.Origin)
+	return &http.Transport{Proxy: nil, ForceAttemptHTTP2: true, TLSClientConfig: &tls.Config{MinVersion: tls.VersionTLS12, ServerName: u.Hostname(), RootCAs: s.Roots}, DialContext: func(ctx context.Context, network, _ string) (net.Conn, error) {
+		return (&net.Dialer{Timeout: s.ProbeTimeout, KeepAlive: 30 * time.Second}).DialContext(ctx, network, c.Address)
+	}, TLSHandshakeTimeout: s.ProbeTimeout, ResponseHeaderTimeout: 10 * time.Second}
+}
+func (s *Selector) probe(ctx context.Context, c site.Candidate) error {
+	ctx, cancel := context.WithTimeout(ctx, s.ProbeTimeout)
+	defer cancel()
+	tr := s.transport(c)
+	defer tr.CloseIdleConnections()
+	cl := &http.Client{Transport: tr, CheckRedirect: func(*http.Request, []*http.Request) error { return http.ErrUseLastResponse }}
+	req, _ := http.NewRequestWithContext(ctx, "GET", s.Profile.Origin+"/netgo/v1/health", nil)
+	resp, e := cl.Do(req)
+	if e != nil {
+		return e
+	}
+	defer resp.Body.Close()
+	var h struct {
+		Protocol int    `json:"protocol"`
+		SiteID   string `json:"site_id"`
+	}
+	if resp.StatusCode != 200 || json.NewDecoder(http.MaxBytesReader(nil, resp.Body, 4096)).Decode(&h) != nil || h.Protocol != 1 || h.SiteID != s.Profile.ID {
+		return errors.New("site identity/protocol mismatch")
+	}
+	return nil
+}
+func (s *Selector) Select(ctx context.Context) (site.Candidate, error) {
+	ctx, cancel := context.WithTimeout(ctx, 10*time.Second)
+	defer cancel()
+	type result struct {
+		c site.Candidate
+		e error
+	}
+	out := make(chan result, len(s.Profile.Candidates))
+	for _, c := range s.Profile.Candidates {
+		go func(c site.Candidate) {
+			if c.Kind == "auxiliary" {
+				t := time.NewTimer(s.FallbackDelay)
+				defer t.Stop()
+				select {
+				case <-t.C:
+				case <-ctx.Done():
+					out <- result{c, ctx.Err()}
+					return
+				}
+			}
+			out <- result{c, s.probe(ctx, c)}
+		}(c)
+	}
+	for range s.Profile.Candidates {
+		select {
+		case r := <-out:
+			if r.e == nil {
+				s.mu.Lock()
+				if s.selected.ID != r.c.ID {
+					s.lastSwitch = time.Now()
+				}
+				s.selected = r.c
+				s.mu.Unlock()
+				return r.c, nil
+			}
+		case <-ctx.Done():
+			return site.Candidate{}, errors.New("no reachable trusted control entry")
+		}
+	}
+	return site.Candidate{}, errors.New("no reachable trusted control entry")
+}
+
+// RoundTrip never retries a write. Callers retry only with an idempotency key.
+func (s *Selector) RoundTrip(r *http.Request) (*http.Response, error) {
+	u, _ := url.Parse(s.Profile.Origin)
+	if r.URL.Host != u.Host || r.URL.Scheme != "https" {
+		return nil, errors.New("cross-origin control request rejected")
+	}
+	c := s.Current()
+	if c.ID == "" {
+		var e error
+		c, e = s.Select(r.Context())
+		if e != nil {
+			return nil, e
+		}
+	}
+	tr := s.transport(c)
+	resp, e := tr.RoundTrip(r)
+	if e != nil {
+		tr.CloseIdleConnections()
+		return nil, fmt.Errorf("control transport unavailable: %w", e)
+	}
+	return resp, nil
+}
+func (s *Selector) Client() *http.Client {
+	return &http.Client{Transport: s, Timeout: 20 * time.Second, CheckRedirect: func(*http.Request, []*http.Request) error { return errors.New("control redirects rejected") }}
+}
+func (s *Selector) Recover(ctx context.Context) error {
+	c := s.Current()
+	if c.ID == "" || s.probe(ctx, c) != nil {
+		_, e := s.Select(ctx)
+		return e
+	}
+	if c.Kind == "direct" {
+		return nil
+	}
+	for _, d := range s.Profile.Candidates {
+		if d.Kind != "direct" {
+			continue
+		}
+		e := s.probe(ctx, d)
+		s.mu.Lock()
+		if e != nil {
+			s.successes = 0
+		} else {
+			s.successes++
+		}
+		if s.successes >= 3 && time.Since(s.lastSwitch) >= 30*time.Second {
+			s.selected = d
+			s.lastSwitch = time.Now()
+			s.successes = 0
+		}
+		s.mu.Unlock()
+		break
+	}
+	return nil
+}
+func (s *Selector) Dial(ctx context.Context) (net.Conn, error) {
+	c := s.Current()
+	if c.ID == "" {
+		var e error
+		c, e = s.Select(ctx)
+		if e != nil {
+			return nil, e
+		}
+	}
+	return (&net.Dialer{Timeout: 3 * time.Second, KeepAlive: 30 * time.Second}).DialContext(ctx, "tcp", c.Address)
+}
