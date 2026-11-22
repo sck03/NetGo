@@ -1,11 +1,14 @@
 [CmdletBinding()]
 param([switch]$Plan)
 $ErrorActionPreference='Stop'
+. (Join-Path $PSScriptRoot 'common.ps1')
 $dest=Join-Path $env:LOCALAPPDATA 'NetGoNative\bin'
 $engineDir=Join-Path $env:ProgramFiles 'NetGoNative\engine'
 $engine=Join-Path $engineDir 'netbird.exe'
 $service=Get-CimInstance Win32_Service -Filter "Name='NetGoNetBird'"
-if($service -and $service.PathName -notlike ('*'+$engine+'*')){throw 'Unrecognized service executable; uninstall refused'}
+if($service -and -not(Test-NetGoServiceImage $service.PathName $engine)){throw 'Unrecognized service executable; uninstall refused'}
+$ownerRecord=Join-Path $env:ProgramData 'NetGoNativeEngine\owner.sid'
+if($service -and (-not(Test-Path -LiteralPath $ownerRecord) -or (Get-Content -LiteralPath $ownerRecord -Raw).Trim() -ne [System.Security.Principal.WindowsIdentity]::GetCurrent().User.Value)){throw 'Managed service belongs to a different desktop SID'}
 if($Plan){[pscustomobject]@{UI=$dest;Engine=$engineDir;Service='NetGoNetBird';RetainData=$true};return}
 $id=[System.Security.Principal.WindowsIdentity]::GetCurrent()
 if(-not([System.Security.Principal.WindowsPrincipal]$id).IsInRole([System.Security.Principal.WindowsBuiltInRole]::Administrator)){throw 'Run elevated as the intended desktop user'}

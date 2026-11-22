@@ -1,3 +1,4 @@
+# Managed by NetGo v1
 [Unit]
 Description=NetGo patched NetBird combined server
 After=network-online.target

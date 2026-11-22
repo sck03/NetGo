@@ -1,0 +1,10 @@
+{
+  "id": "A21",
+  "title": "禁用/过期/重置",
+  "requirements": [
+    "R09"
+  ],
+  "status": "NOT-RUN",
+  "instructions": "NETWORK_ACCEPTANCE.zh-CN.md A21",
+  "note": "Collect each actual attempt in a new runs/<name> directory; never overwrite earlier evidence."
+}

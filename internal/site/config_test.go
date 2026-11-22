@@ -21,6 +21,21 @@ func TestStrictDecodeAndUnsafeRoutes(t *testing.T) {
 		}
 	}
 }
+func TestOversizedJSONAndNamedCandidatePortsRejected(t *testing.T) {
+	var p Profile
+	if Decode(strings.NewReader("{}"+strings.Repeat(" ", 1<<20)), &p) == nil {
+		t.Fatal("oversized JSON tail silently ignored")
+	}
+	p = Profile{Protocol: 1, ID: "test", Origin: "https://site.test", Candidates: []Candidate{{ID: "direct", Kind: "direct", Address: "site.test:https"}}}
+	if p.Validate() == nil {
+		t.Fatal("Go exported a candidate the native client cannot accept")
+	}
+	p.Candidates[0].Address = "site.test:443"
+	p.Origin = "https://site.test:0"
+	if p.Validate() == nil {
+		t.Fatal("invalid canonical port accepted")
+	}
+}
 func TestStandaloneCandidateRequired(t *testing.T) {
 	p := Profile{Protocol: 1, ID: "site", Origin: "https://site.test", Candidates: []Candidate{{ID: "vps", Kind: "auxiliary", Address: "vps.test:443"}}}
 	if p.Validate() == nil {

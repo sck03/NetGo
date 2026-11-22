@@ -9,6 +9,24 @@ Json profile(){return {{"Protocol",1},{"ID","test"},{"Name","实验站点"},{"Or
 int main(int argc,char** argv){
  try{
   WSADATA wsa{};WSAStartup(MAKEWORD(2,2),&wsa);
+  if(argc==3&&std::string(argv[1])=="--profile-contract"){
+   auto fixture=Json::parse(readFile(wide(argv[2])));
+   for(const auto& test:fixture.at("cases")){
+    auto old=fixture.at("base"),next=old;old.update(test.at("old"));next.update(test.at("next"));
+    bool accepted=true;try{validateProfileUpdate(old,next);}catch(...){accepted=false;}
+    if(accepted!=test.at("accept").get<bool>())throw Error("profile contract: "+test.at("name").get<std::string>());
+   }
+   std::cout<<"PASS shared profile revision, rollback, identity and WAN contract\n";return 0;
+  }
+  if(argc==3&&std::string(argv[1])=="--tls-multiwan"){
+   auto p=Json::parse(readFile(wide(argv[2])));Transport transport(p,std::chrono::milliseconds(0));
+   transport.select();require(transport.kind()=="auxiliary","initial fallback not selected");
+   std::string seed(32,'a');transport.call("POST","/enable-wan",{{"enable",true}},seed,"fixture-token");
+   for(int i=0;i<3;++i){transport.recover();if(i<2)require(transport.kind()=="auxiliary","unstable direct entry accepted");}
+   require(transport.kind()=="direct"&&transport.candidate()=="wan2","healthy WAN2 was not selected");
+   require(transport.call("POST","/fixture",{{"native",true}},seed,"fixture-token").at("verified")==true,"WAN2 request failed");
+   std::cout<<"PASS multi-WAN recovery: unavailable WAN1/WAN3, three WAN2 confirmations and canonical signed request\n";return 0;
+  }
   if(argc==3&&(std::string(argv[1])=="--tls"||std::string(argv[1])=="--tls-reject")){
    auto p=Json::parse(readFile(wide(argv[2])));Transport transport(p);
    if(std::string(argv[1])=="--tls-reject"){rejects([&]{transport.select();},"untrusted TLS accepted");std::cout<<"PASS TLS rejection\n";return 0;}
@@ -45,6 +63,11 @@ int main(int argc,char** argv){
    std::filesystem::remove_all(root);std::cout<<"PASS native IPC actions, bounds, path rejection and shutdown\n";return 0;
   }
   auto p=profile();validateProfile(p);require(originHost("https://site.example:8443")=="site.example","origin host");
+  auto health=Json{{"protocol",1},{"site_id","test"},{"capabilities",{"native-auth-v1","device-signature-v1","leases-v1","profile-revision-v1"}}};
+  validateHealth(health,"test");
+  auto incompatible=health;incompatible["capabilities"].erase(3);rejects([&]{validateHealth(incompatible,"test");},"missing capability accepted");
+  incompatible=health;incompatible["protocol"]=2;rejects([&]{validateHealth(incompatible,"test");},"future protocol accepted");
+  rejects([&]{validateHealth(health,"other");},"wrong health identity accepted");
   require(address("[::1]:443").host=="::1","IPv6");
   for(const auto& value:{"site:0","site:65536","https://site:443","site:443\r\nInjected:1","../site:443"})rejects([&]{address(value);},"unsafe candidate");
   auto bad=p;bad["ID"]="../escape";rejects([&]{validateProfile(bad);},"unsafe site ID");
@@ -69,6 +92,11 @@ int main(int argc,char** argv){
   require(decodeHttp("HTTP/1.1 200 OK\r\nTransfer-Encoding: chunked\r\n\r\n2\r\n{}\r\n0\r\n\r\n").body=="{}","chunked response");
   rejects([]{decodeHttp("HTTP/1.1 200 OK\r\nContent-Length: 3\r\n\r\n{}");},"truncated body");
   rejects([]{decodeHttp("HTTP/1.1 200 OK\r\nTransfer-Encoding: chunked\r\n\r\n8\r\n{}\r\n0\r\n\r\n");},"truncated chunk");
+  for(const auto& header:{"Content-Length: 2junk","Content-Length: +2","Content-Length: 2\r\nContent-Length: 2","Content-Length: 2\r\nTransfer-Encoding: chunked","Transfer-Encoding: notchunked"}){
+   rejects([&]{decodeHttp(std::string("HTTP/1.1 200 OK\r\n")+header+"\r\n\r\n{}");},"ambiguous response framing");
+  }
+  rejects([]{decodeHttp("HTTP/1.1 200 OK\r\nTransfer-Encoding: chunked\r\n\r\n2\r\n{}\r\n0\r\n");},"missing chunk terminator");
+  require(decodeHttp("HTTP/1.1 200 OK\r\nTransfer-Encoding: chunked\r\n\r\n2\r\n{}\r\n0\r\nX-Trace: done\r\n\r\n").body=="{}","legal chunk trailer");
   auto target="test/"+randomID();credentialWrite(target,"native-fixture");require(credentialRead(target)=="native-fixture","Credential Manager roundtrip");credentialDelete(target);require(credentialRead(target).empty(),"credential deletion");
   auto root=std::filesystem::temp_directory_path()/wide("netgo-test-"+randomID());secureDirectory(root);
   {

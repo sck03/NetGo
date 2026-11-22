@@ -1,0 +1,11 @@
+{
+  "ZoneID":"replace-zone-id",
+  "RecordID":"replace-wan1-record-id",
+  "Name":"wan1.site.example",
+  "Type":"A",
+  "TokenFile":"/etc/netgo/dns.token",
+  "Witnesses":[],
+  "AddressFile":"/run/netgo-ddns/wan1.ip",
+  "AddressMaxAgeSeconds":300,
+  "IntervalSeconds":60
+}

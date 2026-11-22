@@ -1,0 +1,11 @@
+{
+  "id": "A09",
+  "title": "UDP 全阻断",
+  "requirements": [
+    "R05",
+    "R12"
+  ],
+  "status": "NOT-RUN",
+  "instructions": "NETWORK_ACCEPTANCE.zh-CN.md A09",
+  "note": "Collect each actual attempt in a new runs/<name> directory; never overwrite earlier evidence."
+}

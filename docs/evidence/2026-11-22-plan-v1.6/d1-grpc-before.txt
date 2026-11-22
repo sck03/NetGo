@@ -1,0 +1,5 @@
+--- FAIL: TestNetGoFallbackPastStalledTLSCandidates (2.00s)
+    netgo_dial_test.go:82: healthy final candidate was blocked by stalled TLS candidates: dial context: context deadline exceeded
+FAIL
+FAIL	github.com/netbirdio/netbird/client/grpc	2.037s
+FAIL

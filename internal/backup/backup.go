@@ -8,6 +8,7 @@ import (
 	"crypto/rand"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"golang.org/x/crypto/scrypt"
 	"io"
 	"os"
@@ -29,6 +30,7 @@ func Encrypt(plain, password []byte) ([]byte, error) {
 	if e != nil {
 		return nil, e
 	}
+	defer clear(key)
 	block, e := aes.NewCipher(key)
 	if e != nil {
 		return nil, e
@@ -53,6 +55,7 @@ func Decrypt(data, password []byte) ([]byte, error) {
 	if e != nil {
 		return nil, e
 	}
+	defer clear(key)
 	block, e := aes.NewCipher(key)
 	if e != nil {
 		return nil, e
@@ -72,17 +75,19 @@ func Archive(roots []string) ([]byte, error) {
 	var b bytes.Buffer
 	w := zip.NewWriter(&b)
 	seen := map[string]bool{}
+	rootMap := map[string]string{}
 	total := int64(0)
-	for _, root := range roots {
+	for index, root := range roots {
 		root, e := filepath.Abs(root)
 		if e != nil {
 			return nil, e
 		}
-		base := filepath.Base(root)
-		if seen[base] {
-			return nil, errors.New("duplicate backup root name")
+		if seen[root] || root == filepath.VolumeName(root)+string(os.PathSeparator) {
+			return nil, errors.New("duplicate or filesystem-wide backup root")
 		}
-		seen[base] = true
+		seen[root] = true
+		base := fmt.Sprintf("root-%03d", index)
+		rootMap[base] = root
 		e = filepath.WalkDir(root, func(path string, d os.DirEntry, err error) error {
 			if err != nil {
 				return err
@@ -117,7 +122,13 @@ func Archive(roots []string) ([]byte, error) {
 				return e
 			}
 			defer input.Close()
-			_, e = io.Copy(f, input)
+			copied, err := io.Copy(f, io.LimitReader(input, info.Size()+1))
+			if err != nil {
+				return err
+			}
+			if copied != info.Size() {
+				return errors.New("backup file changed during consistent snapshot")
+			}
 			return e
 		})
 		if e != nil {
@@ -125,7 +136,7 @@ func Archive(roots []string) ([]byte, error) {
 		}
 	}
 	manifest, _ := w.Create("manifest.json")
-	_ = json.NewEncoder(manifest).Encode(map[string]any{"format": 1, "roots": roots, "requires_stopped_services": true})
+	_ = json.NewEncoder(manifest).Encode(map[string]any{"format": 2, "roots": roots, "archive_root_map": rootMap, "requires_stopped_services": true})
 	if e := w.Close(); e != nil {
 		return nil, e
 	}

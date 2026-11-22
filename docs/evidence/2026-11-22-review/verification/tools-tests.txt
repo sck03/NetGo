@@ -1,0 +1,22 @@
+test_custom_ports_and_internal_ipv6 (test_deploy.DeploymentTests.test_custom_ports_and_internal_ipv6) ... ok
+test_invalid_configuration_leaves_no_partial_bundle (test_deploy.DeploymentTests.test_invalid_configuration_leaves_no_partial_bundle) ... ok
+test_invalid_secret_and_duplicate_json_rejected (test_deploy.DeploymentTests.test_invalid_secret_and_duplicate_json_rejected) ... ok
+test_modes_with_and_without_auxiliary (test_deploy.DeploymentTests.test_modes_with_and_without_auxiliary) ... ok
+test_repeat_render_preserves_secrets_and_rejects_overwrite (test_deploy.DeploymentTests.test_repeat_render_preserves_secrets_and_rejects_overwrite) ... ok
+test_binary_output_hashes_exact_saved_bytes (test_evidence.EvidenceTests.test_binary_output_hashes_exact_saved_bytes) ... ok
+test_case_integrity_error_closes_report (test_evidence.EvidenceTests.test_case_integrity_error_closes_report) ... ok
+test_failed_spawn_and_nonzero_exit_are_preserved (test_evidence.EvidenceTests.test_failed_spawn_and_nonzero_exit_are_preserved) ... ok
+test_initial_suite_has_all_unrun_cases_and_requirement_links (test_evidence.EvidenceTests.test_initial_suite_has_all_unrun_cases_and_requirement_links) ... ok
+test_manual_review_is_bound_to_unchanged_real_record (test_evidence.EvidenceTests.test_manual_review_is_bound_to_unchanged_real_record) ... ok
+test_metrics_keep_paths_and_failures_separate (test_evidence.EvidenceTests.test_metrics_keep_paths_and_failures_separate) ... ok
+test_not_prepared_and_automation_cannot_be_reviewed_pass (test_evidence.EvidenceTests.test_not_prepared_and_automation_cannot_be_reviewed_pass) ... ok
+test_older_pass_cannot_hide_new_failed_attempt (test_evidence.EvidenceTests.test_older_pass_cannot_hide_new_failed_attempt) ... ok
+test_output_limit_is_not_a_passing_command (test_evidence.EvidenceTests.test_output_limit_is_not_a_passing_command) ... ok
+test_tamper_and_escaping_paths_fail_integrity (test_evidence.EvidenceTests.test_tamper_and_escaping_paths_fail_integrity) ... ok
+test_timeout_preserves_partial_output (test_evidence.EvidenceTests.test_timeout_preserves_partial_output) ... ok
+test_unrecorded_files_and_inconsistent_execution_metadata_rejected (test_evidence.EvidenceTests.test_unrecorded_files_and_inconsistent_execution_metadata_rejected) ... ok
+
+----------------------------------------------------------------------
+Ran 17 tests in 1.460s
+
+OK

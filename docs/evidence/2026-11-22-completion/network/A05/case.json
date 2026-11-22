@@ -1,0 +1,11 @@
+{
+  "id": "A05",
+  "title": "无公网首次登录",
+  "requirements": [
+    "R04",
+    "R07"
+  ],
+  "status": "NOT-RUN",
+  "instructions": "NETWORK_ACCEPTANCE.zh-CN.md A05",
+  "note": "Collect each actual attempt in a new runs/<name> directory; never overwrite earlier evidence."
+}

@@ -1,0 +1,31 @@
+PASS PowerShell syntax: scripts/build.ps1
+PASS PowerShell syntax: scripts/build-native.ps1
+PASS PowerShell syntax: scripts/build-upstream-windows.ps1
+PASS PowerShell syntax: scripts/prepare-native.ps1
+PASS PowerShell syntax: deploy/windows/common.ps1
+PASS PowerShell syntax: deploy/windows/install.ps1
+PASS PowerShell syntax: deploy/windows/uninstall.ps1
+PASS precise Windows service image ownership
+PASS Bash syntax: scripts/build.sh
+PASS Bash syntax: scripts/build-upstream.sh
+PASS Bash syntax: deploy/linux/install.sh
+PASS Bash syntax: deploy/linux/uninstall.sh
+PASS Bash syntax: deploy/linux/switch-release.sh
+Plan only: target /opt/netgo/releases/0.2.1-dev; Linux amd64/root/nft/conntrack/systemd/Python required.
+Create owned units and CLI links. No services/forwarding/firewall enabled. Failed install removes newly created files and retains data/accounts.
+Plan: stop/remove only registered NetGo units; disconnect the managed router; remove owned tables and known command links. Retain configuration, identities, backups, binaries and accounts.
+PASS Python syntax: scripts/package.py
+PASS Python syntax: scripts/render-deploy.py
+PASS Python syntax: scripts/prepare-upstream.py
+PASS Python syntax: tests/network/run.py
+PASS Python syntax: apps/windows/tests/tls_fixture.py
+{
+  "UI": "[user]/NetGoNative/bin",
+  "Engine": "[ProgramFiles]/NetGoNative/engine",
+  "Service": "NetGoNetBird",
+  "Pipe": "npipe://netgo-netbird",
+  "OwnerSID": "[redacted]",
+  "Administrator": false,
+  "Checksums": "PASS"
+}
+PASS script syntax, ownership cases and installation plans. Actual installation/rollback NOT-RUN.

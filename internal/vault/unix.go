@@ -4,6 +4,7 @@ package vault
 
 import (
 	"errors"
+	"netgo/internal/securefile"
 	"netgo/internal/site"
 	"os"
 	"path/filepath"
@@ -15,7 +16,15 @@ func (v Vault) Read(id string) ([]byte, error) {
 	if !site.ValidID(id) {
 		return nil, errors.New("invalid vault ID")
 	}
-	return os.ReadFile(filepath.Join(v.Root, id+".secret"))
+	path := filepath.Join(v.Root, id+".secret")
+	info, err := os.Lstat(path)
+	if err != nil {
+		return nil, err
+	}
+	if !info.Mode().IsRegular() || info.Mode().Perm()&0077 != 0 {
+		return nil, errors.New("unprotected device key")
+	}
+	return os.ReadFile(path)
 }
 func (v Vault) Write(id string, b []byte) error {
 	if !site.ValidID(id) {
@@ -24,13 +33,5 @@ func (v Vault) Write(id string, b []byte) error {
 	if e := os.MkdirAll(v.Root, 0700); e != nil {
 		return e
 	}
-	f, e := os.OpenFile(filepath.Join(v.Root, id+".secret"), os.O_WRONLY|os.O_CREATE|os.O_TRUNC, 0600)
-	if e != nil {
-		return e
-	}
-	if _, e = f.Write(b); e != nil {
-		f.Close()
-		return e
-	}
-	return f.Close()
+	return securefile.Write(filepath.Join(v.Root, id+".secret"), b, 0600)
 }

@@ -1,0 +1,10 @@
+{
+  "id": "A23",
+  "title": "不合作/故障到期",
+  "requirements": [
+    "R09"
+  ],
+  "status": "NOT-RUN",
+  "instructions": "NETWORK_ACCEPTANCE.zh-CN.md A23",
+  "note": "Collect each actual attempt in a new runs/<name> directory; never overwrite earlier evidence."
+}

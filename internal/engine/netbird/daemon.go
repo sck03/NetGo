@@ -3,12 +3,11 @@ package netbird
 import (
 	"context"
 	"errors"
+	"fmt"
 	pb "github.com/netbirdio/netbird/client/proto"
 	"google.golang.org/grpc"
-	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/credentials/insecure"
 	"google.golang.org/grpc/metadata"
-	"google.golang.org/grpc/status"
 	"net"
 	"netgo/internal/ipc"
 	"netgo/internal/model"
@@ -42,9 +41,13 @@ func (d *Daemon) login(ctx context.Context, p site.Profile, mode, token string) 
 	md := metadata.Pairs("netgo-mode", mode)
 	for _, c := range p.Candidates {
 		md.Append("netgo-candidate", c.Address)
+		md.Append("netgo-candidate-kind", c.Kind)
 	}
 	if token != "" {
 		md.Append("netgo-jwt", token)
+	}
+	if p.CA != "" {
+		md.Append("netgo-ca-bin", p.CA)
 	}
 	ctx = metadata.NewOutgoingContext(ctx, md)
 	return d.RPC.Login(ctx, &pb.LoginRequest{ManagementUrl: p.Origin, ProfileName: &name, Username: &d.Username, DisableAutoConnect: boolp(true), ServerSSHAllowed: boolp(false), DisableServerRoutes: boolp(true), DisableIpv6: boolp(true), BlockInbound: boolp(true)})
@@ -54,9 +57,25 @@ func (d *Daemon) Prepare(ctx context.Context, p site.Profile) (string, error) {
 		return "", e
 	}
 	name := "netgo-" + p.ID
-	_, e := d.RPC.AddProfile(ctx, &pb.AddProfileRequest{Username: d.Username, ProfileName: name})
-	if e != nil && status.Code(e) != codes.AlreadyExists {
+	profiles, e := d.RPC.ListProfiles(ctx, &pb.ListProfilesRequest{Username: d.Username})
+	if e != nil {
 		return "", e
+	}
+	found := false
+	for _, profile := range profiles.GetProfiles() {
+		if profile.GetName() == name {
+			if found {
+				return "", errors.New("ambiguous NetGo profile")
+			}
+			found = true
+		}
+	}
+	// AddProfile permits duplicate display names in the pinned daemon. Reuse
+	// the current user's existing profile so reconnecting preserves its key.
+	if !found {
+		if _, e = d.RPC.AddProfile(ctx, &pb.AddProfileRequest{Username: d.Username, ProfileName: name}); e != nil {
+			return "", e
+		}
 	}
 	r, e := d.login(ctx, p, "prepare", "")
 	if e != nil {
@@ -113,9 +132,9 @@ func (d *Daemon) Status(ctx context.Context, p site.Profile) (DataStatus, error)
 			if peer.Relayed {
 				out.Relay = peer.RelayAddress
 				out.Path = "relay_unknown"
-				if strings.Contains(peer.RelayAddress, p.LocalRelay) && p.LocalRelay != "" {
+				if relayMatches(peer.RelayAddress, p.LocalRelay) {
 					out.Path = "local_relay"
-				} else if strings.Contains(peer.RelayAddress, p.AuxiliaryRelay) && p.AuxiliaryRelay != "" {
+				} else if relayMatches(peer.RelayAddress, p.AuxiliaryRelay) {
 					out.Path = "auxiliary_relay"
 				}
 			}
@@ -125,28 +144,52 @@ func (d *Daemon) Status(ctx context.Context, p site.Profile) (DataStatus, error)
 	return out, nil
 }
 func (d *Daemon) Routes(ctx context.Context, resources []model.Resource) error {
-	v, e := d.RPC.ListNetworks(ctx, &pb.ListNetworksRequest{})
-	if e != nil {
-		return e
-	}
-	ids := []string{}
-	for _, r := range resources {
-		found := false
-		for _, n := range v.Routes {
-			if n.Range == r.CIDR {
-				ids = append(ids, n.ID)
-				found = true
-			}
-		}
-		if !found {
-			return errors.New("authorized route not installed")
-		}
-	}
-	if len(ids) == 0 {
+	if len(resources) == 0 {
 		return errors.New("no authorized routes")
 	}
-	_, e = d.RPC.SelectNetworks(ctx, &pb.SelectNetworksRequest{NetworkIDs: ids, Append: false})
-	return e
+	// Management policy writes precede asynchronous route delivery to the daemon.
+	// Match the Windows adapter's bounded wait without selecting a partial map.
+	ctx, cancel := context.WithTimeout(ctx, 15*time.Second)
+	defer cancel()
+	tick := time.NewTicker(200 * time.Millisecond)
+	defer tick.Stop()
+	for {
+		if err := ctx.Err(); err != nil {
+			return fmt.Errorf("authorized route unavailable: %w", err)
+		}
+		v, err := d.RPC.ListNetworks(ctx, &pb.ListNetworksRequest{})
+		if err != nil {
+			return err
+		}
+		ids := []string{}
+		seen := map[string]bool{}
+		complete := true
+		for _, r := range resources {
+			found := false
+			for _, n := range v.GetRoutes() {
+				if n.GetRange() == r.CIDR && n.GetID() != "" {
+					if !seen[n.ID] {
+						ids = append(ids, n.ID)
+						seen[n.ID] = true
+					}
+					found = true
+				}
+			}
+			complete = complete && found
+		}
+		if complete {
+			if err := ctx.Err(); err != nil {
+				return err
+			}
+			_, err = d.RPC.SelectNetworks(ctx, &pb.SelectNetworksRequest{NetworkIDs: ids, Append: false})
+			return err
+		}
+		select {
+		case <-ctx.Done():
+			return fmt.Errorf("authorized route unavailable: %w", ctx.Err())
+		case <-tick.C:
+		}
+	}
 }
 func (d *Daemon) WaitConnected(ctx context.Context, p site.Profile) error {
 	t := time.NewTicker(time.Second)

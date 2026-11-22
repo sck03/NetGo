@@ -32,11 +32,12 @@ Json Controller::profiles() {
 }
 void Controller::importProfile(const Json& p) {
  std::lock_guard op(operation_);validateProfile(p);auto s=status();
+ if(cleanupFailed_)throw Error("engine_cleanup_failed");
  if(s["state"]!="disconnected"&&s["state"]!="failed")throw Error("disconnect_before_edit");
  std::string id=p.at("ID");auto file=root_/wide(id+".json");
  if(std::filesystem::exists(file)){
   auto old=Json::parse(readFile(file));
-  if(old.at("Origin")!=p.at("Origin")||old.value("CA","")!=p.value("CA",""))throw Error("site_trust_changed_use_new_id");
+  validateProfileUpdate(old,p);
  }atomicFile(file,p.dump(2));
 }
 void Controller::disconnectLocked() {
@@ -64,11 +65,11 @@ void Controller::connect(const Json& r) {
  if(alias.empty()||password.empty()||alias.size()>256||password.size()>2048)throw Error("credentials_required");
  disconnectLocked();cancel_=false;uint64_t gen;
  {std::lock_guard lock(mutex_);gen=++generation_;atomicFile(root_/L".generation",std::to_string(gen));status_={{"generation",gen},{"state","probing"},{"site_id",id}};}
- worker_=std::thread([this,gen,p,alias,password,remember,replace=r.value("replace",false)]() mutable{
-  try{run(gen,p,alias,password,replace,remember);}
+ worker_=std::thread([this,gen,p,alias,password=std::move(password),remember,replace=r.value("replace",false)]() mutable{
+  try{run(gen,p,alias,std::move(password),replace,remember);}
   catch(const std::exception& e){
    std::string error=e.what();if(!std::regex_match(error,std::regex(R"(^[a-zA-Z0-9_]{1,80}$)")))error="connection_failed";
-   if(!cancel_)state(gen,"failed",error);
+   if(!cancel_)state(gen,"failed",cleanupFailed_?"engine_cleanup_failed":error);
   }wipe(password);
  });
  wipe(password);
@@ -89,7 +90,7 @@ void Controller::run(uint64_t gen,Json p,std::string alias,std::string password,
  };
  try {
   transport=std::make_unique<Transport>(p);transport->select();check();
-  state(gen,"authenticating","",{{"control",transport->kind()}});
+  state(gen,"authenticating","",{{"control",transport->kind()},{"control_candidate",transport->candidate()}});
   std::string id=p.at("ID");seed=credentialRead("device/"+id);
   if(seed.empty()){seed.resize(32);if(RAND_bytes(reinterpret_cast<unsigned char*>(seed.data()),32)!=1)throw Error("random_failed");credentialWrite("device/"+id,seed);}
   // Prepare disconnects old engine state before producing this profile's WireGuard key.
@@ -102,10 +103,18 @@ void Controller::run(uint64_t gen,Json p,std::string alias,std::string password,
   auto auth=transport->call("POST",base+"/exchange",{{"Verifier",verifier},{"Signature",signature(seed,proof+"\nexchange\n"+verifier)}});
   wipe(verifier);token=auth.at("token");refresh=auth.value("refresh_token","");
   auto authExpires=parseTime(auth.at("expires_at"));jwt=auth.at("id_token");auth=Json::object();
+  auto next=transport->call("GET","/netgo/v1/site",nullptr,seed,token);validateProfileUpdate(p,next);next["Name"]=p["Name"];check();
+  if(next!=p){
+   auto updated=std::make_unique<Transport>(next);updated->select();check();
+   atomicFile(root_/wide(id+".json"),next.dump(2));p=std::move(next);transport=std::move(updated);
+   state(gen,"authenticating","",{{"control",transport->kind()},{"control_candidate",transport->candidate()}});
+  }
   engine("login",{{"id_token",jwt}});engine("up");
   state(gen,"negotiating");
   auto timeout=Clock::now()+std::chrono::seconds(45);
-  while(Clock::now()<timeout){check();auto d=engine("status");if(d.value("state","")=="Connected"||d.value("state","")=="connected")break;Sleep(200);}
+  bool connected=false;
+  while(Clock::now()<timeout){check();auto d=engine("status");if(d.value("state","")=="Connected"||d.value("state","")=="connected"){connected=true;break;}Sleep(200);}
+  if(!connected)throw Error("engine_connect_timeout");
   check();auto peer=transport->call("GET","/netgo/v1/peer",nullptr,seed,token);
   lease=transport->call("POST","/netgo/v1/sessions",{{"peer_id",peer.at("ID")},{"generation",gen},{"replace",replace}},seed,token,randomID());
   auto resources=lease.at("resources");routeConflicts(resources);
@@ -134,7 +143,7 @@ void Controller::run(uint64_t gen,Json p,std::string alias,std::string password,
      throw Error("engine_recovering");
     }
     failed=0;
-    auto path=data.value("path","negotiating");state(gen,path=="negotiating"?"negotiating":"connected","",{{"data",data},{"lease",lease},{"control",transport->kind()}});
+    auto path=data.value("path","negotiating");state(gen,path=="negotiating"?"negotiating":"connected","",{{"data",data},{"lease",lease},{"control",transport->kind()},{"control_candidate",transport->candidate()}});
    }catch(const Error& e){
     std::string error=e.what();
     if(error=="unauthorized"||error=="forbidden"||error=="not_found"||error=="lease_expired"||error=="session_conflict")throw;
@@ -162,6 +171,7 @@ Json Controller::dispatch(const Json& r) {
    std::string id=r.at("site");if(!std::regex_match(id,std::regex(R"(^[a-zA-Z0-9][a-zA-Z0-9_.-]{0,62}$)")))throw Error("invalid_site");
    if(action=="credential-info"){auto saved=credentialRead("password/"+id);Json c=saved.empty()?Json::object():Json::parse(saved);wipe(saved);return {{"alias",c.value("alias","")},{"remembered",c.contains("password")}};}
    std::lock_guard op(operation_);auto s=status();if(s["state"]!="disconnected"&&s["state"]!="failed")throw Error("disconnect_before_edit");
+   if(cleanupFailed_)throw Error("engine_cleanup_failed");
    if(action=="delete"&&engineEnabled_){
     auto file=root_/wide(id+".json");
     if(std::filesystem::exists(file)){

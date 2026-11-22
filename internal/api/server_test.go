@@ -5,11 +5,13 @@ import (
 	"crypto/ed25519"
 	"crypto/rand"
 	"encoding/base64"
+	"encoding/json"
 	"net/http"
 	"net/http/httptest"
 	"netgo/internal/engine/netbird"
 	"netgo/internal/identity"
 	"netgo/internal/model"
+	"netgo/internal/protocol"
 	"netgo/internal/session"
 	"netgo/internal/site"
 	"netgo/internal/store"
@@ -44,6 +46,7 @@ func TestUserDeletionRoleAndLastAdministrator(t *testing.T) {
 			service := Server{Store: db, Sessions: &session.Manager{Store: db, Gate: apiGate{}}, Management: &netbird.Management{URL: upstream.URL, Client: upstream.Client()}, Config: site.Config{Site: site.Profile{Origin: "https://site.test"}}}
 			path := "/netgo/v1/admin/users/u"
 			request := httptest.NewRequest("DELETE", path, nil)
+			request.Header.Set(protocol.Header, "1")
 			stamp := strconv.FormatInt(time.Now().Unix(), 10)
 			nonce := model.ID()
 			request.Header.Set("Authorization", "Bearer "+token)
@@ -90,6 +93,7 @@ func TestSignedAPIReplayAndRoleBoundary(t *testing.T) {
 	handler := server.Handler()
 	makeReq := func(path, nonce string) *http.Request {
 		r := httptest.NewRequest("GET", path, nil)
+		r.Header.Set(protocol.Header, "1")
 		stamp := strconv.FormatInt(time.Now().Unix(), 10)
 		r.Header.Set("Authorization", "Bearer "+token)
 		r.Header.Set("X-NetGo-Time", stamp)
@@ -120,8 +124,14 @@ func TestHealthMinimalAndCrossOriginBlocked(t *testing.T) {
 	h := s.Handler()
 	w := httptest.NewRecorder()
 	h.ServeHTTP(w, httptest.NewRequest("GET", "/netgo/v1/health", nil))
-	if w.Body.String() != "{\"protocol\":1,\"site_id\":\"site1\"}\n" {
+	var health protocol.Health
+	if err := json.Unmarshal(w.Body.Bytes(), &health); err != nil || health.Validate("site1") != nil {
 		t.Fatal(w.Body.String())
+	}
+	var fields map[string]any
+	_ = json.Unmarshal(w.Body.Bytes(), &fields)
+	if len(fields) != 3 {
+		t.Fatal("public health disclosed extra fields")
 	}
 	r := httptest.NewRequest("GET", "/netgo/v1/health", nil)
 	r.Header.Set("Origin", "https://evil.test")

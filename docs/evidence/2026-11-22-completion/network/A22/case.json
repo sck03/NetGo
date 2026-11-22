@@ -1,0 +1,10 @@
+{
+  "id": "A22",
+  "title": "并发与替换",
+  "requirements": [
+    "R09"
+  ],
+  "status": "NOT-RUN",
+  "instructions": "NETWORK_ACCEPTANCE.zh-CN.md A22",
+  "note": "Collect each actual attempt in a new runs/<name> directory; never overwrite earlier evidence."
+}

@@ -1,0 +1,1 @@
+{"netbird": "E:\\NetGo\\.cache\\upstream-verified-12975f7aa1e99733\\netbird", "dex": "E:\\NetGo\\.cache\\upstream-verified-12975f7aa1e99733\\dex", "status": "locked source and complete patched tree verified; compile and test before use"}

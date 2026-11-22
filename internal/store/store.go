@@ -1,6 +1,7 @@
 package store
 
 import (
+	"bytes"
 	"database/sql"
 	"encoding/json"
 	"errors"
@@ -81,10 +82,27 @@ func (s *Store) Update(fn func(*model.State) error) error {
 	if e = json.Unmarshal(raw, &st); e != nil {
 		return e
 	}
+	// desired_revision tracks policy input, not lease/audit/credential churn.
+	policy := func(s model.State) ([]byte, error) {
+		return json.Marshal(struct {
+			Users     map[string]model.User
+			Resources map[string]model.Resource
+		}{s.Users, s.Resources})
+	}
+	previousPolicy, e := policy(st)
+	if e != nil {
+		return e
+	}
 	if e = fn(&st); e != nil {
 		return e
 	}
-	st.Revision++
+	nextPolicy, e := policy(st)
+	if e != nil {
+		return e
+	}
+	if !bytes.Equal(previousPolicy, nextPolicy) {
+		st.Revision++
+	}
 	b, e := json.Marshal(st)
 	if e != nil {
 		return e

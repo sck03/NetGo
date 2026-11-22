@@ -1,15 +1,14 @@
 package main
 
 import (
+	"bytes"
 	"context"
-	"encoding/json"
 	"flag"
 	"log/slog"
-	"net/http"
 	"netgo/internal/ddns"
+	"netgo/internal/process"
 	"netgo/internal/site"
 	"os"
-	"os/signal"
 	"time"
 )
 
@@ -22,16 +21,21 @@ func main() {
 		os.Exit(1)
 	}
 	var c ddns.Config
-	if json.Unmarshal(b, &c) != nil || c.IntervalSeconds < 30 {
+	if site.Decode(bytes.NewReader(b), &c) != nil || c.Validate() != nil {
+		slog.Error("invalid DDNS configuration")
 		os.Exit(1)
 	}
 	token, e := site.Secret(c.TokenFile)
 	if e != nil {
 		os.Exit(1)
 	}
-	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt)
+	ctx, stop := process.StopContext()
 	defer stop()
-	client := ddns.Cloudflare{Config: c, Token: token, Client: &http.Client{Timeout: 10 * time.Second, CheckRedirect: func(*http.Request, []*http.Request) error { return http.ErrUseLastResponse }}}
+	events, err := ddns.NetworkEvents(ctx)
+	if err != nil {
+		slog.Warn("network event watcher unavailable; periodic DDNS remains active")
+	}
+	client := ddns.New(c, token)
 	t := time.NewTicker(time.Duration(c.IntervalSeconds) * time.Second)
 	defer t.Stop()
 	for {
@@ -43,10 +47,17 @@ func main() {
 		} else if changed {
 			slog.Info("DDNS address updated")
 		}
+		// Coalesce link/address/route bursts without flooding witnesses or the DNS API.
+		select {
+		case <-ctx.Done():
+			return
+		case <-time.After(5 * time.Second):
+		}
 		select {
 		case <-ctx.Done():
 			return
 		case <-t.C:
+		case <-events:
 		}
 	}
 }

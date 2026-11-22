@@ -15,4 +15,4 @@ __pycache__/
 *.pyc
 *.pyo
 *.log
-!docs/evidence/implementation/*.log
+!docs/evidence/**/*.log

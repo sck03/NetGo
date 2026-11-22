@@ -17,11 +17,14 @@ import (
 	"netgo/internal/engine/netbird"
 	"netgo/internal/identity"
 	"netgo/internal/model"
+	"netgo/internal/protocol"
+	"netgo/internal/securefile"
 	"netgo/internal/site"
 	"netgo/internal/vault"
 	"os"
 	"path/filepath"
 	"strconv"
+	"strings"
 	"sync"
 	"time"
 )
@@ -36,23 +39,25 @@ type Engine interface {
 	WaitConnected(context.Context, site.Profile) error
 }
 type Status struct {
-	Generation uint64             `json:"generation"`
-	State      string             `json:"state"`
-	Error      string             `json:"error"`
-	SiteID     string             `json:"site_id"`
-	Control    string             `json:"control"`
-	Data       netbird.DataStatus `json:"data"`
-	Lease      model.Lease        `json:"lease"`
+	Generation       uint64             `json:"generation"`
+	State            string             `json:"state"`
+	Error            string             `json:"error"`
+	SiteID           string             `json:"site_id"`
+	Control          string             `json:"control"`
+	ControlCandidate string             `json:"control_candidate"`
+	Data             netbird.DataStatus `json:"data"`
+	Lease            model.Lease        `json:"lease"`
 }
 type Controller struct {
-	mu     sync.Mutex
-	op     sync.Mutex
-	Root   string
-	Vault  vault.Vault
-	Engine Engine
-	status Status
-	cancel context.CancelFunc
-	done   chan struct{}
+	mu            sync.Mutex
+	op            sync.Mutex
+	Root          string
+	Vault         vault.Vault
+	Engine        Engine
+	status        Status
+	cancel        context.CancelFunc
+	done          chan struct{}
+	cleanupFailed bool
 }
 type Remote struct {
 	HTTP          *http.Client
@@ -70,6 +75,7 @@ func (r *Remote) Call(ctx context.Context, method, path string, in, out any, key
 		return e
 	}
 	req.Header.Set("Content-Type", "application/json")
+	req.Header.Set(protocol.Header, strconv.Itoa(model.Protocol))
 	if key != "" {
 		req.Header.Set("Idempotency-Key", key)
 	}
@@ -112,11 +118,19 @@ func (c *Controller) Status() Status {
 	return s
 }
 func (c *Controller) Import(p site.Profile) error {
+	c.op.Lock()
+	defer c.op.Unlock()
 	if e := p.Validate(); e != nil {
 		return e
 	}
 	if c.Status().State != "disconnected" && c.Status().State != "failed" {
 		return errors.New("disconnect before importing site")
+	}
+	c.mu.Lock()
+	failedCleanup := c.cleanupFailed
+	c.mu.Unlock()
+	if failedCleanup {
+		return errors.New("engine_cleanup_failed")
 	}
 	if e := os.MkdirAll(c.Root, 0700); e != nil {
 		return e
@@ -124,12 +138,15 @@ func (c *Controller) Import(p site.Profile) error {
 	path := filepath.Join(c.Root, p.ID+".json")
 	if old, e := os.ReadFile(path); e == nil {
 		var prev site.Profile
-		if json.Unmarshal(old, &prev) != nil || prev.Origin != p.Origin || prev.CA != p.CA {
+		if json.Unmarshal(old, &prev) != nil {
 			return errors.New("site trust changed; create a new site ID")
+		}
+		if e := site.CheckProfileUpdate(prev, p); e != nil {
+			return e
 		}
 	}
 	b, _ := json.MarshalIndent(p, "", "  ")
-	return os.WriteFile(path, b, 0600)
+	return securefile.Write(path, b, 0600)
 }
 func (c *Controller) Profiles() ([]site.Profile, error) {
 	files, e := filepath.Glob(filepath.Join(c.Root, "*.json"))
@@ -173,12 +190,25 @@ func (c *Controller) disconnect() error {
 		select {
 		case <-done:
 		case <-time.After(25 * time.Second):
+			c.mu.Lock()
+			c.cleanupFailed = true
+			c.status.State = "failed"
+			c.status.Error = "engine_cleanup_failed"
+			c.mu.Unlock()
 			return errors.New("previous connection cleanup timed out")
 		}
 	}
 	ctx, stop := context.WithTimeout(context.Background(), 5*time.Second)
 	defer stop()
-	return c.Engine.Down(ctx)
+	err := c.Engine.Down(ctx)
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	c.cleanupFailed = err != nil
+	if err != nil {
+		c.status.State = "failed"
+		c.status.Error = "engine_cleanup_failed"
+	}
+	return err
 }
 func (c *Controller) Connect(id, alias, password string, replace bool) error {
 	c.op.Lock()
@@ -203,14 +233,19 @@ func (c *Controller) Connect(id, alias, password string, replace bool) error {
 	ctx, cancel := context.WithCancel(context.Background())
 	done := make(chan struct{})
 	c.mu.Lock()
-	gen := c.status.Generation + 1
+	gen, e := nextGeneration(c.Root, c.status.Generation)
+	if e != nil {
+		c.mu.Unlock()
+		cancel()
+		return e
+	}
 	c.status = Status{Generation: gen, State: "probing", SiteID: id}
 	c.cancel = cancel
 	c.done = done
 	c.mu.Unlock()
 	go func() {
 		defer close(done)
-		e := c.run(ctx, gen, p, alias, password, replace)
+		e := c.run(ctx, gen, p, alias, &password, replace)
 		password = ""
 		if e != nil && ctx.Err() == nil {
 			c.set(gen, func(s *Status) { s.State = "failed"; s.Error = e.Error() })
@@ -218,7 +253,8 @@ func (c *Controller) Connect(id, alias, password string, replace bool) error {
 	}()
 	return nil
 }
-func (c *Controller) run(ctx context.Context, gen uint64, p site.Profile, alias, password string, replace bool) error {
+func (c *Controller) run(ctx context.Context, gen uint64, p site.Profile, alias string, password *string, replace bool) (result error) {
+	defer func() { *password = "" }()
 	selector, e := controlpath.New(p)
 	if e != nil {
 		return e
@@ -226,9 +262,16 @@ func (c *Controller) run(ctx context.Context, gen uint64, p site.Profile, alias,
 	if _, e = selector.Select(ctx); e != nil {
 		return e
 	}
-	c.set(gen, func(s *Status) { s.Control = selector.Current().Kind; s.State = "authenticating" })
+	c.set(gen, func(s *Status) {
+		s.Control = selector.Current().Kind
+		s.ControlCandidate = selector.Current().ID
+		s.State = "authenticating"
+	})
 	private, e := c.Vault.Read(p.ID)
 	if e != nil {
+		if !os.IsNotExist(e) {
+			return e
+		}
 		_, private, e = ed25519.GenerateKey(rand.Reader)
 		if e != nil {
 			return e
@@ -250,7 +293,12 @@ func (c *Controller) run(ctx context.Context, gen uint64, p site.Profile, alias,
 	defer func() {
 		cleanup, done := context.WithTimeout(context.Background(), 5*time.Second)
 		defer done()
-		_ = c.Engine.Down(cleanup)
+		if err := c.Engine.Down(cleanup); err != nil {
+			c.mu.Lock()
+			c.cleanupFailed = true
+			c.mu.Unlock()
+			result = errors.New("engine_cleanup_failed")
+		}
 	}()
 	remote := &Remote{HTTP: selector.Client(), Origin: p.Origin, Private: pk}
 	verifier := model.ID()
@@ -262,19 +310,26 @@ func (c *Controller) run(ctx context.Context, gen uint64, p site.Profile, alias,
 	transaction.Begin = begin
 	proof := identity.Proof(transaction)
 	sign := func(s string) string { return base64.RawURLEncoding.EncodeToString(ed25519.Sign(pk, []byte(s))) }
-	if e = remote.Call(loginCtx, "POST", "/netgo/v1/auth/transactions/"+transaction.ID+"/complete", map[string]string{"Alias": alias, "Password": password, "Signature": sign(proof)}, nil, ""); e != nil {
+	if e = remote.Call(loginCtx, "POST", "/netgo/v1/auth/transactions/"+transaction.ID+"/complete", map[string]string{"Alias": alias, "Password": *password, "Signature": sign(proof)}, nil, ""); e != nil {
 		return e
 	}
-	password = ""
+	*password = ""
 	var auth identity.Result
 	if e = remote.Call(loginCtx, "POST", "/netgo/v1/auth/transactions/"+transaction.ID+"/exchange", map[string]string{"Verifier": verifier, "Signature": sign(proof + "\nexchange\n" + verifier)}, &auth, ""); e != nil {
 		return e
 	}
 	remote.Token = auth.Token
+	// Only the authenticated site may update discovery addresses. Probe before
+	// committing so a broken published candidate set cannot strand the profile.
+	p, selector, e = c.synchronizeProfile(loginCtx, remote, p, selector)
+	if e != nil {
+		return e
+	}
+	remote.HTTP = selector.Client()
+	c.set(gen, func(s *Status) { s.Control = selector.Current().Kind; s.ControlCandidate = selector.Current().ID })
 	if e = c.Engine.Login(loginCtx, p, auth.IDToken); e != nil {
 		return e
 	}
-	auth.IDToken = ""
 	if e = c.Engine.Up(loginCtx, p); e != nil {
 		return e
 	}
@@ -315,7 +370,7 @@ func (c *Controller) run(ctx context.Context, gen uint64, p site.Profile, alias,
 			check, done := context.WithTimeout(ctx, 8*time.Second)
 			e = selector.Recover(check)
 			done()
-			c.set(gen, func(s *Status) { s.Control = selector.Current().Kind })
+			c.set(gen, func(s *Status) { s.Control = selector.Current().Kind; s.ControlCandidate = selector.Current().ID })
 			if e != nil {
 				c.set(gen, func(s *Status) { s.State = "recovering" })
 				continue
@@ -349,6 +404,19 @@ func (c *Controller) run(ctx context.Context, gen uint64, p site.Profile, alias,
 			stateCtx, done := context.WithTimeout(ctx, 5*time.Second)
 			ds, de := c.Engine.Status(stateCtx, p)
 			done()
+			if de != nil || !strings.EqualFold(ds.State, "connected") {
+				recovery, done := context.WithTimeout(ctx, 20*time.Second)
+				de = c.Engine.Login(recovery, p, auth.IDToken)
+				if de == nil {
+					de = c.Engine.Up(recovery, p)
+				}
+				if de == nil {
+					de = c.Engine.Routes(recovery, lease.Resources)
+				}
+				done()
+				c.set(gen, func(s *Status) { s.State = "recovering"; s.Error = "engine_recovering" })
+				continue
+			}
 			c.set(gen, func(s *Status) {
 				s.Lease = lease
 				if de != nil {

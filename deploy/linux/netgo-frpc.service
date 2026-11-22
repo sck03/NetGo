@@ -1,3 +1,4 @@
+# Managed by NetGo v1
 [Unit]
 Description=NetGo optional reverse control tunnel
 After=network-online.target

@@ -7,6 +7,8 @@
 #include <cctype>
 #include <regex>
 #include <sstream>
+#include <condition_variable>
+#include <bit>
 
 namespace netgo {
 Address address(const std::string& s) {
@@ -22,10 +24,12 @@ std::string originHost(const std::string& s) {
  std::string host=m[1];if(host.front()=='[')host=host.substr(1,host.size()-2);return host;
 }
 void validateProfile(const Json& p) {
- static const std::vector<std::string> allowed={"Protocol","ID","Name","Origin","Candidates","CA","GatewayPeerID","GatewayIP","LocalRelay","AuxiliaryRelay"};
+ static const std::vector<std::string> allowed={"Protocol","ConfigRevision","ID","Name","Origin","Candidates","CA","GatewayPeerID","GatewayIP","LocalRelay","AuxiliaryRelay"};
  if(!p.is_object())throw Error("invalid_profile");
  for(auto i=p.begin();i!=p.end();++i)if(std::find(allowed.begin(),allowed.end(),i.key())==allowed.end())throw Error("unknown_profile_field");
  std::string id=p.at("ID");
+ if(p.contains("ConfigRevision")&&(!p["ConfigRevision"].is_number_unsigned()&&!p["ConfigRevision"].is_number_integer()))throw Error("invalid_profile_revision");
+ if(p.contains("ConfigRevision")&&(p["ConfigRevision"]<0||p["ConfigRevision"]>9007199254740991ULL))throw Error("invalid_profile_revision");
  if(!std::regex_match(id,std::regex(R"(^[a-zA-Z0-9][a-zA-Z0-9_.-]{0,62}$)"))||p.at("Protocol")!=1)throw Error("unsupported_profile");
  auto name=p.at("Name").get<std::string>();if(name.empty()||name.size()>256)throw Error("invalid_profile_name");
  wide(name);originHost(p.at("Origin"));
@@ -46,31 +50,63 @@ void validateProfile(const Json& p) {
   X509* cert=PEM_read_bio_X509(bio.get(),nullptr,nullptr,nullptr);if(!cert)throw Error("invalid_ca");X509_free(cert);
  }
 }
+void validateProfileUpdate(const Json& old,const Json& next) {
+ validateProfile(next);
+ for(const auto& key:{"ID","Origin","Protocol"})if(old.at(key)!=next.at(key))throw Error("site_trust_changed_use_new_id");
+ if(old.value("CA","")!=next.value("CA",""))throw Error("site_trust_changed_use_new_id");
+ auto previous=old.value("ConfigRevision",uint64_t(0)),revision=next.value("ConfigRevision",uint64_t(0));
+ if(revision<previous)throw Error("profile_revision_stale");
+ if(previous&&revision==previous){
+  for(const auto& key:{"Candidates","GatewayPeerID","GatewayIP","LocalRelay","AuxiliaryRelay"})if(old.value(key,Json(""))!=next.value(key,Json("")))throw Error("profile_revision_conflict");
+ }
+}
 static std::string lower(std::string s){for(char& c:s)c=char(std::tolower(static_cast<unsigned char>(c)));return s;}
+void validateHealth(const Json& h,const std::string& siteID) {
+ if(h.value("site_id","")!=siteID)throw Error("site_identity_mismatch");
+ if(h.value("protocol",0)!=1||!h.contains("capabilities")||!h["capabilities"].is_array())throw Error("protocol_incompatible");
+ for(const auto& c:{"native-auth-v1","device-signature-v1","leases-v1","profile-revision-v1"}){
+  if(std::find(h["capabilities"].begin(),h["capabilities"].end(),Json(c))==h["capabilities"].end())throw Error("protocol_incompatible");
+ }
+}
 HttpResponse decodeHttp(const std::string& raw) {
  auto end=raw.find("\r\n\r\n");if(end==std::string::npos||end>32768)throw Error("invalid_http_response");
  std::istringstream lines(raw.substr(0,end));std::string version,line;int code=0;lines>>version>>code;std::getline(lines,line);
- if(version!="HTTP/1.1"&&version!="HTTP/1.0")throw Error("invalid_http_response");
+ if((version!="HTTP/1.1"&&version!="HTTP/1.0")||code<100||code>599)throw Error("invalid_http_response");
  bool chunked=false;size_t length=SIZE_MAX;
  while(std::getline(lines,line)) {
-  auto colon=line.find(':');if(colon==std::string::npos)continue;
+  auto colon=line.find(':');if(colon==std::string::npos||colon==0)throw Error("invalid_http_header");
   auto k=lower(line.substr(0,colon));auto v=lower(line.substr(colon+1));
-  if(k=="transfer-encoding"){if(v.find("chunked")==std::string::npos)throw Error("unsupported_http_encoding");chunked=true;}
-  if(k=="content-encoding"&&v.find("identity")==std::string::npos)throw Error("unsupported_http_encoding");
+  auto first=v.find_first_not_of(" \t\r");auto last=v.find_last_not_of(" \t\r");v=first==std::string::npos?"":v.substr(first,last-first+1);
+  if(k=="transfer-encoding"){if(chunked||v!="chunked")throw Error("unsupported_http_encoding");chunked=true;}
+  if(k=="content-encoding"&&v!="identity")throw Error("unsupported_http_encoding");
   if(k=="content-length"){
-   size_t parsed=0;unsigned long long n=std::stoull(v,&parsed);
+   if(v.empty()||v.find_first_not_of("0123456789")!=std::string::npos||length!=SIZE_MAX)throw Error("invalid_http_length");
+   unsigned long long n=std::stoull(v);
    if(n>4*maxJson)throw Error("http_response_too_large");
    length=size_t(n);
   }
  }
  std::string b=raw.substr(end+4);
+ if(b.size()>4*maxJson||(chunked&&length!=SIZE_MAX))throw Error("invalid_http_framing");
  if(chunked) {
   size_t at=0;std::string decoded;
   for(;;) {
    auto next=b.find("\r\n",at);if(next==std::string::npos||next-at>128)throw Error("invalid_http_chunk");
    auto text=b.substr(at,next-at);text=text.substr(0,text.find(';'));
    if(text.empty()||text.find_first_not_of("0123456789abcdefABCDEF")!=std::string::npos)throw Error("invalid_http_chunk");
-   auto n=std::stoull(text,nullptr,16);at=next+2;if(n==0)break;
+   auto n=std::stoull(text,nullptr,16);at=next+2;
+   if(n==0){
+    // Require the terminal empty line, including when trailers are present.
+    for(;;){
+     auto trailer=b.find("\r\n",at);if(trailer==std::string::npos||trailer-at>32768)throw Error("invalid_http_chunk");
+     if(trailer==at){at+=2;break;}
+     auto colon=b.find(':',at);if(colon==std::string::npos||colon==at||colon>=trailer)throw Error("invalid_http_chunk");
+     auto name=lower(b.substr(at,colon-at));if(name=="content-length"||name=="transfer-encoding")throw Error("invalid_http_framing");
+     at=trailer+2;
+    }
+    if(at!=b.size())throw Error("invalid_http_chunk");
+    break;
+   }
    if(n>4*maxJson||at+n+2>b.size()||b.substr(at+size_t(n),2)!="\r\n")throw Error("invalid_http_chunk");
    decoded.append(b,at,size_t(n));at+=size_t(n)+2;if(decoded.size()>4*maxJson)throw Error("http_response_too_large");
   }b=std::move(decoded);
@@ -88,7 +124,7 @@ static void windowsRoots(X509_STORE* store) {
   }CertCloseStore(roots,0);
  }
 }
-Transport::Transport(Json p):profile_(std::move(p)),context_(SSL_CTX_new(TLS_client_method()),SSL_CTX_free) {
+Transport::Transport(Json p,std::chrono::milliseconds cooldown):profile_(std::move(p)),context_(SSL_CTX_new(TLS_client_method()),SSL_CTX_free),cooldown_(cooldown) {
  validateProfile(profile_);if(!context_)throw Error("tls_initialization_failed");
  SSL_CTX_set_min_proto_version(context_.get(),TLS1_2_VERSION);SSL_CTX_set_verify(context_.get(),SSL_VERIFY_PEER,nullptr);
  SSL_CTX_set_purpose(context_.get(),X509_PURPOSE_SSL_SERVER);auto store=SSL_CTX_get_cert_store(context_.get());windowsRoots(store);
@@ -101,15 +137,32 @@ Transport::Transport(Json p):profile_(std::move(p)),context_(SSL_CTX_new(TLS_cli
  }
 }
 Json Transport::requestAt(size_t index,const std::string& method,const std::string& path,const std::string& body,const std::string& headers) {
+ auto deadline=Clock::now()+std::chrono::seconds(path=="/netgo/v1/health"?3:20);
  auto target=address(profile_["Candidates"].at(index).at("Address"));
- addrinfo hints{},*list=nullptr;hints.ai_family=AF_UNSPEC;hints.ai_socktype=SOCK_STREAM;hints.ai_protocol=IPPROTO_TCP;
- if(getaddrinfo(target.host.c_str(),std::to_string(target.port).c_str(),&hints,&list)!=0)throw Error("control_dns_failed");
- std::unique_ptr<addrinfo,decltype(&freeaddrinfo)> addrs(list,freeaddrinfo);SOCKET raw=INVALID_SOCKET;
+ ADDRINFOEXW hints{},*list=nullptr;hints.ai_family=AF_UNSPEC;hints.ai_socktype=SOCK_STREAM;hints.ai_protocol=IPPROTO_TCP;
+ Handle completion(CreateEventW(nullptr,TRUE,FALSE,nullptr));if(!completion.value)throw Error("control_dns_failed");
+ OVERLAPPED operation{};operation.hEvent=completion;HANDLE query=nullptr;
+ using CancelQuery=INT (WSAAPI *)(LPHANDLE);using QueryResult=INT (WSAAPI *)(LPOVERLAPPED);
+ auto winsock=GetModuleHandleW(L"ws2_32.dll");
+ auto cancelQuery=std::bit_cast<CancelQuery>(GetProcAddress(winsock,"GetAddrInfoExCancel"));
+ auto queryResult=std::bit_cast<QueryResult>(GetProcAddress(winsock,"GetAddrInfoExOverlappedResult"));
+ if(!cancelQuery||!queryResult)throw Error("control_dns_failed");
+ auto dnsHost=wide(target.host),dnsPort=wide(std::to_string(target.port));
+ int resolved=GetAddrInfoExW(dnsHost.c_str(),dnsPort.c_str(),NS_DNS,nullptr,&hints,&list,nullptr,&operation,nullptr,&query);
+ if(resolved==WSA_IO_PENDING){
+  if(WaitForSingleObject(completion,2000)!=WAIT_OBJECT_0){cancelQuery(&query);WaitForSingleObject(completion,INFINITE);resolved=WSAETIMEDOUT;}
+  else resolved=queryResult(&operation);
+ }
+ std::unique_ptr<ADDRINFOEXW,decltype(&FreeAddrInfoExW)> addrs(list,FreeAddrInfoExW);
+ if(resolved!=0)throw Error("control_dns_failed");
+ SOCKET raw=INVALID_SOCKET;
  for(auto a=list;a;a=a->ai_next) {
   SOCKET candidate=socket(a->ai_family,a->ai_socktype,a->ai_protocol);if(candidate==INVALID_SOCKET)continue;
   u_long nonblock=1;ioctlsocket(candidate,FIONBIO,&nonblock);int e=::connect(candidate,a->ai_addr,int(a->ai_addrlen));
   if(e==SOCKET_ERROR&&WSAGetLastError()!=WSAEWOULDBLOCK){closesocket(candidate);continue;}
-  fd_set write,except;FD_ZERO(&write);FD_ZERO(&except);FD_SET(candidate,&write);FD_SET(candidate,&except);timeval wait{3,0};
+  auto remaining=std::chrono::duration_cast<std::chrono::microseconds>(deadline-Clock::now()).count();
+  if(remaining<=0){closesocket(candidate);break;}
+  fd_set write,except;FD_ZERO(&write);FD_ZERO(&except);FD_SET(candidate,&write);FD_SET(candidate,&except);timeval wait{long(remaining/1000000),long(remaining%1000000)};
   if(::select(0,nullptr,&write,&except,&wait)>0&&!FD_ISSET(candidate,&except)){
    int error=0,len=sizeof(error);getsockopt(candidate,SOL_SOCKET,SO_ERROR,reinterpret_cast<char*>(&error),&len);
    if(!error){raw=candidate;break;}
@@ -117,6 +170,11 @@ Json Transport::requestAt(size_t index,const std::string& method,const std::stri
  }
  if(raw==INVALID_SOCKET)throw Error("control_unreachable");
  struct SocketGuard{SOCKET s;~SocketGuard(){closesocket(s);}} guard{raw};
+ struct Deadline {
+  std::mutex mutex;std::condition_variable ready;bool stopped=false;std::thread worker;
+  Deadline(SOCKET s,Clock::time_point until):worker([this,s,until]{std::unique_lock lock(mutex);if(!ready.wait_until(lock,until,[this]{return stopped;}))shutdown(s,SD_BOTH);}){}
+  ~Deadline(){{std::lock_guard lock(mutex);stopped=true;}ready.notify_one();worker.join();}
+ } timeoutGuard(raw,deadline);
  u_long nonblock=0;ioctlsocket(raw,FIONBIO,&nonblock);DWORD timeout=3000;
  setsockopt(raw,SOL_SOCKET,SO_RCVTIMEO,reinterpret_cast<char*>(&timeout),sizeof(timeout));setsockopt(raw,SOL_SOCKET,SO_SNDTIMEO,reinterpret_cast<char*>(&timeout),sizeof(timeout));
  std::unique_ptr<SSL,decltype(&SSL_free)> tls(SSL_new(context_.get()),SSL_free);auto host=originHost(profile_.at("Origin"));
@@ -128,7 +186,7 @@ Json Transport::requestAt(size_t index,const std::string& method,const std::stri
  std::string authority=profile_.at("Origin").get<std::string>().substr(8);if(authority.back()=='/')authority.pop_back();
  std::string req=method+" "+path+" HTTP/1.1\r\nHost: "+authority+"\r\nConnection: close\r\nAccept: application/json\r\nAccept-Encoding: identity\r\nContent-Type: application/json\r\n"+headers+"Content-Length: "+std::to_string(body.size())+"\r\n\r\n"+body;
  size_t pos=0;while(pos<req.size()){int n=SSL_write(tls.get(),req.data()+pos,int(req.size()-pos));if(n<=0){wipe(req);throw Error("control_write_failed");}pos+=size_t(n);}wipe(req);
- std::string rawResponse;char buffer[8192];auto deadline=Clock::now()+std::chrono::seconds(12);
+ std::string rawResponse;char buffer[8192];
  while(Clock::now()<deadline) {
   int n=SSL_read(tls.get(),buffer,sizeof(buffer));if(n<=0) {
    int e=SSL_get_error(tls.get(),n);
@@ -152,24 +210,42 @@ Json Transport::requestAt(size_t index,const std::string& method,const std::stri
  return Json::parse(response.body);
 }
 bool Transport::probe(size_t i) {
- try{auto h=requestAt(i,"GET","/netgo/v1/health","","");return h.at("site_id")==profile_.at("ID")&&h.at("protocol")==1;}catch(const std::exception&){return false;}
+ try{auto h=requestAt(i,"GET","/netgo/v1/health","","");validateHealth(h,profile_.at("ID"));return true;}
+ catch(const std::exception& e){if(std::string(e.what())=="protocol_incompatible")incompatible_=true;return false;}
 }
 void Transport::select() {
- for(const std::string kind:{"direct","auxiliary"})for(size_t i=0;i<profile_["Candidates"].size();++i){
-  if(profile_["Candidates"][i]["Kind"]==kind&&probe(i)){selected_=i;switched_=Clock::now();return;}
- }throw Error("no_trusted_control_entry");
+ incompatible_=false;
+ std::mutex mutex;std::condition_variable ready;size_t winner=SIZE_MAX,finished=0;
+ std::vector<std::thread> probes;
+ for(size_t i=0;i<profile_["Candidates"].size();++i)probes.emplace_back([&,i]{
+  if(profile_["Candidates"][i]["Kind"]=="auxiliary"){
+   std::unique_lock lock(mutex);if(ready.wait_for(lock,std::chrono::milliseconds(800),[&]{return winner!=SIZE_MAX;})){++finished;ready.notify_all();return;}
+  }
+  bool success=probe(i);
+  {std::lock_guard lock(mutex);if(success&&winner==SIZE_MAX)winner=i;++finished;}ready.notify_all();
+ });
+ {std::unique_lock lock(mutex);ready.wait_for(lock,std::chrono::seconds(10),[&]{return winner!=SIZE_MAX||finished==probes.size();});}
+ for(auto& thread:probes)thread.join();
+ if(winner==SIZE_MAX)throw Error(incompatible_?"protocol_incompatible":"no_trusted_control_entry");
+ selected_=winner;switched_=Clock::now();directSuccess_=0;directCandidate_=SIZE_MAX;
 }
 void Transport::recover() {
  if(!probe(selected_)){select();directSuccess_=0;return;}
- if(kind()=="auxiliary"&&Clock::now()-switched_>std::chrono::seconds(15)){
-  for(size_t i=0;i<profile_["Candidates"].size();++i)if(profile_["Candidates"][i]["Kind"]=="direct"&&probe(i)){
-   if(++directSuccess_>=2){selected_=i;switched_=Clock::now();directSuccess_=0;}return;
-  }directSuccess_=0;
+ if(kind()=="auxiliary"&&Clock::now()-switched_>=cooldown_){
+  std::vector<unsigned char> healthy(profile_["Candidates"].size(),0);std::vector<std::thread> probes;
+  for(size_t i=0;i<healthy.size();++i)if(profile_["Candidates"][i]["Kind"]=="direct")probes.emplace_back([&,i]{healthy[i]=probe(i)?1:0;});
+  for(auto& thread:probes)thread.join();
+  size_t chosen=SIZE_MAX;
+  for(size_t i=0;i<healthy.size();++i)if(healthy[i]&&(chosen==SIZE_MAX||i==directCandidate_))chosen=i;
+  if(chosen==SIZE_MAX){directSuccess_=0;directCandidate_=SIZE_MAX;return;}
+  if(directCandidate_!=chosen){directSuccess_=0;directCandidate_=chosen;}
+  if(++directSuccess_>=3){selected_=chosen;switched_=Clock::now();directSuccess_=0;directCandidate_=SIZE_MAX;}
  }
 }
 std::string Transport::kind() const{return profile_["Candidates"][selected_]["Kind"];}
+std::string Transport::candidate() const{return profile_["Candidates"][selected_]["ID"];}
 Json Transport::call(const std::string& method,const std::string& path,const Json& value,const std::string& seed,const std::string& token,const std::string& idem) {
- std::string body=value.is_null()?"":value.dump(),headers;
+ std::string body=value.is_null()?"":value.dump(),headers="X-NetGo-Protocol: 1\r\n";
  if(!idem.empty())headers+="Idempotency-Key: "+idem+"\r\n";
  if(!token.empty()){
   auto stamp=std::to_string(std::time(nullptr)),nonce=randomID();

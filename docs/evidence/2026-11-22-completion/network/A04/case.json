@@ -1,0 +1,10 @@
+{
+  "id": "A04",
+  "title": "动态公网更新",
+  "requirements": [
+    "R03"
+  ],
+  "status": "NOT-RUN",
+  "instructions": "NETWORK_ACCEPTANCE.zh-CN.md A04",
+  "note": "Collect each actual attempt in a new runs/<name> directory; never overwrite earlier evidence."
+}

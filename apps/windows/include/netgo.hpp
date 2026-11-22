@@ -58,6 +58,8 @@ struct Address { std::string host; unsigned short port; };
 Address address(const std::string& s);
 std::string originHost(const std::string& origin);
 void validateProfile(const Json& p);
+void validateProfileUpdate(const Json& previous,const Json& next);
+void validateHealth(const Json& health,const std::string& siteID);
 struct HttpResponse { int status; std::string body; };
 HttpResponse decodeHttp(const std::string& raw);
 class Transport {
@@ -65,14 +67,18 @@ class Transport {
  std::shared_ptr<SSL_CTX> context_;
  size_t selected_ = 0;
  int directSuccess_ = 0;
+ size_t directCandidate_ = SIZE_MAX;
+ std::chrono::milliseconds cooldown_ = std::chrono::seconds(30);
  Clock::time_point switched_ = Clock::now();
+ std::atomic_bool incompatible_{false};
  Json requestAt(size_t index,const std::string& method,const std::string& path,const std::string& body,const std::string& headers);
  bool probe(size_t index);
 public:
- explicit Transport(Json profile);
+ explicit Transport(Json profile,std::chrono::milliseconds cooldown=std::chrono::seconds(30));
  void select();
  void recover();
  std::string kind() const;
+ std::string candidate() const;
  Json call(const std::string& method,const std::string& path,const Json& body,const std::string& seed = {},const std::string& token = {},const std::string& idempotency = {});
 };
 

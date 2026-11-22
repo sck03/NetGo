@@ -32,6 +32,7 @@ std::wstring errorText(const std::string& e) {
   {"engine_missing",L"缺少 NetBird 网络核心。请使用完整安装包。"},
   {"engine_rpc_failed",L"无法操作网络服务。请确认已安装本套装的 NetBird 服务并授权当前 Windows 用户。"},
   {"engine_cleanup_failed",L"尚未确认网络服务已断开。请恢复 NetGoNetBird 服务后再次断开，暂时不要切换服务器。"},
+  {"engine_connect_timeout",L"网络服务未在规定时间内连接。请检查服务端 Management、Signal 和网络核心日志后重试。"},
   {"no_trusted_control_entry",L"未找到可验证的服务器入口。请检查服务器地址、网络和证书。"},
   {"tls_certificate_failed",L"服务器证书验证失败。请核对域名、公共 CA 和系统时间。"},
   {"unauthorized",L"账号认证失败或已失效，请检查账号密码。"},
@@ -41,6 +42,9 @@ std::wstring errorText(const std::string& e) {
   {"route_conflict",L"当前局域网与远端网段重叠。请联系管理员调整网段或使用单主机资源。"},
   {"credentials_required",L"请填写账号和密码；已记住密码时可留空。"},
   {"site_trust_changed_use_new_id",L"该站点的域名或 CA 已改变。请使用新的站点 ID，重新核对服务器身份。"},
+  {"profile_revision_stale",L"站点配置版本过旧。请向管理员取得最新站点文件。"},
+  {"profile_revision_conflict",L"同一版本的站点配置内容不一致。请由管理员递增配置版本后重新导出。"},
+  {"protocol_incompatible",L"客户端与服务端协议不兼容，请更新为匹配版本后重新连接。"},
   {"disconnect_before_edit",L"请先断开连接，再修改服务器或清理凭据。"},
  };
  auto i=messages.find(e);return i!=messages.end()?i->second:L"操作未完成（"+wide(e)+L"）。";
@@ -86,7 +90,7 @@ LRESULT CALLBACK editorProc(HWND h,UINT m,WPARAM w,LPARAM l){
  if(m==WM_DESTROY){data->done=true;return 0;}return DefWindowProcW(h,m,w,l);
 }
 void editProfile(bool create) {
- Json p=create?Json{{"Protocol",1},{"ID","site1"},{"Name","我的服务器"},{"Origin","https://control.example.com"},{"Candidates",Json::array({{{"ID","direct"},{"Address","control.example.com:443"},{"Kind","direct"}}})},{"GatewayPeerID",""},{"GatewayIP","100.96.0.1"},{"CA",""},{"LocalRelay","relay.example.com"},{"AuxiliaryRelay",""}}:(selected()?*selected():Json());
+ Json p=create?Json{{"Protocol",1},{"ID","site1"},{"Name","我的服务器"},{"Origin","https://control.example.com:10443"},{"Candidates",Json::array({{{"ID","direct"},{"Address","control.example.com:10443"},{"Kind","direct"}}})},{"GatewayPeerID",""},{"GatewayIP","100.96.0.1"},{"CA",""},{"LocalRelay","relay.example.com"},{"AuxiliaryRelay",""}}:(selected()?*selected():Json());
  if(p.is_null())return;
  WNDCLASSW c{};c.lpfnWndProc=editorProc;c.hInstance=GetModuleHandleW(nullptr);c.lpszClassName=L"NetGoProfileEditor";c.hCursor=LoadCursorW(nullptr,IDC_ARROW);c.hbrBackground=reinterpret_cast<HBRUSH>(COLOR_WINDOW+1);RegisterClassW(&c);
  Editor data;auto h=CreateWindowExW(WS_EX_DLGMODALFRAME,c.lpszClassName,create?L"新建服务器配置":L"编辑服务器配置",WS_OVERLAPPED|WS_CAPTION|WS_SYSMENU,200,120,720,590,window,nullptr,c.hInstance,&data);
@@ -126,9 +130,10 @@ void refreshSelection() {
 }
 void drawStatus(Json status) {
  currentStatus=std::move(status);auto s=currentStatus.value("state","disconnected");set(StatusText,stateText(s));
- bool active=s!="disconnected"&&s!="failed";set(Connect,active?L"断开连接":L"连接局域网");EnableWindow(controls[Servers],!active);EnableWindow(controls[Alias],!active);EnableWindow(controls[Password],!active);EnableWindow(controls[Remember],!active);EnableWindow(controls[Replace],!active);
+ bool active=(s!="disconnected"&&s!="failed")||currentStatus.value("error","")=="engine_cleanup_failed";set(Connect,active?L"断开连接":L"连接局域网");EnableWindow(controls[Servers],!active);EnableWindow(controls[Alias],!active);EnableWindow(controls[Password],!active);EnableWindow(controls[Remember],!active);EnableWindow(controls[Replace],!active);EnableWindow(controls[Edit],!active&&selected()!=nullptr);EnableWindow(controls[Remove],!active&&selected()!=nullptr);
  auto d=currentStatus.value("data",Json::object());auto path=d.value("path","negotiating");std::wstring route=path=="direct"?L"直连":path=="local_relay"?L"本地中继":path=="auxiliary_relay"?L"VPS 中继":path=="relay_unknown"?L"中继（待识别）":L"等待连接";
  auto control=currentStatus.value("control","");std::wstring entrance=control=="direct"?L"服务器直达入口":control=="auxiliary"?L"VPS 备用入口":L"等待探测";
+ auto candidate=currentStatus.value("control_candidate","");if(!candidate.empty())entrance+=L"（"+wide(candidate)+L"）";
  std::wstring details=L"控制入口   "+entrance+L"\r\n\r\n数据路径   "+route+L"\r\n\r\n虚拟地址   "+wide(d.value("ip","—"))+L"\r\n\r\n接收 / 发送   "+std::to_wstring(d.value("rx",int64_t(0))/1024)+L" / "+std::to_wstring(d.value("tx",int64_t(0))/1024)+L" KB";
  auto error=currentStatus.value("error","");if(!error.empty())details+=L"\r\n\r\n"+errorText(error);set(Info,details);
  ListView_DeleteAllItems(controls[Resources]);
@@ -142,7 +147,7 @@ void drawStatus(Json status) {
 void command(int id) {
  switch(id) {
  case MenuShow:ShowWindow(window,SW_RESTORE);SetForegroundWindow(window);break;
- case Connect:{auto s=currentStatus.value("state","disconnected");if(s!="disconnected"&&s!="failed"){submit({{"action","disconnect"}});break;}
+ case Connect:{auto s=currentStatus.value("state","disconnected");if((s!="disconnected"&&s!="failed")||currentStatus.value("error","")=="engine_cleanup_failed"){submit({{"action","disconnect"}});break;}
   std::string password=utf8(text(controls[Password]));submit({{"action","connect"},{"site",chosen},{"alias",utf8(text(controls[Alias]))},{"password",password},{"remember",SendMessageW(controls[Remember],BM_GETCHECK,0,0)==BST_CHECKED},{"replace",SendMessageW(controls[Replace],BM_GETCHECK,0,0)==BST_CHECKED}});
   wipe(password);set(Password,L"");preferences["selected"]=chosen;persist();break;}
  case MenuDisconnect:submit({{"action","disconnect"}});break;
@@ -156,7 +161,7 @@ void command(int id) {
  case MenuAutoStart:{bool enabled=!preferences.value("startup",false);startup(enabled);preferences["startup"]=enabled;persist();CheckMenuItem(GetMenu(window),MenuAutoStart,MF_BYCOMMAND|(enabled?MF_CHECKED:MF_UNCHECKED));break;}
  case MenuAutoConnect:{bool enabled=!preferences.value("auto_connect",false);preferences["auto_connect"]=enabled;persist();CheckMenuItem(GetMenu(window),MenuAutoConnect,MF_BYCOMMAND|(enabled?MF_CHECKED:MF_UNCHECKED));break;}
  case MenuTray:{bool enabled=!preferences.value("close_to_tray",true);preferences["close_to_tray"]=enabled;persist();CheckMenuItem(GetMenu(window),MenuTray,MF_BYCOMMAND|(enabled?MF_CHECKED:MF_UNCHECKED));break;}
- case MenuAbout:MessageBoxW(window,L"NetGo 0.2.0-dev\n原生 C++ / Win32 客户端\n网络核心：NetBird\n登录入口和数据路径分别显示。\n\n诊断导出不包含密码、令牌或密钥。",L"关于 NetGo",MB_OK);break;
+ case MenuAbout:MessageBoxW(window,L"NetGo 0.2.3-dev\n原生 C++ / Win32 客户端\n网络核心：NetBird\n登录入口和数据路径分别显示。\n\n诊断导出不包含密码、令牌或密钥。",L"关于 NetGo",MB_OK);break;
  case MenuExit:exiting=true;EnableWindow(window,FALSE);submit({{"action","shutdown"}});break;
  default:if(id==300){submit({{"action","diagnostic"}});}else if(id==301)submit({{"action","clear-logs"}});break;
  }

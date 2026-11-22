@@ -1,9 +1,65 @@
+diff --git a/client/cmd/netgo_relay.go b/client/cmd/netgo_relay.go
+new file mode 100644
+index 0000000..97f035a
+--- /dev/null
++++ b/client/cmd/netgo_relay.go
+@@ -0,0 +1,23 @@
++package cmd
++
++import (
++	"net/url"
++	"strings"
++)
++
++func netgoRelayMatches(actual, expected string) bool {
++	parse := func(value string) (*url.URL, error) {
++		if !strings.Contains(value, "://") {
++			value = "//" + value
++		}
++		return url.Parse(value)
++	}
++	a, err := parse(actual)
++	e, other := parse(expected)
++	if err != nil || other != nil || a.Hostname() == "" || e.Hostname() == "" ||
++		a.User != nil || e.User != nil || a.RawQuery != "" || a.Fragment != "" ||
++		(a.Path != "" && a.Path != "/") {
++		return false
++	}
++	return strings.EqualFold(a.Hostname(), e.Hostname()) && (e.Port() == "" || a.Port() == e.Port())
++}
+diff --git a/client/cmd/netgo_relay_test.go b/client/cmd/netgo_relay_test.go
+new file mode 100644
+index 0000000..bc43a7c
+--- /dev/null
++++ b/client/cmd/netgo_relay_test.go
+@@ -0,0 +1,21 @@
++package cmd
++
++import "testing"
++
++func TestNetGoRelayEndpointIdentity(t *testing.T) {
++	for _, c := range []struct{ actual, expected string; match bool }{
++		{"rels://relay.example:18443", "relay.example", true},
++		{"relay.example:18443", "relay.example", true},
++		{"rels://RELAY.example:18443", "relay.example", true},
++		{"rels://relay.example.evil:18443", "relay.example", false},
++		{"rels://evil.example/relay.example", "relay.example", false},
++		{"rels://relay.example@evil.example:18443", "relay.example", false},
++		{"rels://relay.aux:28443", "rels://relay.aux:28443", true},
++		{"rels://relay.aux:443", "rels://relay.aux:28443", false},
++		{"rels://relay.aux:28443", "", false},
++	} {
++		if got := netgoRelayMatches(c.actual, c.expected); got != c.match {
++			t.Errorf("endpoint %q expected %q: got %v", c.actual, c.expected, got)
++		}
++	}
++}
 diff --git a/client/cmd/netgo_rpc.go b/client/cmd/netgo_rpc.go
 new file mode 100644
-index 0000000..ba6da43
+index 0000000..f206a86
 --- /dev/null
 +++ b/client/cmd/netgo_rpc.go
-@@ -0,0 +1,229 @@
+@@ -0,0 +1,231 @@
 +package cmd
 +
 +import (
@@ -49,6 +105,7 @@ index 0000000..ba6da43
 +
 +type netgoRPCProfile struct {
 +	Protocol                                                                   int
++	ConfigRevision                                                             uint64
 +	ID, Name, Origin, CA, GatewayPeerID, GatewayIP, LocalRelay, AuxiliaryRelay string
 +	Candidates                                                                 []struct{ ID, Address, Kind string }
 +}
@@ -94,6 +151,7 @@ index 0000000..ba6da43
 +		md := metadata.Pairs("netgo-mode", mode)
 +		for _, c := range p.Candidates {
 +			md.Append("netgo-candidate", c.Address)
++			md.Append("netgo-candidate-kind", c.Kind)
 +		}
 +		if p.CA != "" {
 +			md.Append("netgo-ca-bin", p.CA)
@@ -185,9 +243,9 @@ index 0000000..ba6da43
 +				out["path"] = "direct"
 +				if peer.Relayed {
 +					out["relay"], out["path"] = peer.RelayAddress, "relay_unknown"
-+					if p.LocalRelay != "" && strings.Contains(peer.RelayAddress, p.LocalRelay) {
++					if netgoRelayMatches(peer.RelayAddress, p.LocalRelay) {
 +						out["path"] = "local_relay"
-+					} else if p.AuxiliaryRelay != "" && strings.Contains(peer.RelayAddress, p.AuxiliaryRelay) {
++					} else if netgoRelayMatches(peer.RelayAddress, p.AuxiliaryRelay) {
 +						out["path"] = "auxiliary_relay"
 +					}
 +				}
@@ -252,10 +310,10 @@ index 9a6bc06..73d1c5f 100644
  	conn, err := grpc.DialContext(connCtx, addr, opts...)
 diff --git a/client/grpc/netgo.go b/client/grpc/netgo.go
 new file mode 100644
-index 0000000..4d63cdf
+index 0000000..c90a9c0
 --- /dev/null
 +++ b/client/grpc/netgo.go
-@@ -0,0 +1,106 @@
+@@ -0,0 +1,193 @@
 +package grpc
 +
 +import (
@@ -263,22 +321,29 @@ index 0000000..4d63cdf
 +	"crypto/tls"
 +	"crypto/x509"
 +	"errors"
-+	"google.golang.org/grpc"
-+	"google.golang.org/grpc/credentials"
 +	"net"
++	"strconv"
 +	"strings"
 +	"sync"
 +	"time"
++
++	"google.golang.org/grpc"
++	"google.golang.org/grpc/credentials"
 +)
++
++type netgoCandidate struct {
++	address string
++	kind    string
++}
 +
 +var netgoRoutes = struct {
 +	sync.RWMutex
-+	m     map[string][]string
++	m     map[string][]netgoCandidate
 +	roots map[string]*x509.CertPool
-+}{m: map[string][]string{}, roots: map[string]*x509.CertPool{}}
++}{m: map[string][]netgoCandidate{}, roots: map[string]*x509.CertPool{}}
 +
-+// CA bytes are public trust material received only through an authorized Login.
-+// Never accept a caller-supplied filesystem path opened by the privileged daemon.
++// ConfigureNetGoCA accepts public trust material from an authorized Login, never
++// a caller-supplied path for the privileged daemon to open.
 +func ConfigureNetGoCA(authority, ca string) error {
 +	if len(ca) > 256*1024 {
 +		return errors.New("NetGo CA too large")
@@ -316,20 +381,33 @@ index 0000000..4d63cdf
 +	return grpc.WithTransportCredentials(credentials.NewTLS(&tls.Config{ServerName: host, RootCAs: roots, MinVersion: tls.VersionTLS12})), true
 +}
 +
-+// Called only after the daemon's profile/configuration ownership checks.
-+func ConfigureNetGoRoutes(authority string, candidates []string) error {
-+	if len(candidates) > 8 {
-+		return errors.New("too many NetGo candidates")
++// ConfigureNetGoRoutes follows the daemon's profile ownership checks. Older
++// callers without kinds retain a preference for their first configured entry.
++func ConfigureNetGoRoutes(authority string, candidates []string, kinds ...string) error {
++	if len(candidates) == 0 || len(candidates) > 8 || (len(kinds) != 0 && len(kinds) != len(candidates)) {
++		return errors.New("invalid NetGo candidate count")
 +	}
-+	for _, addr := range candidates {
++	entries := make([]netgoCandidate, 0, len(candidates))
++	for index, addr := range candidates {
 +		h, p, e := net.SplitHostPort(addr)
-+		if e != nil || h == "" || p == "" || strings.ContainsAny(addr, "\n\r/\\ ") {
++		port, portErr := strconv.ParseUint(p, 10, 16)
++		if e != nil || h == "" || portErr != nil || port == 0 || strings.ContainsAny(addr, "\x00\n\r\t/\\ ") {
 +			return errors.New("invalid NetGo candidate")
 +		}
++		kind := "direct"
++		if len(kinds) != 0 {
++			kind = kinds[index]
++		} else if index != 0 {
++			kind = "auxiliary"
++		}
++		if kind != "direct" && kind != "auxiliary" {
++			return errors.New("invalid NetGo candidate kind")
++		}
++		entries = append(entries, netgoCandidate{address: addr, kind: kind})
 +	}
 +	netgoRoutes.Lock()
 +	defer netgoRoutes.Unlock()
-+	netgoRoutes.m[authority] = append([]string(nil), candidates...)
++	netgoRoutes.m[authority] = entries
 +	return nil
 +}
 +func netgoDialOption(authority string) (grpc.DialOption, bool) {
@@ -341,26 +419,251 @@ index 0000000..4d63cdf
 +	}
 +	return grpc.WithContextDialer(func(ctx context.Context, _ string) (net.Conn, error) {
 +		netgoRoutes.RLock()
-+		list := append([]string(nil), netgoRoutes.m[authority]...)
++		list := append([]netgoCandidate(nil), netgoRoutes.m[authority]...)
 +		roots := netgoRoutes.roots[authority]
 +		netgoRoutes.RUnlock()
-+		host, _, e := net.SplitHostPort(authority)
-+		if e != nil {
-+			host = authority
-+		}
-+		for _, addr := range list {
-+			probe, cancel := context.WithTimeout(ctx, 3*time.Second)
-+			td := tls.Dialer{NetDialer: &net.Dialer{Timeout: 3 * time.Second}, Config: &tls.Config{ServerName: host, RootCAs: roots, MinVersion: tls.VersionTLS12, NextProtos: []string{"h2"}}}
-+			c, e := td.DialContext(probe, "tcp", addr)
-+			cancel()
-+			if e != nil {
-+				continue
-+			}
-+			c.Close()
-+			return (&net.Dialer{Timeout: 3 * time.Second, KeepAlive: 30 * time.Second}).DialContext(ctx, "tcp", addr)
-+		}
-+		return nil, errors.New("no trusted NetGo control candidate")
++		return dialNetGo(ctx, authority, list, roots)
 +	}), true
++}
++
++func dialNetGo(ctx context.Context, authority string, candidates []netgoCandidate, roots *x509.CertPool) (net.Conn, error) {
++	if err := ctx.Err(); err != nil {
++		return nil, err
++	}
++	ctx, cancel := context.WithCancel(ctx)
++	var workers sync.WaitGroup
++	defer func() { cancel(); workers.Wait() }()
++	host, _, err := net.SplitHostPort(authority)
++	if err != nil {
++		host = authority
++	}
++	hasDirect := false
++	for _, candidate := range candidates {
++		hasDirect = hasDirect || candidate.kind == "direct"
++	}
++	// An unbuffered handoff gives each unsuccessful worker ownership of closing
++	// its connection once the winner returns or the calling generation cancels.
++	results := make(chan net.Conn)
++	for _, candidate := range candidates {
++		workers.Add(1)
++		go func(candidate netgoCandidate) {
++			defer workers.Done()
++			if candidate.kind == "auxiliary" && hasDirect {
++				timer := time.NewTimer(800 * time.Millisecond)
++				defer timer.Stop()
++				select {
++				case <-ctx.Done():
++					return
++				case <-timer.C:
++				}
++			}
++			connection := probeNetGo(ctx, host, candidate.address, roots)
++			select {
++			case results <- connection:
++			case <-ctx.Done():
++				if connection != nil {
++					_ = connection.Close()
++				}
++			}
++		}(candidate)
++	}
++	for range candidates {
++		select {
++		case <-ctx.Done():
++			return nil, ctx.Err()
++		case connection := <-results:
++			if connection != nil {
++				if err := ctx.Err(); err != nil {
++					_ = connection.Close()
++					return nil, err
++				}
++				return connection, nil
++			}
++		}
++	}
++	return nil, errors.New("no trusted NetGo control candidate")
++}
++
++func probeNetGo(ctx context.Context, host, address string, roots *x509.CertPool) net.Conn {
++	ctx, cancel := context.WithTimeout(ctx, 3*time.Second)
++	defer cancel()
++	dialer := tls.Dialer{NetDialer: &net.Dialer{Timeout: 3 * time.Second}, Config: &tls.Config{
++		ServerName: host, RootCAs: roots, MinVersion: tls.VersionTLS12, NextProtos: []string{"h2"},
++	}}
++	probe, err := dialer.DialContext(ctx, "tcp", address)
++	if err != nil {
++		return nil
++	}
++	negotiated := probe.(*tls.Conn).ConnectionState().NegotiatedProtocol
++	_ = probe.Close()
++	if negotiated != "h2" {
++		return nil
++	}
++	// gRPC performs its own TLS handshake over this transport with the same
++	// authority and trust roots; the probe never sends application credentials.
++	connection, err := (&net.Dialer{Timeout: 3 * time.Second, KeepAlive: 30 * time.Second}).DialContext(ctx, "tcp", address)
++	if err != nil {
++		return nil
++	}
++	return connection
++}
+diff --git a/client/grpc/netgo_dial_test.go b/client/grpc/netgo_dial_test.go
+new file mode 100644
+index 0000000..ab5a374
+--- /dev/null
++++ b/client/grpc/netgo_dial_test.go
+@@ -0,0 +1,152 @@
++package grpc
++
++import (
++	"context"
++	"crypto/x509"
++	"encoding/pem"
++	"errors"
++	"net"
++	"net/http"
++	"net/http/httptest"
++	"sync"
++	"testing"
++	"time"
++
++	rpc "google.golang.org/grpc"
++	"google.golang.org/grpc/credentials"
++	"google.golang.org/grpc/health"
++	healthpb "google.golang.org/grpc/health/grpc_health_v1"
++)
++
++func netgoTLSFixture(t *testing.T) (string, string) {
++	t.Helper()
++	certificate := httptest.NewTLSServer(http.HandlerFunc(func(http.ResponseWriter, *http.Request) {}))
++	config := certificate.TLS.Clone()
++	ca := string(pem.EncodeToMemory(&pem.Block{Type: "CERTIFICATE", Bytes: certificate.Certificate().Raw}))
++	certificate.Close()
++	listener, err := net.Listen("tcp", "127.0.0.1:0")
++	if err != nil {
++		t.Fatal(err)
++	}
++	server := rpc.NewServer(rpc.Creds(credentials.NewTLS(config)))
++	healthpb.RegisterHealthServer(server, health.NewServer())
++	go func() { _ = server.Serve(listener) }()
++	t.Cleanup(server.Stop)
++	return listener.Addr().String(), ca
++}
++
++func netgoStalledFixture(t *testing.T) string {
++	t.Helper()
++	listener, err := net.Listen("tcp", "127.0.0.1:0")
++	if err != nil {
++		t.Fatal(err)
++	}
++	var mu sync.Mutex
++	var connections []net.Conn
++	done := make(chan struct{})
++	go func() {
++		defer close(done)
++		for {
++			connection, err := listener.Accept()
++			if err != nil {
++				return
++			}
++			mu.Lock()
++			connections = append(connections, connection)
++			mu.Unlock()
++		}
++	}()
++	t.Cleanup(func() {
++		_ = listener.Close()
++		<-done
++		mu.Lock()
++		defer mu.Unlock()
++		for _, connection := range connections {
++			_ = connection.Close()
++		}
++	})
++	return listener.Addr().String()
++}
++
++func TestNetGoFallbackPastStalledTLSCandidates(t *testing.T) {
++	address, ca := netgoTLSFixture(t)
++	stalled := netgoStalledFixture(t)
++	if err := ConfigureNetGoCA(address, ca); err != nil {
++		t.Fatal(err)
++	}
++	if err := ConfigureNetGoRoutes(address, []string{stalled, stalled, stalled, stalled, stalled, stalled, stalled, address}); err != nil {
++		t.Fatal(err)
++	}
++	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
++	defer cancel()
++	connection, err := CreateConnection(ctx, address, true, "/management")
++	if err != nil {
++		t.Fatalf("healthy final candidate was blocked by stalled TLS candidates: %v", err)
++	}
++	defer connection.Close()
++	if _, err := healthpb.NewHealthClient(connection).Check(ctx, &healthpb.HealthCheckRequest{}); err != nil {
++		t.Fatal(err)
++	}
++}
++
++func TestNetGoDialPrefersDirectRegardlessOfCandidateOrder(t *testing.T) {
++	direct, ca := netgoTLSFixture(t)
++	auxiliary, _ := netgoTLSFixture(t)
++	roots := x509.NewCertPool()
++	if !roots.AppendCertsFromPEM([]byte(ca)) {
++		t.Fatal("invalid test CA")
++	}
++	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
++	defer cancel()
++	connection, err := dialNetGo(ctx, direct, []netgoCandidate{
++		{address: auxiliary, kind: "auxiliary"}, {address: direct, kind: "direct"},
++	}, roots)
++	if err != nil {
++		t.Fatal(err)
++	}
++	defer connection.Close()
++	if connection.RemoteAddr().String() != direct {
++		t.Fatal("a healthy direct entry lost its preference")
++	}
++}
++
++func TestNetGoDialCancellationStopsStalledProbes(t *testing.T) {
++	stalled := netgoStalledFixture(t)
++	ctx, cancel := context.WithTimeout(context.Background(), 100*time.Millisecond)
++	defer cancel()
++	connection, err := dialNetGo(ctx, "127.0.0.1:443", []netgoCandidate{{address: stalled, kind: "direct"}}, nil)
++	if connection != nil || !errors.Is(err, context.DeadlineExceeded) {
++		t.Fatalf("cancelled probe returned a connection: %v %v", connection, err)
++	}
++}
++
++func TestNetGoDialRejectsWrongTLSIdentity(t *testing.T) {
++	address, ca := netgoTLSFixture(t)
++	roots := x509.NewCertPool()
++	if !roots.AppendCertsFromPEM([]byte(ca)) {
++		t.Fatal("invalid test CA")
++	}
++	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
++	defer cancel()
++	connection, err := dialNetGo(ctx, "wrong.example.invalid:443", []netgoCandidate{{address: address, kind: "direct"}}, roots)
++	if connection != nil || err == nil || errors.Is(err, context.DeadlineExceeded) {
++		t.Fatalf("wrong TLS identity was not rejected: %v %v", connection, err)
++	}
++}
++
++func TestNetGoCandidateKindsAndPorts(t *testing.T) {
++	for _, address := range []string{"site.test:0", "site.test:65536", "site.test:abc", "site\t.test:443"} {
++		if ConfigureNetGoRoutes("validation.test:443", []string{address}) == nil {
++			t.Fatalf("invalid address accepted: %q", address)
++		}
++	}
++	if ConfigureNetGoRoutes("validation.test:443", []string{"site.test:443"}, "unknown") == nil {
++		t.Fatal("invalid candidate kind accepted")
++	}
++	if ConfigureNetGoRoutes("validation.test:443", []string{"site.test:443", "aux.test:443"}, "direct") == nil {
++		t.Fatal("mismatched candidate kinds accepted")
++	}
++	if err := ConfigureNetGoRoutes("validation.test:443", []string{"aux.test:443", "site.test:443"}, "auxiliary", "direct"); err != nil {
++		t.Fatal(err)
++	}
 +}
 diff --git a/client/grpc/netgo_test.go b/client/grpc/netgo_test.go
 new file mode 100644
@@ -372,7 +675,7 @@ index 0000000..77394a9
 +import("testing")
 +func TestNetGoCandidateValidation(t *testing.T){if e:=ConfigureNetGoRoutes("site.test:443",[]string{"site.test:443","vps.test:8443"});e!=nil{t.Fatal(e)};if _,ok:=netgoDialOption("site.test:443");!ok{t.Fatal("not registered")};if _,ok:=netgoDialOption("another.test:443");ok{t.Fatal("cross-site route leak")};for _,s:=range []string{"no-port","https://site.test:443","bad\n:443"}{if ConfigureNetGoRoutes("site.test:443",[]string{s})==nil{t.Fatal("unsafe candidate",s)}}}
 diff --git a/client/server/server.go b/client/server/server.go
-index c16c5f4..9ee9b12 100644
+index c16c5f4..ef384b8 100644
 --- a/client/server/server.go
 +++ b/client/server/server.go
 @@ -22,6 +22,7 @@ import (
@@ -400,7 +703,7 @@ index c16c5f4..9ee9b12 100644
 +		if err := netgogrpc.ConfigureNetGoCA(config.ManagementURL.Host, publicCA); err != nil {
 +			return nil, gstatus.Error(codes.InvalidArgument, err.Error())
 +		}
-+		if err := netgogrpc.ConfigureNetGoRoutes(config.ManagementURL.Host, md.Get("netgo-candidate")); err != nil {
++		if err := netgogrpc.ConfigureNetGoRoutes(config.ManagementURL.Host, md.Get("netgo-candidate"), md.Get("netgo-candidate-kind")...); err != nil {
 +			return nil, gstatus.Error(codes.InvalidArgument, err.Error())
 +		}
 +		key, err := wgtypes.ParseKey(config.PrivateKey)

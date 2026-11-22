@@ -33,7 +33,7 @@ func (n *Native) Refresh(ctx context.Context, c model.Credential, oldToken, refr
 		d := st.Devices[c.DeviceID]
 		parts := strings.Split(t.Nonce, ":")
 		u := st.Users[c.UserID]
-		if t.Subject != u.ID || !u.Active(time.Now()) || len(parts) != 4 || parts[1] != d.PublicKey || parts[2] != d.WireGuardKey {
+		if t.Subject != u.ID || !u.Active(time.Now()) || !time.Now().Before(t.Expiry) || len(parts) != 4 || parts[0] != "netgo" || parts[1] != d.PublicKey || parts[2] != d.WireGuardKey {
 			return model.ErrForbidden
 		}
 		if !u.ExpiresAt.IsZero() && u.ExpiresAt.Before(result.ExpiresAt) {

@@ -6,14 +6,15 @@
  }
 }
 https://@@CONTROL_HOST@@:@@CONTROL_PORT@@ {
+@@CONTROL_BIND_DIRECTIVE@@
  tls /etc/netgo/tls/control.crt /etc/netgo/tls/control.key
  @private path /oauth2/netgo/*
  respond @private 404
  @netgo path /netgo/* /netgo-ui/* /assets/* /
  handle @netgo {
-  reverse_proxy 127.0.0.1:8081
+  reverse_proxy @@PRODUCT_LISTEN@@
  }
  handle {
-  reverse_proxy h2c://127.0.0.1:8080
+  reverse_proxy h2c://@@MANAGEMENT_LISTEN@@
  }
 }

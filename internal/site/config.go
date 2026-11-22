@@ -1,6 +1,7 @@
 package site
 
 import (
+	"bytes"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -11,6 +12,7 @@ import (
 	"netgo/internal/model"
 	"os"
 	"regexp"
+	"strconv"
 	"strings"
 )
 
@@ -21,6 +23,7 @@ type Candidate struct {
 }
 type Profile struct {
 	Protocol       int
+	ConfigRevision uint64
 	ID             string
 	Name           string
 	Origin         string
@@ -45,22 +48,32 @@ type Config struct {
 	LocalCIDRs          []string
 	LeaseSeconds        int
 	Auxiliaries         []Auxiliary
+	Deployment          Deployment
 }
 type Auxiliary struct {
-	ID         string
-	Host       string
-	Relay      string
-	STUN       string
-	TunnelHost string
-	TokenFile  string
-	Mode       string
+	ID          string
+	Host        string
+	Relay       string
+	STUN        string
+	TunnelHost  string
+	TokenFile   string
+	Mode        string
+	ControlPort int
+	TunnelPort  int
 }
 
 var ident = regexp.MustCompile("^[a-zA-Z0-9][a-zA-Z0-9_.-]{0,62}$")
 
 func ValidID(s string) bool { return ident.MatchString(s) }
 func Decode(r io.Reader, dst any) error {
-	d := json.NewDecoder(io.LimitReader(r, 1<<20))
+	b, err := io.ReadAll(io.LimitReader(r, (1<<20)+1))
+	if err != nil {
+		return err
+	}
+	if len(b) > 1<<20 {
+		return errors.New("JSON exceeds 1 MB")
+	}
+	d := json.NewDecoder(bytes.NewReader(b))
 	d.DisallowUnknownFields()
 	if err := d.Decode(dst); err != nil {
 		return err
@@ -88,9 +101,17 @@ func (p Profile) Validate() error {
 	if p.Protocol != model.Protocol || !ValidID(p.ID) {
 		return errors.New("unsupported protocol or invalid site ID")
 	}
+	if p.ConfigRevision > MaxConfigRevision {
+		return errors.New("invalid configuration revision")
+	}
 	u, e := url.Parse(p.Origin)
-	if e != nil || u.Scheme != "https" || u.Hostname() == "" || u.User != nil || u.RawQuery != "" || u.Fragment != "" || u.Path != "" {
+	if e != nil || u.Scheme != "https" || u.Hostname() == "" || u.User != nil || u.RawQuery != "" || u.Fragment != "" || u.Path != "" || strings.HasSuffix(u.Host, ":") {
 		return errors.New("origin must be an HTTPS authority")
+	}
+	if u.Port() != "" {
+		if port, err := strconv.Atoi(u.Port()); err != nil || port < 1 || port > 65535 {
+			return errors.New("invalid HTTPS origin port")
+		}
 	}
 	if len(p.Candidates) == 0 || len(p.Candidates) > 8 {
 		return errors.New("1..8 candidates required")
@@ -110,7 +131,7 @@ func (p Profile) Validate() error {
 		if e != nil || h == "" || port == "" || strings.ContainsAny(h, "/\\\n\r\t \";") {
 			return errors.New("candidate must be host:port")
 		}
-		n, e := net.LookupPort("tcp", port)
+		n, e := strconv.Atoi(port)
 		if e != nil || n < 1 || n > 65535 {
 			return errors.New("invalid candidate port")
 		}
@@ -124,15 +145,18 @@ func (c Config) Validate() error {
 	if e := c.Site.Validate(); e != nil {
 		return e
 	}
-	h, _, e := net.SplitHostPort(c.Listen)
+	h, port, e := net.SplitHostPort(c.Listen)
 	if e != nil {
 		return e
+	}
+	if n, err := strconv.Atoi(port); err != nil || n < 1 || n > 65535 {
+		return errors.New("invalid HTTP listen port")
 	}
 	a, e := netip.ParseAddr(h)
 	if e != nil || !a.IsLoopback() {
 		return errors.New("HTTP service must listen on loopback behind TLS gateway")
 	}
-	if c.Database == "" || c.HelperSocket == "" || !ValidID(c.Interface) || !ValidID(c.LANInterface) || c.Interface == c.LANInterface {
+	if c.Database == "" || c.HelperSocket == "" || !ValidID(c.Interface) || !ValidID(c.LANInterface) || len(c.Interface) > 15 || len(c.LANInterface) > 15 || c.Interface == c.LANInterface {
 		return errors.New("invalid paths or network interfaces")
 	}
 	o, e := netip.ParsePrefix(c.OverlayCIDR)
@@ -149,12 +173,20 @@ func (c Config) Validate() error {
 		return errors.New("lease_seconds must be 15..120")
 	}
 	u, e := url.Parse(c.ManagementURL)
-	if e != nil || u.Scheme != "http" || u.User != nil || u.RawQuery != "" {
+	if e != nil || u.Scheme != "http" || u.User != nil || u.RawQuery != "" || u.Fragment != "" || u.Path != "" {
 		return errors.New("management URL must be local HTTP")
 	}
 	ip, e := netip.ParseAddr(u.Hostname())
 	if e != nil || !ip.IsLoopback() {
 		return errors.New("management API must be loopback")
+	}
+	if strings.HasSuffix(u.Host, ":") {
+		return errors.New("management URL has an empty port")
+	}
+	if u.Port() != "" {
+		if n, err := strconv.Atoi(u.Port()); err != nil || n < 1 || n > 65535 {
+			return errors.New("invalid management port")
+		}
 	}
 	if c.ManagementTokenFile == "" || c.NativeSecretFile == "" {
 		return errors.New("secret files required")
@@ -166,8 +198,11 @@ func (c Config) Validate() error {
 		if !ValidID(a.ID) || a.Host == "" || a.TokenFile == "" || (a.Mode != "diagnostic" && a.Mode != "443") {
 			return errors.New("invalid auxiliary")
 		}
+		if err := a.Validate(); err != nil {
+			return err
+		}
 	}
-	return nil
+	return c.Deployment.Validate(c.Site.Origin)
 }
 func ValidateResource(r model.Resource, overlay string) error {
 	p, e := netip.ParsePrefix(r.CIDR)

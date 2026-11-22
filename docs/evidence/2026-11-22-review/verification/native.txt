@@ -1,0 +1,32 @@
+-- Configuring done (0.1s)
+-- Generating done (0.0s)
+-- Build files have been written to: E:/NetGo/.cache/native-build
+[1/10] Building CXX object CMakeFiles/netgo-agent.dir/src/agent.cpp.obj
+[2/10] Building CXX object CMakeFiles/netgo-native.dir/src/transport.cpp.obj
+[3/10] Building CXX object CMakeFiles/netgo-native.dir/src/platform.cpp.obj
+[4/10] Building CXX object CMakeFiles/netgo-native.dir/src/controller.cpp.obj
+[5/10] Linking CXX static library libnetgo-native.a
+[6/10] Building CXX object CMakeFiles/netgo-desktop.dir/src/ui.cpp.obj
+[7/10] Linking CXX executable netgo-agent.exe
+[8/10] Linking CXX executable netgo-desktop.exe
+[9/10] Building CXX object CMakeFiles/native-tests.dir/tests/core_tests.cpp.obj
+[10/10] Linking CXX executable native-tests.exe
+Test project E:/NetGo/.cache/native-build
+    Start 1: native-core
+1/2 Test #1: native-core ......................   Passed    2.24 sec
+    Start 2: native-ipc
+2/2 Test #2: native-ipc .......................   Passed    0.33 sec
+
+100% tests passed, 0 tests failed out of 2
+
+Total Test time (real) =   2.58 sec
+PASS canonical TLS identity, fallback and signed request
+PASS canonical TLS identity, fallback and signed request
+PASS multi-WAN recovery: unavailable WAN1/WAN3, three WAN2 confirmations and canonical signed request
+PASS canonical TLS identity, fallback and signed request
+PASS TLS rejection
+PASS TLS rejection
+PASS TLS rejection
+PASS seven stalled TLS candidates: bounded parallel fallback
+PASS loopback TLS: canonical SNI/Host including port 10443, auxiliary fallback, Ed25519, wrong host, unknown CA, expired certificate
+Built and verified native Windows UI and agent. Build patched NetBird before packaging.

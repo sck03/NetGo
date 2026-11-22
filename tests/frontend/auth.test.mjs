@@ -1,10 +1,11 @@
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
 import { createHash, webcrypto } from 'node:crypto'
-import { AdminSession } from '../../packages/ui/auth.ts'
+import { AdminSession, validateHealth } from '../../packages/ui/auth.ts'
 const enc = new TextEncoder()
 const unb64 = s => Buffer.from(s, 'base64url')
 const sha = s => createHash('sha256').update(s).digest('hex')
+const health = { protocol: 1, site_id: 'site', capabilities: ['native-auth-v1','device-signature-v1','leases-v1','profile-revision-v1','admin-v1','diagnostics-v1'] }
 
 function server(t, role = 'admin') {
   const original = globalThis.fetch
@@ -14,6 +15,8 @@ function server(t, role = 'admin') {
     paths.push(path)
     assert.equal(options.redirect, 'error')
     assert.equal(options.cache, 'no-store')
+    assert.equal(options.headers['X-NetGo-Protocol'], '1')
+    if (path.endsWith('/health')) return new Response(JSON.stringify(health))
     const body = options.body || '', data = body ? JSON.parse(body) : {}
     if (path.endsWith('/transactions')) {
       begin = data
@@ -55,6 +58,38 @@ test('ordinary users cannot retain an administrator session', async t => {
   await assert.rejects(new AdminSession().login('site', 'admin', 'test-password'), /管理权限/)
 })
 
+test('concurrent management requests share one refresh of the rotating credential', async t => {
+  const fixture = server(t)
+  const session = new AdminSession()
+  await session.login('site', 'admin', 'test-password')
+  await Promise.all(Array.from({ length: 20 }, () => session.request('/netgo/v1/admin/state')))
+  assert.equal(fixture.paths.filter(path => path.endsWith('/refresh')).length, 1)
+  assert.equal(fixture.paths.filter(path => path.endsWith('/admin/state')).length, 20)
+  assert(session.active)
+})
+
+test('logout aborts a pending refresh and cannot revive the management session', async t => {
+  server(t)
+  const session = new AdminSession()
+  await session.login('site', 'admin', 'test-password')
+  const fetch = globalThis.fetch
+  let entered, release, signal
+  const started = new Promise(resolve => { entered = resolve })
+  globalThis.fetch = (path, options) => {
+    if (!path.endsWith('/refresh')) return fetch(path, options)
+    signal = options.signal
+    entered()
+    return new Promise(resolve => { release = resolve })
+  }
+  const pending = session.request('/netgo/v1/admin/state')
+  await started
+  session.logout()
+  assert(signal.aborted)
+  release(new Response(JSON.stringify({ token: 'late-token', expires_at: new Date(Date.now() + 3600000).toISOString() })))
+  await assert.rejects(pending, /取消/)
+  assert.equal(session.active, false)
+})
+
 test('external URLs cannot receive management credentials', async t => {
   server(t)
   const session = new AdminSession()
@@ -71,4 +106,14 @@ test('logout cancels a delayed login response', async t => {
   const session = new AdminSession(), login = session.login('site', 'admin', 'password')
   await started; session.logout(); release(new Response(JSON.stringify({ id: 'tx', nonce: 'nonce' }), { status: 200 }))
   await assert.rejects(login, /取消/)
+})
+
+test('incompatible servers cannot receive administrator passwords', async t => {
+  const original = globalThis.fetch, paths = []
+  globalThis.fetch = async path => { paths.push(path); return new Response(JSON.stringify({ ...health, capabilities: ['native-auth-v1'] })) }
+  t.after(() => { globalThis.fetch = original })
+  await assert.rejects(new AdminSession().login('site','admin','secret'), /不兼容/)
+  assert.deepEqual(paths, ['/netgo/v1/health'])
+  assert.throws(() => validateHealth({ ...health, protocol: 2 }, 'site'), /不兼容/)
+  assert.throws(() => validateHealth(health, 'another'), /身份/)
 })

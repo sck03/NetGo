@@ -1,0 +1,10 @@
+{
+  "id": "A29",
+  "title": "备份/升级回退",
+  "requirements": [
+    "R11"
+  ],
+  "status": "NOT-RUN",
+  "instructions": "NETWORK_ACCEPTANCE.zh-CN.md A29",
+  "note": "Collect each actual attempt in a new runs/<name> directory; never overwrite earlier evidence."
+}

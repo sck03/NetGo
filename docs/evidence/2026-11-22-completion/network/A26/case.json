@@ -1,0 +1,11 @@
+{
+  "id": "A26",
+  "title": "取消/切站点/重启",
+  "requirements": [
+    "R10",
+    "R12"
+  ],
+  "status": "NOT-RUN",
+  "instructions": "NETWORK_ACCEPTANCE.zh-CN.md A26",
+  "note": "Collect each actual attempt in a new runs/<name> directory; never overwrite earlier evidence."
+}

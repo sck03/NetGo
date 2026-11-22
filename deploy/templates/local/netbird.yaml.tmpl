@@ -1,6 +1,6 @@
 server:
-  listenAddress: "127.0.0.1:8080"
-  exposedAddress: "https://@@CONTROL_HOST@@:443"
+  listenAddress: "@@MANAGEMENT_LISTEN@@"
+  exposedAddress: "@@CONTROL_ORIGIN@@"
   healthcheckAddress: "127.0.0.1:9000"
   metricsPort: 9090
   logLevel: "info"
@@ -9,7 +9,7 @@ server:
   disableAnonymousMetrics: true
   disableGeoliteUpdate: true
   stuns:
-    - uri: "stun:@@LOCAL_RELAY@@:3478"
+    - uri: "stun:@@LOCAL_RELAY@@:@@STUN_PORT@@"
 @@AUX_STUN@@
   relays:
     addresses:
@@ -18,13 +18,13 @@ server:
     credentialsTTL: "12h"
     secret: "@@RELAY_SECRET@@"
   auth:
-    issuer: "https://@@CONTROL_HOST@@/oauth2"
+    issuer: "@@CONTROL_ORIGIN@@/oauth2"
     localAuthDisabled: false
     signKeyRefreshEnabled: true
     cliRedirectURIs:
       - "http://localhost:53000/"
     dashboardRedirectURIs:
-      - "https://@@CONTROL_HOST@@/nb-auth"
+      - "@@CONTROL_ORIGIN@@/nb-auth"
   store:
     engine: "sqlite"
     encryptionKey: "@@STORE_KEY@@"

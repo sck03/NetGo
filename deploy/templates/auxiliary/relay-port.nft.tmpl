@@ -1,4 +1,4 @@
-add table inet netgo_relay
+add table inet netgo_relay { comment "NetGo relay redirect v1"; }
 flush table inet netgo_relay
 add chain inet netgo_relay prerouting { type nat hook prerouting priority dstnat; policy accept; }
-add rule inet netgo_relay prerouting udp dport 443 redirect to :8443
+add rule inet netgo_relay prerouting udp dport @@AUX_RELAY_PORT@@ redirect to :@@AUX_RELAY_BIND_PORT@@

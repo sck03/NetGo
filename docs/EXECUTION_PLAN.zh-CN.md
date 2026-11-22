@@ -1,10 +1,30 @@
 # NetGo Linux 局域网远程接入：完整执行方案
 
-版本：1.1。修订日期：2026-11-22（Asia/Shanghai）。
+版本：1.6。修订日期：2026-11-22（Asia/Shanghai）。当前开发版本：0.2.3-dev。
 
-状态：已编写服务端、管理页面、原生 Windows 客户端及部署工具；自动验证结果见 docs/evidence/implementation/REPORT.zh-CN.md。真实 LAN/NAT/VPS、权限阻断和 72 小时验收未执行，发行门槛保持关闭。接口与目录以第 9 节及实际源码为准。
+状态：Go Linux 服务端、管理页面、C++20/Win32 桌面客户端及部署工具的本轮源码与开发交付完成，15 段完整自动检查和三个 0.2.3-dev 开发包校验通过。历史基线保留在各原 evidence 目录；当前修复与实际验证见 docs/evidence/2026-11-22-plan-v1.6/REPORT.zh-CN.md。真实 LAN/NAT/VPS、权限阻断和 72 小时验收未执行，发行门槛保持关闭。Windows/Linux 优先，macOS、Android、iOS 后续扩展。
 
 本方案取代旧版 `ARCHITECTURE_PLAN.zh-CN.md` 的实施优先级。服务端收敛为 Linux，第一版目标为远程访问 Linux 所在局域网；OpenWrt、互联网出口和代理插件不进入第一版交付。
+
+### 本轮执行与审阅口径
+
+本次按 D0–D4 连续分段推进，在现有实现上核查并修复缺口，不重复编写已有功能。进入本轮时，163 个代码/构建/测试输入与 v1.5 的 14 段完整验证具有相同指纹；这只证明历史证据仍对应当前输入，不免除本轮发现问题后的修复与验证。
+
+| 段落 | 工作与交付 | 完成判定 |
+| --- | --- | --- |
+| D0 方案校正 | 区分本轮任务、历史记录和真实验收；建立本轮问题表 | 方案、任务表、进度和审阅报告指向同一当前记录 |
+| D1 核心流程 | 核查服务权限协调、客户端建连/恢复及跨模块失败路径，修复确定缺陷 | 问题对应源码、回归验证与明确的用户行为 |
+| D2 部署与交付 | 核查 Debian 构建、安装/恢复、交付清单和验证工具 | 代码/工具缺口关闭；不能运行的系统验证逐项保留 |
+| D3 集成验证 | 在稳定源码上执行完整自动检查并保存摘要 | 代码指纹与日志一致；失败修复后重新运行受影响检查 |
+| D4 文档与终检 | 同步操作手册、条款追踪、开发包及最终结果 | 实现、文档、包和验证相符；遗留项及运行条件可审阅 |
+
+实时进度写入 `PROGRESS.zh-CN.md`，本轮问题和证据写入 `evidence/2026-11-22-plan-v1.6/`。每段开始记录进行中，实际验证后才更新结果。完整条款定位见 `IMPLEMENTATION_MATRIX.zh-CN.md`。v1.4 的 S0–S5、v1.5 的 C0–C4 和接续终检分别保留在原 evidence 目录及进度历史中，不改写历史结果。
+
+完成状态分开登记：**源码完成**表示约定范围已有实现且本轮已确认的阻断缺陷已修复；**自动验证完成**须有对应源码指纹、命令和实际结果；**真实验收完成**须有目标环境证据；**可发行**还须通过 P0–P4 的退出条件。替身、回环服务、脚本计划检查和交叉编译不能替代 LAN/NAT、systemd、跨用户安装或 72 小时验收。
+
+此前确认的范围继续有效：Debian 13 amd64 服务端、Windows 11 x64 原生 C++ 客户端和 Linux 诊断 CLI；暂未准备真实实验环境，继续完成源码、自动验证和验收工具，阶段切换不重复等待确认。Go/Node 使用版本锁，不能假设 Debian 仓库版本符合构建要求。发现明确架构阻碍时记录证据并停止依赖该阻碍的实现。
+
+国内动态公网默认使用可配置高位端口（控制 10443、Relay 18443），VPS 独立选择高位端口或 443，保持同一 HTTPS authority/issuer。H3C MSR3610-X1-DP 的 2–3 条宽带由路由器处理拨号、NAT、连接保持和回程，NetGo 处理多候选与恢复；逐 WAN DDNS/地址文件边界见 `MULTI_WAN.zh-CN.md`。端口与多 WAN 行为均须按实际线路验证。
 
 ## 1. 产品目标与不可改变的要求
 
@@ -35,7 +55,7 @@
 
 | 项目 | 第一版确定范围 |
 | --- | --- |
-| Linux 服务端 | Ubuntu 24.04 LTS，amd64；在真实或虚拟 Linux 上验证 |
+| Linux 服务端 | Debian 13，amd64；在真实或虚拟 Linux 上验证 |
 | 用户客户端 | Windows 11 x64 桌面版；Linux CLI 用于诊断和自动验收 |
 | 网络范围 | 一个站点、一个 Linux 路由节点、一个或多个明确配置的 IPv4 LAN 资源 |
 | 客户端会话 | 同时连接一个站点；不同站点的凭据、密钥、缓存和配置分离 |
@@ -116,6 +136,18 @@ NetBird 提供内嵌身份、独立 Relay/STUN、路由节点与受权 daemon RP
 
 VPS 不保存第二份用户密码库，不运行另一套活动 Management 数据库。控制请求的 TLS 终止于本地 Linux；VPS 自己只持有 Relay/frp 域名所需密钥。VPS 仍可看到连接地址、时序和流量大小。
 
+**只需零台或一台 VPS，不需要为 FRP 和 Relay 分别准备两台。** 一台可选 VPS 同时运行 frps、NetBird Relay/STUN；443 模式再运行 HAProxy。示例中的 VPS 地址、relay.aux.example 和 tunnel.aux.example 可以指向同一个公网 IP，它们按端口或 SNI 区分服务。
+
+FRP 本身能转发 LAN 的固定服务端口；如果需求仅为开放少量固定 NAS/SSH 服务，单用 FRP 是另一种可行产品范围。本方案保留 VPN 网段/资源权限、直连优先与自动恢复：FRP 负责备用控制入口，NetBird Relay 负责直连失败后的 VPN 数据。业务数据选择直连或 Relay，不再经 FRP 串联转发。
+
+```text
+登录/控制备用：客户端 → VPS 的 frps → Debian 的 frpc → 本地认证/控制
+业务优先路径：客户端 ↔ Debian → 获准 LAN 设备
+业务备用路径：客户端 ↔ 同一台 VPS 的 NetBird Relay ↔ Debian → 获准 LAN 设备
+```
+
+frpc 到 frps 的待命通道由 Debian 主动建立。无 VPS 模式仍由本地完整控制服务和本地 Relay/STUN 工作，可用性取决于本地入口实际可达。
+
 ### 4.3 控制路径与数据路径分开
 
 ```mermaid
@@ -167,9 +199,11 @@ flowchart LR
 
 导入文件包含站点身份、公钥/证书信任、候选和版本，不包含密码、私钥、Relay 共享密钥或管理令牌。初次导入需可信渠道或人工核对站点身份；后续候选更新通过已认证通道取得。缓存 IP 只能作为候选，证书/站点校验仍必须成功。
 
+0.2.2-dev 将配置版本实现为 Site.ConfigRevision（0 为旧开发文件，1 起版本化）。每次原生登录成功后从受认证 /site 同步，校验身份/版本、探测可达性后保存；连接期间保留本次快照，新候选在下次连接生效。服务器配置回退以更高版本发布旧内容，避免客户端防回退检查阻断恢复。既有候选的动态 DNS 与故障切换仍持续执行。
+
 ### 5.2 控制入口选择器
 
-将选路封装为统一 Go 传输组件，覆盖 HTTP、OIDC discovery/JWKS/token、Management gRPC、Signal 及实际使用的 WebSocket。只改 gRPC 不能算完成。
+将选路封装为各客户端的统一传输组件：Windows 使用 C++/OpenSSL，Linux CLI 使用 Go，NetBird gRPC/Signal 使用固定上游补丁。覆盖 HTTP、认证/刷新、Management gRPC、Signal 及实际使用的 WebSocket。服务端通过本机路径访问同一 issuer 的 discovery/JWKS/token。只改 gRPC 不能算完成。
 
 建议初始参数：
 
@@ -183,6 +217,8 @@ flowchart LR
 | 切换冷却 | 30 秒 | 已有路径失效可立即切换；健康路径不频繁搬迁 |
 
 参数是设计起点，需通过测试调整。健康探测不得提前发送用户名、密码或有副作用的注册请求；先选定并验证入口，再执行写操作。登录、注册、替换会话使用幂等键，不能因重试产生重复设备或踢掉新会话。
+
+0.2.3-dev 的上游 gRPC 适配保留候选类别，使用并发 TLS/HTTP2 探测、800 毫秒备用延迟、每候选 3 秒上限及取消清理，避免多个卡住的入口串行耗尽登录预算。已建立的健康 gRPC 流由上游维护，HTTP 入口选择器发现直达恢复并不强制重置该流；新建或断线重拨重新选路。Linux 诊断客户端复用唯一的当前用户 profile，并在租约授权后等待异步资源路由（最多 15 秒且可取消）；只有完整授权路由选择成功才继续显示连接状态。
 
 系统浏览器不会使用自定义 Go 拨号器。因此 P0 可用标准浏览器认证验证底层，正式原生登录必须覆盖所有 HTTP/OIDC 请求。管理网页的浏览器访问另行说明：公网不可达时优先从已连接的受权管理通道访问；不把浏览器自动故障切换当成已实现功能。
 
@@ -230,7 +266,7 @@ P0 分两步执行：
 - 返回只能使用一次、短时有效的授权结果，兑换时验证 PKCE、设备绑定和用户状态。初始事务有效期建议 60 秒；密码验证成功不直接代表 LAN 权限已开启。
 - 非标准“原生认证入口”只能称为本项目接口，不能声称是标准 OIDC 新增密码授权；不开放通用 password grant。
 - 不能靠抓取登录 HTML、模拟表单或在 WebView 中绕过认证限制作为长期方案。
-- 禁用账号、密码重置、会话撤销必须同时影响原生流程与标准用户状态。
+- 禁用账号、密码重置、会话撤销必须使产品凭据和 Linux 租约失效；在途密码验证也受认证代次约束。密码维护调用同一 IdP 的原生管理命令。标准 OIDC 已签 JWT 遵循上游有效期，不能仅凭密码已改就宣称全部既有 JWT 立即吊销；LAN 拒绝由 Linux 门禁保证。
 
 如果无法在既有身份服务内建立可维护的适配，先形成替代 ADR，评估以单一本地 OIDC 服务替换身份来源，并验证 NetBird 的接入方式。不能临时新增第二个密码库或放松 R07；此门槛未通过，不启动完整 UI 产品化。
 
@@ -317,18 +353,22 @@ LAN 设备的系统登录、共享权限和服务防火墙仍然有效；VPN 账
 
 | 位置 | 端口 | 用途 |
 | --- | --- | --- |
-| Linux | TCP 443 | Caddy，本地认证/管理/信令入口 |
-| Linux | TCP/UDP 8443 | 独立本地 Relay，分别 WS/QUIC |
+| Linux | TCP 10443，可调整 | Caddy，本地认证/管理/信令入口；新站点默认高位端口 |
+| Linux | TCP/UDP 18443，可调整 | 独立本地 Relay，分别 WS/QUIC |
 | Linux | UDP 3478 | 本地 STUN |
 | Linux | UDP 51820，可调整 | Linux 路由节点的固定数据端口；公网映射必须对应 |
-| VPS（可选） | TCP/UDP 443 | 外部 Relay |
+| VPS（可选） | TCP/UDP 28443，可调整 | 外部 Relay；可单独选择 443 模式 |
 | VPS（可选） | UDP 3478 | 外部 STUN |
-| VPS（可选） | TCP 7000 | frps 接收 Linux 的主动 TLS 通道 |
-| VPS（可选） | TCP 8443 | frps 暴露的控制转发入口，原始 TLS 透传至 Linux |
+| VPS（可选） | TCP 27000，可调整 | frps 接收 Linux 的主动 TLS 通道 |
+| VPS（可选） | TCP 24443，可调整 | frps 暴露的控制转发入口，原始 TLS 透传至 Linux |
 
 该模板用于一般网络和排错，不宣称覆盖“只允许 TCP 443 出站”的环境。
 
-### 8.2 TCP 443 兼容模板：第一版发行前完成
+控制端口取自 Site.Origin，内部服务端口取自 Listen/ManagementURL；Deployment.LocalRelayPort/LocalSTUNPort 配置本地服务。辅助节点从 Relay、STUN、ControlPort、TunnelPort 取得端口，默认示例不要求 443。公网端口映射与候选 Address 必须对应；外部映射端口可以与本地监听不同，逻辑 authority/issuer 不随物理候选切换。生成器输出 deployment.json 记录端口和文件摘要，并拒绝冲突、错误 SNI 和不一致的备用候选。
+
+### 8.2 可选 TCP 443 兼容模板
+
+Deployment.Mode 控制本地模式，Auxiliaries[].Mode 独立控制 VPS 模式。国内本地入站 443 受限时，可保持本地 diagnostic 高位端口，仅将可用 VPS 配为 443。A10 验证受限出站环境通过 VPS 的兼容能力，不要求本地宽带必须开放 443；无 VPS 的可用性依赖实际可达的本地入口。
 
 Linux 的公共 TCP 443 由 HAProxy TCP 模式接收：
 
@@ -353,6 +393,8 @@ Relay 的 TLS 保持在 Relay 进程终止，不使用会破坏其 QUIC 路径�
 
 建议 DNS-01 颁发/续期，让本地失去公网入口后仍可通过 DNS 服务更新证书；DNS 凭据限制到所需区域。证书留在各自 TLS 终止节点，控制域名私钥不复制到 VPS。
 
+HTTPS 证书按域名校验，不绑定 443。当前模板使用显式证书文件，关闭自动 HTTP challenge/HTTP3 监听。运维入口为外部 Certbot + DNS provider 插件完成 DNS-01，再调用 deploy/linux/deploy-certificate.sh 验证域名、有效期与密钥配对，更新证书并重载/重启对应活动服务；失败恢复原文件并保留受保护事务目录。第一版说明 Cloudflare 接入，其他 provider 须另行验证。ACME 客户端和插件由目标 Linux 提供，须记录实际版本后验收；本轮没有真实签发/续期结果。
+
 所选 DNS provider 的证书模块/客户端也纳入版本和构建清单；P0 在真实 DNS 区域验证 TXT 更新权限、续期及重载。不能把“配置 DNS-01”当作已经验证所有 DNS 厂商均支持。[S15]
 
 实验室可使用受信任的私有 CA，但必须显式导入信任，不能关闭证书校验。证书、身份签名密钥、数据库加密密钥、DNS 凭据分开保存和备份。证书续期失败提前告警，不在证书过期后静默跳过验证。
@@ -365,6 +407,8 @@ Relay 的 TLS 保持在 Relay 进程终止，不使用会破坏其 QUIC 路径�
 cmd/netgo-server/             本地产品服务
 cmd/netgo-client-service/     Linux 诊断客户端（不构建 Windows 版本）
 cmd/netgoctl/                运维与诊断 CLI
+cmd/netgo-helper/            Linux 受限权限门禁
+cmd/netgo-ddns/              Linux DDNS 进程
 internal/site/               站点身份与配置
 internal/controlpath/        多入口探测、传输和重试
 internal/identity/           单一身份服务适配
@@ -374,6 +418,8 @@ internal/gateway/            Linux 转发与权限协调
 internal/privileged/         有限权限 helper
 internal/ddns/               地址探测和 DNS 更新
 internal/diagnostics/        日志脱敏与诊断包
+internal/operations/         配置变更、发行校验与升级/回退事务
+internal/securefile/         受保护文件的原子写入
 apps/ui/                     Vue Linux 管理页面
 apps/windows/                C++20 原生界面、后台、协议和验证
 packages/ui/                 浏览器管理认证
@@ -413,6 +459,8 @@ docs/evidence/               测试环境和脱敏证据
 - 客户端保存服务器配置、设备私钥、受保护刷新凭据、上次可用候选；日志不包含完整 token。
 - API 需要协议版本和能力协商；不兼容时明确拒绝并提示升级，不盲目尝试写入旧格式。
 
+当前协议仍为 v1，0.2.2-dev 增加明确能力列表和 X-NetGo-Protocol 请求头。所有产品 API（公共 health 除外）对缺失/错误版本返回 426；Windows、Linux CLI 和管理网页先校验各自必要能力，再发送密码。原有开发客户端须与服务端成套更新。
+
 ## 10. 用户流程与安装交付
 
 ### 10.1 管理员初始化
@@ -430,20 +478,24 @@ docs/evidence/               测试环境和脱敏证据
 
 ### 10.3 安装与更新的拟定运维命令
 
-以下是未来 CLI 的交付契约，目前不可执行：
+以下命令已有源码实现；实际参数见 OPERATIONS.zh-CN.md。配置/升级激活在目标 Linux 上执行，真实部署验收尚未完成：
 
 | 命令形式 | 必须实现的行为 |
 | --- | --- |
 | netgoctl doctor | 只读检查网络、证书、端口、路由、防火墙和依赖；输出可操作问题 |
-| netgoctl init | 本地初始化站点、管理员和密钥；不把密码放命令行 |
-| netgoctl config validate / plan / apply | 校验、显示归属范围、事务应用与失败恢复 |
+| netgoctl init / init-admin | 生成站点配置并绑定已创建的本地 NetBird 管理员；密钥由渲染工具生成，密码不放命令行 |
+| netgoctl reset-password | 在 Debian 本机进行维护；先关闭产品权限，再经原 IdP 命令输入密码；失败保持停止并留存可重试记录 |
+| netgoctl config validate / plan / apply | 校验、显示归属范围；带 --input 的 apply 事务修改站点运行配置，失败恢复旧配置/服务/策略；不带 --input 时协调资源策略 |
 | netgoctl auxiliary add / remove | 添加/移除备用节点；保留本地 Relay/STUN 和直达候选 |
 | netgoctl export-site | 导出脱敏站点文件 |
 | netgoctl backup / restore | 一致备份和恢复身份、数据库、配置与必要密钥 |
-| netgoctl upgrade / rollback | 验证发行包、兼容性、快照和健康结果 |
+| netgoctl upgrade / rollback | 校验可信清单 digest、全部产品文件及 schema/protocol；停写加密快照、切换版本目录、健康失败恢复；当前只允许 schema 1 的产品二进制升级，上游升级与不可逆迁移须另行演练 |
 | netgoctl diagnostics | 生成默认脱敏的环境与状态证据 |
+| netgoctl client import / connect / disconnect / status / profiles | Linux 诊断客户端的当前用户 Unix IPC；连接密码从终端读取 |
 
 Linux 包须包含离线组件清单、校验值、systemd 单元、安装/卸载说明；Windows 包须包含 UI、后台服务与所需运行时检测。签名证书、下载地址和运行时分发方式在发行阶段定稿，不能用关闭系统保护作为安装步骤。
+
+0.2.3-dev 增加源码/构建/日志关联：Windows 的 15 段和 Debian 的 13 段完整检查生成 schema 2 的验证记录；打包核对当前源码指纹、每段日志及已测试的构建文件，ZIP 内部再对照这些输入。补丁准备核对完整上游工作树而非仅检查补丁存在。Debian 入口只执行构建与检查，不自动安装或启用服务；其源码可在 Windows 审阅，但实际运行结果必须来自 Debian。
 
 ## 11. 开发阶段、门槛与预计工作量
 
@@ -453,7 +505,7 @@ Linux 包须包含离线组件清单、校验值、systemd 单元、安装/卸�
 | --- | --- | --- | --- |
 | P0 可行性 | 固定候选、Linux 实验环境、原生认证原型、双入口与本地/VPS Relay、撤销原型 | 无 VPS 冷启动；真实 LAN 访问；原生登录；备用认证与令牌刷新；VPS 全停独立重连；强制撤销均有证据 | 8–15 人日 |
 | P1 Linux 最小产品 | Go 管理服务、账号/设备/资源、会话、配置协调、管理页、安装恢复 | 两名用户权限隔离；禁用和过期生效；安装/卸载不破坏原有网络 | 10–15 人日 |
-| P2 网络恢复 | 统一入口选择器、DDNS、反向通道、证书与 443 模板、真实路径状态 | IP 改变/消失/恢复、VPS 关闭、UDP 全阻断、仅 TCP 443 环境通过 | 10–18 人日 |
+| P2 网络恢复 | 统一入口选择器、DDNS、反向通道、证书、高位端口与可选 443 模板、真实路径状态 | IP 改变/消失/恢复、VPS 关闭、UDP 全阻断、经可用 VPS 的仅 TCP 443 环境通过 | 10–18 人日 |
 | P3 Windows 客户端 | C++20 Win32 UI、当前用户后台、NetBird 特权服务、凭据保护、托盘、配置和诊断、安装包 | 普通用户使用；重启/休眠/换网/取消/切站点须实测；无凭据泄漏 | 实际进度见 PROGRESS |
 | P4 发行与可靠性 | 完整验收、性能报告、72 小时观察、备份恢复、升级回退、许可证材料 | 必测案例通过；发行物可复现；文档与已验证能力一致 | 10–15 人日 |
 
@@ -470,7 +522,7 @@ Linux 包须包含离线组件清单、校验值、systemd 单元、安装/卸�
 | G5 权限撤销 | 非合作客户端、已有连接、账号过期、并发替换均受服务端约束 | 网关计数、连接状态和拒绝证据 |
 | G6 可维护性 | 必要修改可集中维护，无复制密码库、关闭 TLS 验证或协议硬拼 | 版本矩阵、补丁清单、许可清单、继续/替代决策 |
 
-每个门槛最多先做最小可复现原型。失败时记录可复现条件、阻碍源码位置和可选修复；暂停依赖该门槛的产品化工作，继续不依赖它的文档/测试准备。不能把工作量大当作自动换核心依据。
+每个门槛先做最小可复现原型。已证实失败时记录可复现条件、阻碍源码位置和可选修复，暂停依赖该阻碍的产品化工作；仅因实验环境缺失而未测时，可按本轮授权继续源码和自动验证，阶段退出仍保持未通过。不能把工作量大当作自动换核心依据。
 
 ### 11.2 前十个工作日的执行顺序
 
@@ -486,7 +538,7 @@ Linux 包须包含离线组件清单、校验值、systemd 单元、安装/卸�
 
 这是排程目标。若 G2 或 G3 未解决，第十日提交失败证据和后续任务，而不是宣布 P0 完成。
 
-完整任务拆分见同目录 `IMPLEMENTATION_BACKLOG.zh-CN.md`。各任务带依赖、交付物和验收条件，可逐项转成 issue；所有初始状态均为待开始。
+完整任务拆分见同目录 `IMPLEMENTATION_BACKLOG.zh-CN.md`。各任务带依赖、交付物和验收条件；源码状态以当前索引为准，阶段退出仍以实际验收证据为准。
 
 ## 12. 实验环境与验收方法
 
@@ -544,6 +596,8 @@ DDNS 提交到全球解析可见的时间单独记录，不能算成应用完全
 - 告警至少覆盖：控制服务不可用、反向通道失效、唯一可用 Relay 故障、证书将过期、磁盘不足、反复认证失败。
 - 管理页显示已验证部署模式和最近诊断，不能仅凭进程存活判断“公网可用”。
 - 局域网设备离线与隧道失败分别定位：先测 Linux 到目标，再测隧道、策略和回程。
+
+当前实现：服务端 JSON 请求日志含 site_id、trace_id、操作类别、状态与耗时；generation/控制与数据路径来自客户端状态及诊断。管理员接口提供每 30 秒的服务/入口/Relay TCP/证书/磁盘检查、进程资源及认证失败计数，90 秒无新采样视为异常。界面展示告警，外部通知由运维监控消费，不内置邮件/短信发送。CPU 为累计进程时间、RSS 为进程高水位；Relay TCP 监听成功不替代 WS/QUIC/LAN 验收。
 
 ### 13.2 备份和恢复
 
@@ -624,4 +678,4 @@ NetBird 客户端为 BSD-3-Clause，management/signal/relay/combined 为 AGPLv3�
 | S21 | `https://api.github.com/repos/wailsapp/wails/releases`；`https://raw.githubusercontent.com/wailsapp/wails/v2.17.1/v2/go.mod` | Wails v2 候选与 Go 要求 |
 | S22 | `https://docs.netbird.io/selfhosted/external-reverse-proxy`；`https://docs.netbird.io/get-started/cli` | HTTP/2/gRPC、外部地址映射和客户端参数 |
 
-本轮只生成并检查方案文档。上述所有 P0–P4 任务与网络用例仍为待执行。
+本方案已进入实施阶段。源码、构建、自动验证、范围调整和未通过项持续写入 PROGRESS.zh-CN.md 与版本证据目录；不得把“已实现”写成真实网络或发行通过。

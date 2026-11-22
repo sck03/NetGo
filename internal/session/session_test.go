@@ -49,12 +49,15 @@ func fixture(t *testing.T) (*Manager, *fakeGate, model.Credential, model.Credent
 		st.Resources["nas"] = model.Resource{ID: "nas", Name: "NAS", CIDR: "192.168.50.20/32", Protocol: "tcp", Ports: []uint16{443}, Enabled: true}
 		st.Devices["d1"] = model.Device{ID: "d1", UserID: "u", WireGuardKey: "wg1"}
 		st.Devices["d2"] = model.Device{ID: "d2", UserID: "u", WireGuardKey: "wg2"}
+		for _, id := range []string{"d1", "d2"} {
+			st.Credentials[model.Hash(id)] = model.Credential{UserID: "u", DeviceID: id, ExpiresAt: now.Add(time.Hour)}
+		}
 		return nil
 	})
 	if e != nil {
 		t.Fatal(e)
 	}
-	return m, g, model.Credential{UserID: "u", DeviceID: "d1", ExpiresAt: now.Add(time.Hour)}, model.Credential{UserID: "u", DeviceID: "d2", ExpiresAt: now.Add(time.Hour)}
+	return m, g, model.Credential{TokenHash: model.Hash("d1"), UserID: "u", DeviceID: "d1", ExpiresAt: now.Add(time.Hour)}, model.Credential{TokenHash: model.Hash("d2"), UserID: "u", DeviceID: "d2", ExpiresAt: now.Add(time.Hour)}
 }
 func TestConcurrentSingleLease(t *testing.T) {
 	m, g, c, _ := fixture(t)
@@ -168,11 +171,12 @@ func TestScopedMutationPreservesOtherUsers(t *testing.T) {
 		st.Users["v"] = model.User{ID: "v", MaxDevices: 1, Resources: []string{"ssh"}}
 		st.Resources["ssh"] = model.Resource{ID: "ssh", CIDR: "192.168.50.21/32", Protocol: "tcp", Ports: []uint16{22}, Enabled: true}
 		st.Devices["d3"] = model.Device{ID: "d3", UserID: "v", WireGuardKey: "wg3"}
+		st.Credentials[model.Hash("d3")] = model.Credential{UserID: "v", DeviceID: "d3", ExpiresAt: c1.ExpiresAt}
 		return nil
 	}); err != nil {
 		t.Fatal(err)
 	}
-	c3 := model.Credential{UserID: "v", DeviceID: "d3", ExpiresAt: c1.ExpiresAt}
+	c3 := model.Credential{TokenHash: model.Hash("d3"), UserID: "v", DeviceID: "d3", ExpiresAt: c1.ExpiresAt}
 	ctx := context.Background()
 	if _, err := m.Acquire(ctx, c1, "p1", 1, false, "first"); err != nil {
 		t.Fatal(err)

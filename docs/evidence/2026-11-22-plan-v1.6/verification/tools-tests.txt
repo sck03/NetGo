@@ -1,0 +1,43 @@
+test_corrupt_nested_manifest_is_detected (test_archive.ArchiveTests.test_corrupt_nested_manifest_is_detected) ... ok
+test_nested_manifests_and_complete_root_manifest_pass (test_archive.ArchiveTests.test_nested_manifests_and_complete_root_manifest_pass) ... ok
+test_path_escape_is_rejected (test_archive.ArchiveTests.test_path_escape_is_rejected) ... ok
+test_self_consistent_archive_with_wrong_build_is_rejected (test_archive.ArchiveTests.test_self_consistent_archive_with_wrong_build_is_rejected) ... ok
+test_unlisted_file_is_rejected (test_archive.ArchiveTests.test_unlisted_file_is_rejected) ... ok
+test_custom_ports_and_internal_ipv6 (test_deploy.DeploymentTests.test_custom_ports_and_internal_ipv6) ... ok
+test_invalid_configuration_leaves_no_partial_bundle (test_deploy.DeploymentTests.test_invalid_configuration_leaves_no_partial_bundle) ... ok
+test_invalid_secret_and_duplicate_json_rejected (test_deploy.DeploymentTests.test_invalid_secret_and_duplicate_json_rejected) ... ok
+test_modes_with_and_without_auxiliary (test_deploy.DeploymentTests.test_modes_with_and_without_auxiliary) ... ok
+test_repeat_render_preserves_secrets_and_rejects_overwrite (test_deploy.DeploymentTests.test_repeat_render_preserves_secrets_and_rejects_overwrite) ... ok
+test_binary_output_hashes_exact_saved_bytes (test_evidence.EvidenceTests.test_binary_output_hashes_exact_saved_bytes) ... ok
+test_case_integrity_error_closes_report (test_evidence.EvidenceTests.test_case_integrity_error_closes_report) ... ok
+test_failed_spawn_and_nonzero_exit_are_preserved (test_evidence.EvidenceTests.test_failed_spawn_and_nonzero_exit_are_preserved) ... ok
+test_initial_suite_has_all_unrun_cases_and_requirement_links (test_evidence.EvidenceTests.test_initial_suite_has_all_unrun_cases_and_requirement_links) ... ok
+test_manual_review_is_bound_to_unchanged_real_record (test_evidence.EvidenceTests.test_manual_review_is_bound_to_unchanged_real_record) ... ok
+test_metrics_keep_paths_and_failures_separate (test_evidence.EvidenceTests.test_metrics_keep_paths_and_failures_separate) ... ok
+test_not_prepared_and_automation_cannot_be_reviewed_pass (test_evidence.EvidenceTests.test_not_prepared_and_automation_cannot_be_reviewed_pass) ... ok
+test_older_pass_cannot_hide_new_failed_attempt (test_evidence.EvidenceTests.test_older_pass_cannot_hide_new_failed_attempt) ... ok
+test_output_limit_is_not_a_passing_command (test_evidence.EvidenceTests.test_output_limit_is_not_a_passing_command) ... ok
+test_tamper_and_escaping_paths_fail_integrity (test_evidence.EvidenceTests.test_tamper_and_escaping_paths_fail_integrity) ... ok
+test_timeout_preserves_partial_output (test_evidence.EvidenceTests.test_timeout_preserves_partial_output) ... ok
+test_unrecorded_files_and_inconsistent_execution_metadata_rejected (test_evidence.EvidenceTests.test_unrecorded_files_and_inconsistent_execution_metadata_rejected) ... ok
+test_debian13_and_pinned_toolchains (test_linux_preflight.DebianPreflightTests.test_debian13_and_pinned_toolchains) ... ok
+test_install_does_not_require_compilers_or_execute_os_release (test_linux_preflight.DebianPreflightTests.test_install_does_not_require_compilers_or_execute_os_release) ... ok
+test_old_distribution_toolchains_and_missing_commands_fail (test_linux_preflight.DebianPreflightTests.test_old_distribution_toolchains_and_missing_commands_fail) ... ok
+test_failed_command_keeps_evidence_and_stops_later_builds (test_linux_verification.LinuxVerificationTests.test_failed_command_keeps_evidence_and_stops_later_builds) ... ok
+test_postcheck_validation_failure_cannot_leave_pass_report (test_linux_verification.LinuxVerificationTests.test_postcheck_validation_failure_cannot_leave_pass_report) ... ok
+test_exact_patch_is_reusable_without_changing_the_real_index (test_upstream.UpstreamInputTests.test_exact_patch_is_reusable_without_changing_the_real_index) ... ok
+test_new_ignored_source_is_not_allowed_into_the_build (test_upstream.UpstreamInputTests.test_new_ignored_source_is_not_allowed_into_the_build) ... ok
+test_only_the_declared_dex_module_replacement_is_accepted (test_upstream.UpstreamInputTests.test_only_the_declared_dex_module_replacement_is_accepted) ... ok
+test_unrelated_tracked_edits_are_rejected_and_preserved (test_upstream.UpstreamInputTests.test_unrelated_tracked_edits_are_rejected_and_preserved) ... ok
+test_changed_log_is_rejected (test_verification.VerificationTests.test_changed_log_is_rejected) ... ok
+test_duplicate_json_key_is_rejected (test_verification.VerificationTests.test_duplicate_json_key_is_rejected) ... ok
+test_failed_skipped_and_missing_checks_are_rejected (test_verification.VerificationTests.test_failed_skipped_and_missing_checks_are_rejected) ... ok
+test_log_path_escape_is_rejected (test_verification.VerificationTests.test_log_path_escape_is_rejected) ... ok
+test_matching_source_artifacts_and_complete_logs (test_verification.VerificationTests.test_matching_source_artifacts_and_complete_logs) ... ok
+test_rebuilt_binary_and_rewritten_sums_do_not_reuse_old_checks (test_verification.VerificationTests.test_rebuilt_binary_and_rewritten_sums_do_not_reuse_old_checks) ... ok
+test_source_change_requires_new_verification (test_verification.VerificationTests.test_source_change_requires_new_verification) ... ok
+
+----------------------------------------------------------------------
+Ran 38 tests in 6.257s
+
+OK

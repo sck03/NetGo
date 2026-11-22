@@ -5,11 +5,14 @@ import (
 	"encoding/json"
 	"errors"
 	"io"
+	"log/slog"
 	"net/http"
 	"net/url"
+	"netgo/internal/diagnostics"
 	"netgo/internal/engine/netbird"
 	"netgo/internal/identity"
 	"netgo/internal/model"
+	"netgo/internal/protocol"
 	"netgo/internal/session"
 	"netgo/internal/site"
 	"netgo/internal/store"
@@ -31,6 +34,8 @@ type Server struct {
 	publicWindow time.Time
 	Web          http.Handler
 	Reconcile    func(context.Context) error
+	Monitor      *diagnostics.Monitor
+	Logger       *slog.Logger
 }
 type ctxKey int
 
@@ -73,7 +78,7 @@ func body(w http.ResponseWriter, r *http.Request, v any) error {
 func (s *Server) Handler() http.Handler {
 	m := http.NewServeMux()
 	m.HandleFunc("GET /netgo/v1/health", func(w http.ResponseWriter, r *http.Request) {
-		reply(w, 200, map[string]any{"protocol": 1, "site_id": s.Config.Site.ID})
+		reply(w, 200, protocol.Health{Protocol: model.Protocol, SiteID: s.Config.Site.ID, Capabilities: protocol.Capabilities()})
 	})
 	m.HandleFunc("POST /netgo/v1/auth/transactions", func(w http.ResponseWriter, r *http.Request) {
 		var b identity.Begin
@@ -217,7 +222,23 @@ func (s *Server) Handler() http.Handler {
 			failure(w, e)
 			return
 		}
-		reply(w, 200, map[string]any{"users": st.Users, "resources": st.Resources, "devices": st.Devices, "leases": st.Leases, "audit": st.Audit, "revision": st.Revision, "observed_revision": st.ObservedRevision, "last_error": st.LastError})
+		monitor := s.Monitor
+		if monitor == nil {
+			monitor = diagnostics.NewMonitor()
+		}
+		reply(w, 200, map[string]any{"users": st.Users, "resources": st.Resources, "devices": st.Devices, "leases": st.Leases, "audit": st.Audit, "revision": st.Revision, "observed_revision": st.ObservedRevision, "last_error": st.LastError, "runtime": monitor.Snapshot(s.Config, st)})
+	})
+	secured("GET /netgo/v1/admin/diagnostics", true, func(w http.ResponseWriter, r *http.Request) {
+		state, err := s.Store.View()
+		if err != nil {
+			failure(w, err)
+			return
+		}
+		monitor := s.Monitor
+		if monitor == nil {
+			monitor = diagnostics.NewMonitor()
+		}
+		reply(w, 200, monitor.Snapshot(s.Config, state))
 	})
 	secured("PUT /netgo/v1/admin/users/{id}", true, s.putUser)
 	secured("POST /netgo/v1/admin/users", true, s.createUser)
@@ -246,13 +267,21 @@ func (s *Server) Handler() http.Handler {
 	if s.Web != nil {
 		m.Handle("/", s.Web)
 	}
-	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+	return s.observe(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set(protocol.Header, strconv.Itoa(model.Protocol))
 		w.Header().Set("X-Content-Type-Options", "nosniff")
 		w.Header().Set("X-Frame-Options", "DENY")
 		w.Header().Set("Referrer-Policy", "no-referrer")
 		if origin := r.Header.Get("Origin"); origin != "" && origin != s.Config.Site.Origin {
 			failure(w, model.ErrForbidden)
 			return
+		}
+		if strings.HasPrefix(r.URL.Path, "/netgo/") && r.URL.Path != "/netgo/v1/health" {
+			versions := r.Header.Values(protocol.Header)
+			if len(versions) != 1 || versions[0] != strconv.Itoa(model.Protocol) || !strings.HasPrefix(r.URL.Path, "/netgo/v1/") {
+				reply(w, http.StatusUpgradeRequired, map[string]any{"error": "protocol_incompatible", "protocol": model.Protocol, "capabilities": protocol.Capabilities()})
+				return
+			}
 		}
 		if strings.HasPrefix(r.URL.Path, "/netgo/v1/auth/") {
 			s.mu.Lock()
@@ -269,7 +298,7 @@ func (s *Server) Handler() http.Handler {
 			}
 		}
 		m.ServeHTTP(w, r)
-	})
+	}))
 }
 func (s *Server) authorize(admin bool, next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -280,6 +309,7 @@ func (s *Server) authorize(admin bool, next http.Handler) http.Handler {
 			return
 		}
 		c, ok := st.Credentials[model.Hash(token)]
+		c.TokenHash = model.Hash(token)
 		u := st.Users[c.UserID]
 		if !ok || !time.Now().Before(c.ExpiresAt) || !u.Active(time.Now()) {
 			failure(w, model.ErrUnauthorized)
@@ -368,12 +398,12 @@ func (s *Server) putUser(w http.ResponseWriter, r *http.Request) {
 				return errors.New("last administrator cannot be disabled")
 			}
 		}
+		u.AuthRevision = old.AuthRevision
 		st.Users[u.ID] = u
-		for k, c := range st.Credentials {
-			if c.UserID == u.ID {
-				delete(st.Credentials, k)
-			}
+		if err := st.InvalidateUser(u.ID); err != nil {
+			return err
 		}
+		u = st.Users[u.ID]
 		st.Record("admin", "user.update", u.ID)
 		return nil
 	})
@@ -393,29 +423,43 @@ func (s *Server) createUser(w http.ResponseWriter, r *http.Request) {
 		failure(w, errors.New("invalid alias/email"))
 		return
 	}
-	st, e := s.Store.View()
-	if e != nil {
-		failure(w, e)
-		return
-	}
-	for _, u := range st.Users {
-		if strings.EqualFold(u.Alias, b.Alias) || strings.EqualFold(u.Email, b.Email) {
-			failure(w, model.ErrConflict)
-			return
-		}
-	}
 	var upstream struct {
 		ID       string `json:"id"`
 		Password string `json:"password"`
 	}
-	_, e = s.Management.Request(r.Context(), "POST", "/users", map[string]any{"email": b.Email, "name": b.Name, "role": "user", "auto_groups": []string{}, "is_service_user": false}, &upstream)
+	var u model.User
+	created := false
+	e := s.Store.Update(func(st *model.State) error {
+		// Serialize uniqueness checks with user edits and other creation requests.
+		for _, existing := range st.Users {
+			if strings.EqualFold(existing.Alias, b.Alias) || strings.EqualFold(existing.Email, b.Email) {
+				return model.ErrConflict
+			}
+		}
+		if _, err := s.Management.Request(r.Context(), "POST", "/users", map[string]any{"email": b.Email, "name": b.Name, "role": "user", "auto_groups": []string{}, "is_service_user": false}, &upstream); err != nil {
+			return err
+		}
+		if upstream.ID == "" {
+			return errors.New("management returned no user ID")
+		}
+		if _, exists := st.Users[upstream.ID]; exists {
+			return model.ErrConflict
+		}
+		created = true
+		u = model.User{ID: upstream.ID, Alias: b.Alias, Email: b.Email, Role: "user", MaxDevices: 3, MaxSessions: 1, Resources: []string{}}
+		st.Users[u.ID] = u
+		st.Record("admin", "user.create", u.ID)
+		return nil
+	})
 	if e != nil {
-		failure(w, e)
-		return
-	}
-	u := model.User{ID: upstream.ID, Alias: b.Alias, Email: b.Email, Role: "user", MaxDevices: 3, MaxSessions: 1, Resources: []string{}}
-	e = s.Store.Update(func(st *model.State) error { st.Users[u.ID] = u; st.Record("admin", "user.create", u.ID); return nil })
-	if e != nil {
+		if created {
+			cleanup, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+			_, cleanupErr := s.Management.Request(cleanup, "DELETE", "/users/"+url.PathEscape(upstream.ID), nil, nil)
+			cancel()
+			if cleanupErr != nil {
+				e = errors.New("user creation failed; upstream account cleanup required")
+			}
+		}
 		failure(w, e)
 		return
 	}

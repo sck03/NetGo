@@ -1,0 +1,23 @@
+{
+  "base": {"Protocol":1,"ConfigRevision":2,"ID":"contract","Name":"Contract site","Origin":"https://site.example:10443","Candidates":[{"ID":"wan1","Address":"wan1.example:10443","Kind":"direct"}],"CA":"","GatewayPeerID":"gateway","GatewayIP":"100.96.0.1","LocalRelay":"relay.example","AuxiliaryRelay":""},
+  "cases": [
+    {"name":"same configuration","old":{},"next":{},"accept":true},
+    {"name":"local display name","old":{},"next":{"Name":"My site"},"accept":true},
+    {"name":"higher version new WAN","old":{},"next":{"ConfigRevision":3,"Candidates":[{"ID":"wan2","Address":"wan2.example:24443","Kind":"direct"}]},"accept":true},
+    {"name":"older version","old":{},"next":{"ConfigRevision":1},"accept":false},
+    {"name":"return to unversioned","old":{},"next":{"ConfigRevision":0},"accept":false},
+    {"name":"same version changed address","old":{},"next":{"Candidates":[{"ID":"wan1","Address":"other.example:10443","Kind":"direct"}]},"accept":false},
+    {"name":"new authority","old":{},"next":{"ConfigRevision":3,"Origin":"https://other.example:10443"},"accept":false},
+    {"name":"new site ID","old":{},"next":{"ConfigRevision":3,"ID":"another"},"accept":false},
+    {"name":"new protocol","old":{},"next":{"ConfigRevision":3,"Protocol":2},"accept":false},
+    {"name":"new gateway needs version","old":{},"next":{"GatewayIP":"100.96.0.2"},"accept":false},
+    {"name":"new gateway versioned","old":{},"next":{"ConfigRevision":3,"GatewayIP":"100.96.0.2"},"accept":true},
+    {"name":"legacy migration","old":{"ConfigRevision":0},"next":{"ConfigRevision":1},"accept":true},
+    {"name":"legacy manual address edit","old":{"ConfigRevision":0},"next":{"ConfigRevision":0,"Candidates":[{"ID":"wan2","Address":"wan2.example:10443","Kind":"direct"}]},"accept":true},
+    {"name":"negative revision","old":{},"next":{"ConfigRevision":-1},"accept":false},
+    {"name":"fractional revision","old":{},"next":{"ConfigRevision":2.5},"accept":false},
+    {"name":"JSON precision limit","old":{},"next":{"ConfigRevision":9007199254740992},"accept":false},
+    {"name":"maximum exact revision","old":{},"next":{"ConfigRevision":9007199254740991},"accept":true},
+    {"name":"local entry remains required","old":{},"next":{"ConfigRevision":3,"Candidates":[{"ID":"vps","Address":"vps.example:443","Kind":"auxiliary"}]},"accept":false}
+  ]
+}

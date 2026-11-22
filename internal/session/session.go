@@ -46,6 +46,12 @@ func active(st *model.State, now time.Time) []model.Lease {
 	return out
 }
 
+func credentialCurrent(st *model.State, c model.Credential, now time.Time) bool {
+	stored, ok := st.Credentials[c.TokenHash]
+	return c.TokenHash != "" && ok && stored.UserID == c.UserID && stored.DeviceID == c.DeviceID &&
+		stored.ExpiresAt.Equal(c.ExpiresAt) && now.Before(stored.ExpiresAt)
+}
+
 // Only a validated state transition touches the gate. The nft transaction
 // atomically removes old leases and installs new ones, with no overlap window.
 func (m *Manager) update(ctx context.Context, fn func(*model.State) error) error {
@@ -93,6 +99,10 @@ func (m *Manager) Acquire(ctx context.Context, c model.Credential, peer string, 
 	fp := model.Hash(fmt.Sprintf("%s|%s|%s|%d|%t", c.UserID, c.DeviceID, peer, generation, replace))
 	opKey := model.Hash(c.UserID + ":" + key)
 	e = m.update(ctx, func(st *model.State) error {
+		// Authorization may have been revoked while reconciliation or peer lookup ran.
+		if !credentialCurrent(st, c, m.now()) {
+			return model.ErrUnauthorized
+		}
 		u, ok := st.Users[c.UserID]
 		d, dk := st.Devices[c.DeviceID]
 		if !ok || !dk || d.ClientType == "admin" || !u.Active(now) || !now.Before(c.ExpiresAt) || d.UserID != u.ID || p.UserID != u.ID || p.PublicKey != d.WireGuardKey || p.Expired || !p.Connected {
@@ -179,6 +189,9 @@ func (m *Manager) Renew(ctx context.Context, c model.Credential, id string, gene
 	var result model.Lease
 	now := m.now()
 	e := m.update(ctx, func(st *model.State) error {
+		if !credentialCurrent(st, c, m.now()) {
+			return model.ErrUnauthorized
+		}
 		l, ok := st.Leases[id]
 		u := st.Users[c.UserID]
 		if !ok || l.UserID != c.UserID || l.DeviceID != c.DeviceID || l.Generation != generation || !now.Before(l.ExpiresAt) || !now.Before(c.ExpiresAt) || !u.Active(now) {

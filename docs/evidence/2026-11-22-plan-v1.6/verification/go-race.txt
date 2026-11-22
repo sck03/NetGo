@@ -1,0 +1,25 @@
+ok  	netgo/internal/api	1.340s
+ok  	netgo/internal/backup	(cached)
+ok  	netgo/internal/client	1.417s
+ok  	netgo/internal/controlpath	1.339s
+ok  	netgo/internal/ddns	(cached)
+ok  	netgo/internal/diagnostics	1.247s
+ok  	netgo/internal/engine/netbird	1.327s
+ok  	netgo/internal/gateway	1.054s
+ok  	netgo/internal/identity	1.187s
+?   	netgo/internal/ipc	[no test files]
+?   	netgo/internal/model	[no test files]
+ok  	netgo/internal/operations	1.290s
+?   	netgo/internal/privileged	[no test files]
+?   	netgo/internal/process	[no test files]
+ok  	netgo/internal/protocol	1.049s
+?   	netgo/internal/securefile	[no test files]
+ok  	netgo/internal/session	1.274s
+ok  	netgo/internal/site	1.076s
+ok  	netgo/internal/store	1.162s
+?   	netgo/internal/vault	[no test files]
+?   	netgo/internal/webui	[no test files]
+?   	netgo/cmd/netgo-ddns	[no test files]
+?   	netgo/cmd/netgo-helper	[no test files]
+?   	netgo/cmd/netgo-server	[no test files]
+?   	netgo/cmd/netgoctl	[no test files]

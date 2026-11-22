@@ -3,9 +3,11 @@ package controlpath
 import (
 	"context"
 	"crypto/x509"
+	"encoding/json"
 	"encoding/pem"
 	"net/http"
 	"net/http/httptest"
+	"netgo/internal/protocol"
 	"netgo/internal/site"
 	"strings"
 	"testing"
@@ -16,7 +18,7 @@ func testSite(t *testing.T, siteID string) *httptest.Server {
 	t.Helper()
 	srv := httptest.NewTLSServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "application/json")
-		_, _ = w.Write([]byte("{\"protocol\":1,\"site_id\":\"" + siteID + "\"}"))
+		_ = json.NewEncoder(w).Encode(protocol.Health{Protocol: 1, SiteID: siteID, Capabilities: protocol.Capabilities()})
 	}))
 	t.Cleanup(srv.Close)
 	return srv
@@ -54,5 +56,32 @@ func TestRejectWrongSiteAndUntrustedTLS(t *testing.T) {
 	s.Roots.AddCert(srv.Certificate())
 	if _, e := s.Select(context.Background()); e == nil {
 		t.Fatal("wrong site accepted")
+	}
+}
+
+func TestMultiWANRecoveryChecksHealthySecondEntry(t *testing.T) {
+	srv := testSite(t, "site1")
+	address := strings.TrimPrefix(srv.URL, "https://")
+	profile := site.Profile{ID: "site1", Protocol: 1, Origin: srv.URL,
+		CA: string(pem.EncodeToMemory(&pem.Block{Type: "CERTIFICATE", Bytes: srv.Certificate().Raw})),
+		Candidates: []site.Candidate{{ID: "wan1", Kind: "direct", Address: "127.0.0.1:1"},
+			{ID: "wan2", Kind: "direct", Address: address}, {ID: "wan3", Kind: "direct", Address: "127.0.0.1:1"},
+			{ID: "vps", Kind: "auxiliary", Address: address}}}
+	s, err := New(profile)
+	if err != nil {
+		t.Fatal(err)
+	}
+	s.selected = profile.Candidates[3]
+	s.lastSwitch = time.Now().Add(-time.Minute)
+	for i := 0; i < 3; i++ {
+		if err := s.Recover(context.Background()); err != nil {
+			t.Fatal(err)
+		}
+		if i < 2 && s.Current().ID != "vps" {
+			t.Fatal("switched without stable WAN confirmation")
+		}
+	}
+	if s.Current().ID != "wan2" {
+		t.Fatal("failed first WAN prevented return to a healthy WAN", s.Current())
 	}
 }

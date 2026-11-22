@@ -10,6 +10,7 @@ import (
 	"net"
 	"net/http"
 	"net/url"
+	"netgo/internal/protocol"
 	"netgo/internal/site"
 	"sync"
 	"time"
@@ -22,6 +23,7 @@ type Selector struct {
 	selected      site.Candidate
 	lastSwitch    time.Time
 	successes     int
+	successID     string
 	ProbeTimeout  time.Duration
 	FallbackDelay time.Duration
 }
@@ -61,14 +63,11 @@ func (s *Selector) probe(ctx context.Context, c site.Candidate) error {
 		return e
 	}
 	defer resp.Body.Close()
-	var h struct {
-		Protocol int    `json:"protocol"`
-		SiteID   string `json:"site_id"`
+	var h protocol.Health
+	if resp.StatusCode != 200 || json.NewDecoder(http.MaxBytesReader(nil, resp.Body, 4096)).Decode(&h) != nil {
+		return errors.New("invalid control health response")
 	}
-	if resp.StatusCode != 200 || json.NewDecoder(http.MaxBytesReader(nil, resp.Body, 4096)).Decode(&h) != nil || h.Protocol != 1 || h.SiteID != s.Profile.ID {
-		return errors.New("site identity/protocol mismatch")
-	}
-	return nil
+	return h.Validate(s.Profile.ID)
 }
 func (s *Selector) Select(ctx context.Context) (site.Candidate, error) {
 	ctx, cancel := context.WithTimeout(ctx, 10*time.Second)
@@ -78,6 +77,7 @@ func (s *Selector) Select(ctx context.Context) (site.Candidate, error) {
 		e error
 	}
 	out := make(chan result, len(s.Profile.Candidates))
+	incompatible := false
 	for _, c := range s.Profile.Candidates {
 		go func(c site.Candidate) {
 			if c.Kind == "auxiliary" {
@@ -96,18 +96,26 @@ func (s *Selector) Select(ctx context.Context) (site.Candidate, error) {
 	for range s.Profile.Candidates {
 		select {
 		case r := <-out:
+			incompatible = incompatible || errors.Is(r.e, protocol.ErrIncompatible)
 			if r.e == nil {
 				s.mu.Lock()
 				if s.selected.ID != r.c.ID {
 					s.lastSwitch = time.Now()
 				}
 				s.selected = r.c
+				s.successes, s.successID = 0, ""
 				s.mu.Unlock()
 				return r.c, nil
 			}
 		case <-ctx.Done():
+			if incompatible {
+				return site.Candidate{}, protocol.ErrIncompatible
+			}
 			return site.Candidate{}, errors.New("no reachable trusted control entry")
 		}
+	}
+	if incompatible {
+		return site.Candidate{}, protocol.ErrIncompatible
 	}
 	return site.Candidate{}, errors.New("no reachable trusted control entry")
 }
@@ -127,6 +135,9 @@ func (s *Selector) RoundTrip(r *http.Request) (*http.Response, error) {
 		}
 	}
 	tr := s.transport(c)
+	// This request owns its transport; disabling reuse also prevents idle
+	// connections retaining goroutines after each lease renewal.
+	tr.DisableKeepAlives = true
 	resp, e := tr.RoundTrip(r)
 	if e != nil {
 		tr.CloseIdleConnections()
@@ -146,24 +157,50 @@ func (s *Selector) Recover(ctx context.Context) error {
 	if c.Kind == "direct" {
 		return nil
 	}
+	// Check all WAN candidates within one probe window. A failed first WAN must
+	// not prevent recovery through a healthy second/third WAN.
+	results := make(chan site.Candidate, len(s.Profile.Candidates))
+	count := 0
+	for _, candidate := range s.Profile.Candidates {
+		if candidate.Kind == "direct" {
+			count++
+			go func(d site.Candidate) {
+				if s.probe(ctx, d) != nil {
+					d = site.Candidate{}
+				}
+				results <- d
+			}(candidate)
+		}
+	}
+	healthy := map[string]bool{}
+	for range count {
+		d := <-results
+		if d.ID != "" {
+			healthy[d.ID] = true
+		}
+	}
+	if ctx.Err() != nil {
+		return ctx.Err()
+	}
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	var chosen site.Candidate
 	for _, d := range s.Profile.Candidates {
-		if d.Kind != "direct" {
-			continue
+		if healthy[d.ID] && (chosen.ID == "" || d.ID == s.successID) {
+			chosen = d
 		}
-		e := s.probe(ctx, d)
-		s.mu.Lock()
-		if e != nil {
-			s.successes = 0
-		} else {
-			s.successes++
-		}
-		if s.successes >= 3 && time.Since(s.lastSwitch) >= 30*time.Second {
-			s.selected = d
-			s.lastSwitch = time.Now()
-			s.successes = 0
-		}
-		s.mu.Unlock()
-		break
+	}
+	if chosen.ID == "" {
+		s.successes, s.successID = 0, ""
+		return nil
+	}
+	if s.successID != chosen.ID {
+		s.successes, s.successID = 0, chosen.ID
+	}
+	s.successes++
+	if s.successes >= 3 && time.Since(s.lastSwitch) >= 30*time.Second {
+		s.selected, s.lastSwitch = chosen, time.Now()
+		s.successes, s.successID = 0, ""
 	}
 	return nil
 }

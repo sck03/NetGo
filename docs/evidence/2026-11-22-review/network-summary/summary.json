@@ -1,0 +1,467 @@
+{
+  "schema": 1,
+  "generated": "2026-11-22T04:31:02.674941+00:00",
+  "counts": {
+    "NOT-RUN": 33
+  },
+  "cases": {
+    "A01": {
+      "id": "A01",
+      "title": "无 VPS 全新登录",
+      "requirements": [
+        "R01",
+        "R02",
+        "R07",
+        "R08"
+      ],
+      "status": "NOT-RUN",
+      "runs": []
+    },
+    "A02": {
+      "id": "A02",
+      "title": "单机冷启动",
+      "requirements": [
+        "R02",
+        "R03"
+      ],
+      "status": "NOT-RUN",
+      "runs": []
+    },
+    "A03": {
+      "id": "A03",
+      "title": "添加 VPS 后全停",
+      "requirements": [
+        "R06"
+      ],
+      "status": "NOT-RUN",
+      "runs": []
+    },
+    "A04": {
+      "id": "A04",
+      "title": "动态公网更新",
+      "requirements": [
+        "R03"
+      ],
+      "status": "NOT-RUN",
+      "runs": []
+    },
+    "A05": {
+      "id": "A05",
+      "title": "无公网首次登录",
+      "requirements": [
+        "R04",
+        "R07"
+      ],
+      "status": "NOT-RUN",
+      "runs": []
+    },
+    "A06": {
+      "id": "A06",
+      "title": "打洞与自动中继",
+      "requirements": [
+        "R05",
+        "R08"
+      ],
+      "status": "NOT-RUN",
+      "runs": []
+    },
+    "A07": {
+      "id": "A07",
+      "title": "公网突然消失",
+      "requirements": [
+        "R03",
+        "R04",
+        "R05"
+      ],
+      "status": "NOT-RUN",
+      "runs": []
+    },
+    "A08": {
+      "id": "A08",
+      "title": "公网恢复与抖动",
+      "requirements": [
+        "R03",
+        "R05",
+        "R12"
+      ],
+      "status": "NOT-RUN",
+      "runs": []
+    },
+    "A09": {
+      "id": "A09",
+      "title": "UDP 全阻断",
+      "requirements": [
+        "R05",
+        "R12"
+      ],
+      "status": "NOT-RUN",
+      "runs": []
+    },
+    "A10": {
+      "id": "A10",
+      "title": "仅 TCP 443",
+      "requirements": [
+        "R04",
+        "R05",
+        "R07"
+      ],
+      "status": "NOT-RUN",
+      "runs": []
+    },
+    "A11": {
+      "id": "A11",
+      "title": "无 VPS 本地中继",
+      "requirements": [
+        "R02",
+        "R05"
+      ],
+      "status": "NOT-RUN",
+      "runs": []
+    },
+    "A12": {
+      "id": "A12",
+      "title": "单点完全不可达",
+      "requirements": [
+        "R12"
+      ],
+      "status": "NOT-RUN",
+      "runs": []
+    },
+    "A13": {
+      "id": "A13",
+      "title": "本地断网/关机",
+      "requirements": [
+        "R12"
+      ],
+      "status": "NOT-RUN",
+      "runs": []
+    },
+    "A14": {
+      "id": "A14",
+      "title": "身份与登录保护",
+      "requirements": [
+        "R07",
+        "R09"
+      ],
+      "status": "NOT-RUN",
+      "runs": []
+    },
+    "A15": {
+      "id": "A15",
+      "title": "刷新与入口一致",
+      "requirements": [
+        "R03",
+        "R04",
+        "R07"
+      ],
+      "status": "NOT-RUN",
+      "runs": []
+    },
+    "A16": {
+      "id": "A16",
+      "title": "普通 LAN 设备访问",
+      "requirements": [
+        "R08"
+      ],
+      "status": "NOT-RUN",
+      "runs": []
+    },
+    "A17": {
+      "id": "A17",
+      "title": "权限与客户端出口",
+      "requirements": [
+        "R09",
+        "R10"
+      ],
+      "status": "NOT-RUN",
+      "runs": []
+    },
+    "A18": {
+      "id": "A18",
+      "title": "用户与管理隔离",
+      "requirements": [
+        "R09",
+        "R10"
+      ],
+      "status": "NOT-RUN",
+      "runs": []
+    },
+    "A19": {
+      "id": "A19",
+      "title": "INPUT/FORWARD 与规则共存",
+      "requirements": [
+        "R08",
+        "R09",
+        "R11"
+      ],
+      "status": "NOT-RUN",
+      "runs": []
+    },
+    "A20": {
+      "id": "A20",
+      "title": "网段冲突与 DNS",
+      "requirements": [
+        "R08",
+        "R10",
+        "R12"
+      ],
+      "status": "NOT-RUN",
+      "runs": []
+    },
+    "A21": {
+      "id": "A21",
+      "title": "禁用/过期/重置",
+      "requirements": [
+        "R09"
+      ],
+      "status": "NOT-RUN",
+      "runs": []
+    },
+    "A22": {
+      "id": "A22",
+      "title": "并发与替换",
+      "requirements": [
+        "R09"
+      ],
+      "status": "NOT-RUN",
+      "runs": []
+    },
+    "A23": {
+      "id": "A23",
+      "title": "不合作/故障到期",
+      "requirements": [
+        "R09"
+      ],
+      "status": "NOT-RUN",
+      "runs": []
+    },
+    "A24": {
+      "id": "A24",
+      "title": "伪造和重启门禁",
+      "requirements": [
+        "R09"
+      ],
+      "status": "NOT-RUN",
+      "runs": []
+    },
+    "A25": {
+      "id": "A25",
+      "title": "本地权限",
+      "requirements": [
+        "R07",
+        "R09"
+      ],
+      "status": "NOT-RUN",
+      "runs": []
+    },
+    "A26": {
+      "id": "A26",
+      "title": "取消/切站点/重启",
+      "requirements": [
+        "R10",
+        "R12"
+      ],
+      "status": "NOT-RUN",
+      "runs": []
+    },
+    "A27": {
+      "id": "A27",
+      "title": "睡眠和换网",
+      "requirements": [
+        "R03",
+        "R12"
+      ],
+      "status": "NOT-RUN",
+      "runs": []
+    },
+    "A28": {
+      "id": "A28",
+      "title": "安装卸载",
+      "requirements": [
+        "R11"
+      ],
+      "status": "NOT-RUN",
+      "runs": []
+    },
+    "A29": {
+      "id": "A29",
+      "title": "备份/升级回退",
+      "requirements": [
+        "R11"
+      ],
+      "status": "NOT-RUN",
+      "runs": []
+    },
+    "A30": {
+      "id": "A30",
+      "title": "证书与时间",
+      "requirements": [
+        "R04",
+        "R07",
+        "R12"
+      ],
+      "status": "NOT-RUN",
+      "runs": []
+    },
+    "A31": {
+      "id": "A31",
+      "title": "稳定与性能",
+      "requirements": [
+        "R05",
+        "R08",
+        "R12"
+      ],
+      "status": "NOT-RUN",
+      "runs": []
+    },
+    "A32": {
+      "id": "A32",
+      "title": "双栈与地址淘汰",
+      "requirements": [
+        "R03",
+        "R09"
+      ],
+      "status": "NOT-RUN",
+      "runs": []
+    },
+    "A33": {
+      "id": "A33",
+      "title": "无 hairpin NAT",
+      "requirements": [
+        "R02",
+        "R06"
+      ],
+      "status": "NOT-RUN",
+      "runs": []
+    }
+  },
+  "requirements": {
+    "R01": {
+      "cases": [
+        "A01"
+      ],
+      "status": "NOT-PASSED"
+    },
+    "R02": {
+      "cases": [
+        "A01",
+        "A02",
+        "A11",
+        "A33"
+      ],
+      "status": "NOT-PASSED"
+    },
+    "R03": {
+      "cases": [
+        "A02",
+        "A04",
+        "A07",
+        "A08",
+        "A15",
+        "A27",
+        "A32"
+      ],
+      "status": "NOT-PASSED"
+    },
+    "R04": {
+      "cases": [
+        "A05",
+        "A07",
+        "A10",
+        "A15",
+        "A30"
+      ],
+      "status": "NOT-PASSED"
+    },
+    "R05": {
+      "cases": [
+        "A06",
+        "A07",
+        "A08",
+        "A09",
+        "A10",
+        "A11",
+        "A31"
+      ],
+      "status": "NOT-PASSED"
+    },
+    "R06": {
+      "cases": [
+        "A03",
+        "A33"
+      ],
+      "status": "NOT-PASSED"
+    },
+    "R07": {
+      "cases": [
+        "A01",
+        "A05",
+        "A10",
+        "A14",
+        "A15",
+        "A25",
+        "A30"
+      ],
+      "status": "NOT-PASSED"
+    },
+    "R08": {
+      "cases": [
+        "A01",
+        "A06",
+        "A16",
+        "A19",
+        "A20",
+        "A31"
+      ],
+      "status": "NOT-PASSED"
+    },
+    "R09": {
+      "cases": [
+        "A14",
+        "A17",
+        "A18",
+        "A19",
+        "A21",
+        "A22",
+        "A23",
+        "A24",
+        "A25",
+        "A32"
+      ],
+      "status": "NOT-PASSED"
+    },
+    "R10": {
+      "cases": [
+        "A17",
+        "A18",
+        "A20",
+        "A26"
+      ],
+      "status": "NOT-PASSED"
+    },
+    "R11": {
+      "cases": [
+        "A19",
+        "A28",
+        "A29"
+      ],
+      "status": "NOT-PASSED"
+    },
+    "R12": {
+      "cases": [
+        "A08",
+        "A09",
+        "A12",
+        "A13",
+        "A20",
+        "A26",
+        "A27",
+        "A30",
+        "A31"
+      ],
+      "status": "NOT-PASSED"
+    }
+  },
+  "integrity_errors": [],
+  "release_gate": "CLOSED"
+}

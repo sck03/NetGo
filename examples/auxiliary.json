@@ -1,1 +1,1 @@
-{"ID":"aux1","Host":"aux.example","Relay":"rels://relay.aux.example:443","STUN":"stun:relay.aux.example:3478","TunnelHost":"tunnel.aux.example","TokenFile":"/etc/netgo/frp.secret","Mode":"443"}
+{"ID":"aux1","Host":"aux.example","Relay":"rels://relay.aux.example:28443","STUN":"stun:relay.aux.example:3478","TunnelHost":"tunnel.aux.example","TokenFile":"/etc/netgo/frp.secret","Mode":"diagnostic","ControlPort":24443,"TunnelPort":27000}

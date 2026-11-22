@@ -1,0 +1,12 @@
+{
+  "id": "A31",
+  "title": "稳定与性能",
+  "requirements": [
+    "R05",
+    "R08",
+    "R12"
+  ],
+  "status": "NOT-RUN",
+  "instructions": "NETWORK_ACCEPTANCE.zh-CN.md A31",
+  "note": "Collect each actual attempt in a new runs/<name> directory; never overwrite earlier evidence."
+}

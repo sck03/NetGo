@@ -23,10 +23,7 @@ async function refresh() {
 async function login() {
   await action(async () => {
     try {
-      const response = await fetch('/netgo/v1/health', { cache: 'no-store', redirect: 'error' })
-      if (!response.ok) throw Error('站点服务不可用')
-      const health = await response.json()
-      await admin.login(health.site_id, alias.value, password.value); logged.value = true; await refresh()
+      await admin.login('', alias.value, password.value); logged.value = true; await refresh()
     } finally { password.value = '' }
   })
 }
@@ -80,10 +77,10 @@ onUnmounted(() => { if (timer) clearInterval(timer); admin.logout() })
           <button :class="{ active: page === 'users' }" @click="page = 'users'">♙　账号与权限</button>
           <button :class="{ active: page === 'resources' }" @click="page = 'resources'">▦　局域网资源</button>
           <button :class="{ active: page === 'sessions' }" @click="page = 'sessions'">⇄　设备与会话</button>
-          <button :class="{ active: page === 'diagnostics' }" @click="page = 'diagnostics'">≡　管理审计</button>
+          <button :class="{ active: page === 'diagnostics' }" @click="page = 'diagnostics'">≡　诊断与审计</button>
         </template>
       </nav>
-      <div class="aside-bottom"><span class="dot"></span>本地身份 · 可选 VPS<small>NetGo 0.2.0</small></div>
+      <div class="aside-bottom"><span class="dot"></span>本地身份 · 可选 VPS<small>NetGo {{ state.runtime?.version || '开发版' }}</small></div>
     </aside>
     <main>
       <header><div><div class="eyebrow">LOCAL NETWORK CONTROL</div><h1>{{ page === 'overview' ? '管理你的局域网接入' : page === 'users' ? '账号与访问权限' : page === 'resources' ? '局域网资源' : page === 'sessions' ? '设备与在线会话' : '管理审计' }}</h1></div><button v-if="logged" class="secondary" @click="logout">退出管理</button><span v-else class="badge">Linux 控制台</span></header>
@@ -99,6 +96,11 @@ onUnmounted(() => { if (timer) clearInterval(timer); admin.logout() })
           <div class="actions"><button class="primary" :disabled="busy" @click="action(async () => { await admin.request('/netgo/v1/admin/reconcile', 'POST', {}); await refresh(); notice = '资源策略已应用。' })">应用资源策略</button><button class="secondary" @click="action(async () => download(await admin.request('/netgo/v1/site'), 'netgo-site.json'))">导出 Windows 站点配置</button></div>
           <p class="muted">新增用户默认无访问权限。修改账号或资源会撤销关联的旧会话。</p>
         </section>
+        <section class="card" aria-live="polite"><h3>服务检查与告警</h3>
+          <p>{{ state.runtime?.status === 'ok' ? '最近服务检查通过，外部网络可达性需单独验证。' : '有待处理或尚未完成的检查，请查看诊断。' }}</p>
+          <p v-for="alert in (state.runtime?.alerts || [])" :key="alert.code" class="alert" :class="{ error: alert.severity === 'critical' }">{{ alert.message }}</p>
+          <button class="secondary" @click="page = 'diagnostics'">查看运行诊断</button>
+        </section>
       </template>
       <template v-else-if="page === 'users'">
         <section class="card"><h3>创建普通账号</h3><form class="inline-form" @submit.prevent="createUser"><input v-model="userForm.Alias" required placeholder="短用户名"><input v-model="userForm.Email" type="email" required placeholder="邮箱"><input v-model="userForm.Name" required placeholder="显示名称"><button class="primary" :disabled="busy">创建账号</button></form></section>
@@ -112,7 +114,14 @@ onUnmounted(() => { if (timer) clearInterval(timer); admin.logout() })
         <section class="card"><h3>正在授权的会话</h3><div v-for="l in leases" :key="l.id" class="resource"><strong>{{ state.users[l.user_id]?.alias }}</strong><code>{{ l.ip }}</code><span>{{ new Date(l.expires_at).toLocaleString() }}</span><button class="secondary" :disabled="busy" @click="action(async () => { await admin.request('/netgo/v1/admin/sessions/' + l.id, 'DELETE'); await refresh() })">立即撤销</button></div><div v-if="!leases.length" class="empty">当前没有有效会话。</div></section>
         <section class="card"><h3>已登记设备</h3><div v-for="d in devices" :key="d.id" class="resource"><strong>{{ state.users[d.user_id]?.alias }}</strong><code>{{ d.id.slice(0, 12) }}</code><span>{{ d.ip || '待连接' }}</span><small>{{ new Date(d.created_at).toLocaleString() }}</small><button class="secondary" :disabled="busy" @click="action(async () => { await admin.request('/netgo/v1/admin/devices/' + encodeURIComponent(d.id), 'DELETE'); await refresh(); notice = '设备登记及其会话已撤销。' })">撤销设备</button></div></section>
       </template>
-      <section v-else-if="page === 'diagnostics'" class="card"><h3>管理审计</h3><table><thead><tr><th>时间</th><th>操作</th><th>对象</th></tr></thead><tbody><tr v-for="(a, i) in [...(state.audit || [])].reverse().slice(0, 100)" :key="i"><td>{{ new Date(a.at).toLocaleString() }}</td><td>{{ a.action }}</td><td class="truncate">{{ a.object }}</td></tr></tbody></table></section>
+      <template v-else-if="page === 'diagnostics'">
+        <section class="card"><h3>运行诊断</h3><p>最近检查：{{ state.runtime?.sampled_at && !state.runtime.sampled_at.startsWith('0001-') ? new Date(state.runtime.sampled_at).toLocaleString() : '等待采样' }}</p>
+          <dl><dt>运行时间</dt><dd>{{ state.runtime?.uptime_seconds || 0 }} 秒</dd><dt>进程堆内存</dt><dd>{{ Math.round((state.runtime?.process_heap_bytes || 0) / 1048576) }} MiB</dd><dt>近一分钟认证失败</dt><dd>{{ state.runtime?.authentication_failures_last_minute || 0 }}</dd></dl>
+          <table><thead><tr><th>检查</th><th>状态</th><th>说明</th></tr></thead><tbody><tr v-for="check in (state.runtime?.checks || [])" :key="check.name"><td>{{ check.name }}</td><td>{{ check.status }}</td><td>{{ check.detail }}</td></tr></tbody></table>
+          <button class="secondary" :disabled="busy" @click="action(async () => download(await admin.request('/netgo/v1/admin/diagnostics'), 'netgo-diagnostics.json'))">导出脱敏诊断</button>
+        </section>
+        <section class="card"><h3>管理审计</h3><table><thead><tr><th>时间</th><th>操作</th><th>对象</th></tr></thead><tbody><tr v-for="(a, i) in [...(state.audit || [])].reverse().slice(0, 100)" :key="i"><td>{{ new Date(a.at).toLocaleString() }}</td><td>{{ a.action }}</td><td class="truncate">{{ a.object }}</td></tr></tbody></table></section>
+      </template>
       <footer>NetGo · 账号保留在本地，连接由你掌控。</footer>
     </main>
   </div>

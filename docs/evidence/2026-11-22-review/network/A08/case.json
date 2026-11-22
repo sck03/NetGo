@@ -1,0 +1,12 @@
+{
+  "id": "A08",
+  "title": "公网恢复与抖动",
+  "requirements": [
+    "R03",
+    "R05",
+    "R12"
+  ],
+  "status": "NOT-RUN",
+  "instructions": "NETWORK_ACCEPTANCE.zh-CN.md A08",
+  "note": "Collect each actual attempt in a new runs/<name> directory; never overwrite earlier evidence."
+}

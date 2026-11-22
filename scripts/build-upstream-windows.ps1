@@ -4,8 +4,8 @@ $root=Split-Path -Parent $PSScriptRoot
 if(Test-Path -LiteralPath "$root\.tools\go\bin\go.exe"){$env:PATH="$root\.tools\go\bin;"+$env:PATH}
 $env:PATH=(Join-Path $Toolchain 'bin')+';'+$env:PATH
 if($UsePreparedCache){$source=Join-Path $root '.cache\netbird'}else{
- python "$PSScriptRoot\prepare-upstream.py";if($LASTEXITCODE -ne 0){throw 'Upstream preparation failed'}
- $source=Join-Path $root '.cache\upstream-build\netbird'
+ $prepared=python -B "$PSScriptRoot\prepare-upstream.py" | ConvertFrom-Json;if($LASTEXITCODE -ne 0){throw 'Upstream preparation failed'}
+ $source=$prepared.netbird
 }
 Push-Location -LiteralPath $source
 try {

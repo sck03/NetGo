@@ -118,6 +118,7 @@ type Transaction struct {
 	Begin        Begin     `json:"-"`
 	Code, UserID string    `json:"-"`
 	Completed    bool      `json:"-"`
+	AuthRevision uint64    `json:"-"`
 }
 type Result struct {
 	Token        string     `json:"token"`
@@ -229,6 +230,7 @@ func (n *Native) Complete(ctx context.Context, id, alias, password, signature st
 	defer n.mu.Unlock()
 	t.Code = code
 	t.UserID = u.ID
+	t.AuthRevision = u.AuthRevision
 	n.tx[id] = t
 	return nil
 }
@@ -254,7 +256,7 @@ func (n *Native) Exchange(ctx context.Context, id, verifier, signature string) (
 	out := Result{Token: model.ID(), IDToken: tokens.IDToken, RefreshToken: tokens.RefreshToken, ExpiresAt: tokens.Expiry, DeviceID: model.Hash(n.SiteID + ":" + t.UserID + ":" + t.Begin.PublicKey)}
 	e = n.Store.Update(func(st *model.State) error {
 		u, ok := st.Users[t.UserID]
-		if !ok || !u.Active(time.Now()) {
+		if !ok || !u.Active(time.Now()) || u.AuthRevision != t.AuthRevision || !time.Now().Before(out.ExpiresAt) {
 			return model.ErrForbidden
 		}
 		if t.Begin.ClientType == "admin" && u.Role != "admin" {

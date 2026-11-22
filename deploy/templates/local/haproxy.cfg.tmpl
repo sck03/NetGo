@@ -16,8 +16,8 @@ frontend netgo_tls
  use_backend relay if { req.ssl_sni -i @@LOCAL_RELAY@@ }
  default_backend reject_unknown
 backend control
- server local 127.0.0.1:9443
+ server local 127.0.0.1:@@CONTROL_PORT@@
 backend relay
- server local 127.0.0.1:8443
+ server local 127.0.0.1:@@RELAY_BIND_PORT@@
 backend reject_unknown
  tcp-request content reject

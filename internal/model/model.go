@@ -10,7 +10,7 @@ import (
 )
 
 const Protocol = 1
-const Version = "0.2.0-dev"
+const Version = "0.2.3-dev"
 
 var (
 	ErrUnauthorized = errors.New("unauthorized")
@@ -33,15 +33,16 @@ func Challenge(s string) string {
 }
 
 type User struct {
-	ID          string    `json:"id"`
-	Alias       string    `json:"alias"`
-	Email       string    `json:"email"`
-	Role        string    `json:"role"`
-	Disabled    bool      `json:"disabled"`
-	ExpiresAt   time.Time `json:"expires_at"`
-	MaxDevices  int       `json:"max_devices"`
-	MaxSessions int       `json:"max_sessions"`
-	Resources   []string  `json:"resources"`
+	ID           string    `json:"id"`
+	Alias        string    `json:"alias"`
+	Email        string    `json:"email"`
+	Role         string    `json:"role"`
+	Disabled     bool      `json:"disabled"`
+	ExpiresAt    time.Time `json:"expires_at"`
+	MaxDevices   int       `json:"max_devices"`
+	MaxSessions  int       `json:"max_sessions"`
+	Resources    []string  `json:"resources"`
+	AuthRevision uint64    `json:"auth_revision,omitempty"`
 }
 
 func (u User) Active(now time.Time) bool {
@@ -77,6 +78,8 @@ type Lease struct {
 	Resources  []Resource `json:"resources"`
 }
 type Credential struct {
+	// TokenHash is attached by request authentication, never persisted or exported.
+	TokenHash string    `json:"-"`
 	UserID    string    `json:"user_id"`
 	DeviceID  string    `json:"device_id"`
 	ExpiresAt time.Time `json:"expires_at"`
@@ -114,4 +117,24 @@ func (s *State) Record(actor, action, object string) {
 	if len(s.Audit) > 10000 {
 		s.Audit = s.Audit[len(s.Audit)-10000:]
 	}
+}
+
+// InvalidateUser fences authentication already in progress as well as issued tokens.
+// The revision belongs to NetGo metadata; password material remains in the IdP.
+func (s *State) InvalidateUser(id string) error {
+	u, ok := s.Users[id]
+	if !ok {
+		return ErrNotFound
+	}
+	if u.AuthRevision == ^uint64(0) {
+		return errors.New("authentication revision exhausted")
+	}
+	u.AuthRevision++
+	s.Users[id] = u
+	for key, c := range s.Credentials {
+		if c.UserID == id {
+			delete(s.Credentials, key)
+		}
+	}
+	return nil
 }

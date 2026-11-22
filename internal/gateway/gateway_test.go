@@ -1,6 +1,8 @@
 package gateway
 
 import (
+	"context"
+	"errors"
 	"netgo/internal/model"
 	"strings"
 	"testing"
@@ -24,6 +26,83 @@ func TestGatePrecedesConntrackAndHasTimeout(t *testing.T) {
 	}
 	if strings.Index(script, "iifname \"wt0\" counter drop") > strings.Index(script, "ct state established") {
 		t.Fatal("gate follows conntrack")
+	}
+}
+func TestRevocationClosesGateBeforeScopedCleanupAndRetries(t *testing.T) {
+	l := model.Lease{ID: "first", IP: "100.96.0.2", ExpiresAt: time.Now().Add(time.Minute)}
+	var calls []string
+	fail := false
+	n := &NFT{Interface: "wt0", LANInterface: "eth0", Overlay: "100.96.0.0/16", Run: func(context.Context, string) error { calls = append(calls, "gate"); return nil }, Conntrack: func(_ context.Context, ip string) error {
+		calls = append(calls, ip)
+		if fail {
+			return errors.New("cleanup unavailable")
+		}
+		return nil
+	}}
+	if err := n.Apply(context.Background(), []model.Lease{l}); err != nil {
+		t.Fatal(err)
+	}
+	fail = true
+	calls = nil
+	if err := n.Apply(context.Background(), nil); err == nil {
+		t.Fatal("cleanup failure ignored")
+	}
+	if strings.Join(calls, ",") != "gate,100.96.0.2" {
+		t.Fatal(calls)
+	}
+	fail = false
+	calls = nil
+	if err := n.Apply(context.Background(), nil); err != nil {
+		t.Fatal(err)
+	}
+	if strings.Join(calls, ",") != "gate,100.96.0.2,gate" {
+		t.Fatal("cleanup not retried", calls)
+	}
+}
+func TestReplacedAddressIsClosedUntilConntrackCleanup(t *testing.T) {
+	l := model.Lease{ID: "old", IP: "100.96.0.2", ExpiresAt: time.Now().Add(time.Minute)}
+	stage := 0
+	n := &NFT{Interface: "wt0", LANInterface: "eth0", Overlay: "100.96.0.0/16", Run: func(_ context.Context, s string) error {
+		if stage == 1 && strings.Contains(s, "add element inet netgo active4 { 100.96.0.2") {
+			t.Fatal("new lease opened before cleanup")
+		}
+		return nil
+	}, Conntrack: func(context.Context, string) error {
+		if stage == 1 {
+			stage = 2
+		}
+		return nil
+	}}
+	if err := n.Apply(context.Background(), []model.Lease{l}); err != nil {
+		t.Fatal(err)
+	}
+	stage = 1
+	l.ID = "new"
+	if err := n.Apply(context.Background(), []model.Lease{l}); err != nil || stage != 2 {
+		t.Fatal(err, stage)
+	}
+}
+func TestFirewallOwnershipAndOffload(t *testing.T) {
+	for _, rules := range []string{
+		`{"nftables":[{"table":{"family":"inet","name":"netgo"}}]}`,
+		`{"nftables":[{"flowtable":{"dev":["eth0","wan0"]}}]}`,
+	} {
+		if err := ValidateRuleset([]byte(rules), "wt0", "eth0"); err == nil {
+			t.Fatal("unsafe firewall accepted", rules)
+		}
+	}
+	if err := ValidateRuleset([]byte(`{"nftables":[{"table":{"family":"inet","name":"netgo","comment":"NetGo lease gate v1"}},{"flowtable":{"dev":["wan0"]}}]}`), "wt0", "eth0"); err != nil {
+		t.Fatal(err)
+	}
+}
+func TestConntrackEmptyScopeDoesNotMaskPermissionFailure(t *testing.T) {
+	if !noConntrackEntries([]byte("conntrack v1.4.8 (conntrack-tools): 0 flow entries have been deleted.\n")) {
+		t.Fatal("empty scope rejected")
+	}
+	for _, message := range []string{"Operation failed: you must be root", "Operation failed\nconntrack v1.4.8: 0 flow entries have been deleted.\n"} {
+		if noConntrackEntries([]byte(message)) {
+			t.Fatal("cleanup failure masked", message)
+		}
 	}
 }
 func TestRejectInjectionIPv6AndOverlongTTL(t *testing.T) {
