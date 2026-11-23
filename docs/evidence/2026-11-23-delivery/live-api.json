@@ -1,0 +1,151 @@
+{
+  "schema": 1,
+  "kind": "real TLS/IdP/API lab",
+  "generated_utc": "2026-11-23T09:14:42.455928+00:00",
+  "status": "PASS",
+  "checks": [
+    {
+      "name": "trusted_https_health",
+      "status": "PASS",
+      "seconds": 0.08
+    },
+    {
+      "name": "bootstrap_and_native_backend_not_public",
+      "status": "PASS",
+      "seconds": 0.031
+    },
+    {
+      "name": "protocol_required",
+      "status": "PASS",
+      "seconds": 0.017
+    },
+    {
+      "name": "admin_requires_authentication",
+      "status": "PASS",
+      "seconds": 0.017
+    },
+    {
+      "name": "wrong_password_rejected",
+      "status": "PASS",
+      "seconds": 0.259
+    },
+    {
+      "name": "real_dex_administrator_login",
+      "status": "PASS",
+      "seconds": 0.714
+    },
+    {
+      "name": "signed_administrator_state",
+      "status": "PASS",
+      "seconds": 0.022
+    },
+    {
+      "name": "request_replay_rejected",
+      "status": "PASS",
+      "seconds": 0.039
+    },
+    {
+      "name": "real_refresh_rotates_credentials",
+      "status": "PASS",
+      "seconds": 0.279
+    },
+    {
+      "name": "create_real_local_user",
+      "status": "PASS",
+      "seconds": 0.496
+    },
+    {
+      "name": "new_user_has_no_resources",
+      "status": "PASS",
+      "seconds": 0.0
+    },
+    {
+      "name": "normal_user_login",
+      "status": "PASS",
+      "seconds": 0.645
+    },
+    {
+      "name": "normal_user_admin_denied",
+      "status": "PASS",
+      "seconds": 0.018
+    },
+    {
+      "name": "resource_create",
+      "status": "PASS",
+      "seconds": 0.19
+    },
+    {
+      "name": "grant_explicit_resource",
+      "status": "PASS",
+      "seconds": 0.133
+    },
+    {
+      "name": "permission_edit_invalidates_old_credential",
+      "status": "PASS",
+      "seconds": 0.018
+    },
+    {
+      "name": "relogin_same_device_after_policy_change",
+      "status": "PASS",
+      "seconds": 1.261
+    },
+    {
+      "name": "device_quota_enforced",
+      "status": "PASS",
+      "seconds": 1.618
+    },
+    {
+      "name": "authenticated_profile_contains_no_secrets",
+      "status": "PASS",
+      "seconds": 0.019
+    },
+    {
+      "name": "disable_account",
+      "status": "PASS",
+      "seconds": 0.093
+    },
+    {
+      "name": "disabled_account_cannot_refresh",
+      "status": "PASS",
+      "seconds": 0.018
+    },
+    {
+      "name": "disabled_account_cannot_login",
+      "status": "PASS",
+      "seconds": 0.066
+    },
+    {
+      "name": "expired_account_policy",
+      "status": "PASS",
+      "seconds": 0.09
+    },
+    {
+      "name": "expired_account_cannot_login",
+      "status": "PASS",
+      "seconds": 0.066
+    },
+    {
+      "name": "last_administrator_protected",
+      "status": "PASS",
+      "seconds": 0.019
+    },
+    {
+      "name": "diagnostics_redacted",
+      "status": "PASS",
+      "seconds": 0.019
+    },
+    {
+      "name": "delete_test_user",
+      "status": "PASS",
+      "seconds": 0.338
+    },
+    {
+      "name": "delete_test_resource",
+      "status": "PASS",
+      "seconds": 0.117
+    }
+  ],
+  "limits": [
+    "This API suite does not prove tunnel traffic, NAT, VPS or Windows service installation"
+  ]
+}

@@ -1,0 +1,47 @@
+go: downloading github.com/netbirdio/netbird v0.83.2
+go: downloading google.golang.org/grpc v1.85.0
+go: downloading github.com/coreos/go-oidc/v3 v3.21.0
+go: downloading golang.org/x/crypto v0.59.0
+go: downloading modernc.org/sqlite v1.62.0
+go: downloading golang.org/x/term v0.48.0
+go: downloading github.com/go-jose/go-jose/v4 v4.1.4
+go: downloading golang.org/x/oauth2 v0.36.0
+go: downloading golang.org/x/net v0.62.0
+go: downloading golang.org/x/sys v0.50.0
+go: downloading google.golang.org/protobuf v1.36.12
+go: downloading google.golang.org/genproto/googleapis/rpc v0.0.0-20260817212433-ac3dfec99bb1
+go: downloading golang.org/x/text v0.44.0
+go: downloading github.com/grpc-ecosystem/grpc-gateway/v2 v2.26.3
+go: downloading google.golang.org/genproto/googleapis/api v0.0.0-20260817212433-ac3dfec99bb1
+go: downloading modernc.org/libc v1.80.1
+go: downloading modernc.org/mathutil v1.7.1
+go: downloading modernc.org/memory v1.12.1
+go: downloading github.com/dustin/go-humanize v1.1.0
+go: downloading github.com/mattn/go-isatty v0.0.24
+go: downloading github.com/ncruces/go-strftime v1.1.0
+go: downloading github.com/remyoudompheng/bigfft v0.0.0-20230129092748-24d4a6f8daec
+ok  	netgo/internal/api	1.792s
+ok  	netgo/internal/backup	8.104s
+ok  	netgo/internal/client	2.539s
+ok  	netgo/internal/controlpath	2.701s
+ok  	netgo/internal/ddns	1.360s
+ok  	netgo/internal/diagnostics	1.833s
+ok  	netgo/internal/engine/netbird	1.617s
+ok  	netgo/internal/gateway	1.307s
+ok  	netgo/internal/identity	1.964s
+?   	netgo/internal/ipc	[no test files]
+?   	netgo/internal/model	[no test files]
+ok  	netgo/internal/operations	2.219s
+?   	netgo/internal/privileged	[no test files]
+?   	netgo/internal/process	[no test files]
+ok  	netgo/internal/protocol	1.170s
+?   	netgo/internal/securefile	[no test files]
+ok  	netgo/internal/session	1.777s
+ok  	netgo/internal/site	1.775s
+ok  	netgo/internal/store	1.796s
+?   	netgo/internal/vault	[no test files]
+?   	netgo/internal/webui	[no test files]
+?   	netgo/cmd/netgo-ddns	[no test files]
+?   	netgo/cmd/netgo-helper	[no test files]
+?   	netgo/cmd/netgo-server	[no test files]
+?   	netgo/cmd/netgoctl	[no test files]

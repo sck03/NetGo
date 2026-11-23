@@ -8,6 +8,10 @@ export function validateHealth(health: any, expectedSite = '') {
   const required = ['native-auth-v1', 'device-signature-v1', 'leases-v1', 'profile-revision-v1', 'admin-v1', 'diagnostics-v1']
   if (!health || health.protocol !== 1 || !Array.isArray(health.capabilities) || !required.every(x => health.capabilities.includes(x))) throw Error('服务端协议不兼容，请使用匹配版本的客户端和服务端')
   if (typeof health.site_id !== 'string' || !health.site_id || (expectedSite && health.site_id !== expectedSite)) throw Error('站点身份不一致')
+  if (health.server_unix !== undefined) {
+    if (!Number.isSafeInteger(health.server_unix) || health.server_unix <= 0) throw Error('服务端时间格式无效')
+    if (Math.abs(Date.now() / 1000 - health.server_unix) > 30) throw Error('本机与服务器时间相差超过 30 秒，请核对两端校时状态')
+  }
   return health.site_id as string
 }
 

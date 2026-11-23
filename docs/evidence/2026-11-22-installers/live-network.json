@@ -1,0 +1,251 @@
+{
+  "schema": 1,
+  "status": "PASS",
+  "checks": [
+    {
+      "name": "administrator_login",
+      "status": "PASS",
+      "seconds": 0.933
+    },
+    {
+      "name": "create_authorized_user",
+      "status": "PASS",
+      "seconds": 0.401
+    },
+    {
+      "name": "create_unprivileged_user",
+      "status": "PASS",
+      "seconds": 0.384
+    },
+    {
+      "name": "create_tcp_resource",
+      "status": "PASS",
+      "seconds": 0.117
+    },
+    {
+      "name": "create_udp_resource",
+      "status": "PASS",
+      "seconds": 0.1
+    },
+    {
+      "name": "assign_only_authorized_resources",
+      "status": "PASS",
+      "seconds": 0.1
+    },
+    {
+      "name": "start_isolated_client_a",
+      "status": "PASS",
+      "seconds": 1.83
+    },
+    {
+      "name": "start_isolated_client_b",
+      "status": "PASS",
+      "seconds": 1.237
+    },
+    {
+      "name": "start_isolated_client_c",
+      "status": "PASS",
+      "seconds": 1.138
+    },
+    {
+      "name": "no_direct_transport_bypass",
+      "status": "PASS",
+      "seconds": 2.088
+    },
+    {
+      "name": "real_client_login_and_lease",
+      "status": "PASS",
+      "seconds": 6.056
+    },
+    {
+      "name": "tcp_payload_and_masquerade",
+      "status": "PASS",
+      "seconds": 0.25
+    },
+    {
+      "name": "udp_payload_and_masquerade",
+      "status": "PASS",
+      "seconds": 0.087
+    },
+    {
+      "name": "ungranted_tcp_port_blocked",
+      "status": "PASS",
+      "seconds": 2.091
+    },
+    {
+      "name": "second_user_without_resources_cannot_acquire_a_lease",
+      "status": "PASS",
+      "seconds": 7.053
+    },
+    {
+      "name": "unprivileged_user_cannot_reach_lan",
+      "status": "PASS",
+      "seconds": 2.089
+    },
+    {
+      "name": "create_distinct_second_user_resource",
+      "status": "PASS",
+      "seconds": 0.133
+    },
+    {
+      "name": "assign_only_second_user_resource",
+      "status": "PASS",
+      "seconds": 0.1
+    },
+    {
+      "name": "second_user_authorized_connection",
+      "status": "PASS",
+      "seconds": 7.553
+    },
+    {
+      "name": "second_user_can_reach_own_port",
+      "status": "PASS",
+      "seconds": 0.297
+    },
+    {
+      "name": "second_user_cannot_reach_first_user_port",
+      "status": "PASS",
+      "seconds": 2.094
+    },
+    {
+      "name": "first_user_cannot_reach_second_user_port",
+      "status": "PASS",
+      "seconds": 2.09
+    },
+    {
+      "name": "disable_revokes_established_tcp_within_five_seconds",
+      "status": "PASS",
+      "seconds": 1.234
+    },
+    {
+      "name": "disabled_peer_new_traffic_denied",
+      "status": "PASS",
+      "seconds": 2.095
+    },
+    {
+      "name": "reenable_account",
+      "status": "PASS",
+      "seconds": 0.115
+    },
+    {
+      "name": "client_disconnect",
+      "status": "PASS",
+      "seconds": 0.723
+    },
+    {
+      "name": "same_device_reconnect",
+      "status": "PASS",
+      "seconds": 7.634
+    },
+    {
+      "name": "reconnect_preserves_peer_and_increases_generation",
+      "status": "PASS",
+      "seconds": 0.0
+    },
+    {
+      "name": "reconnected_tcp_flow",
+      "status": "PASS",
+      "seconds": 0.1
+    },
+    {
+      "name": "concurrent_connection_rejected",
+      "status": "PASS",
+      "seconds": 8.186
+    },
+    {
+      "name": "explicit_replace_acquires_new_lease",
+      "status": "PASS",
+      "seconds": 7.118
+    },
+    {
+      "name": "replaced_peer_is_blocked",
+      "status": "PASS",
+      "seconds": 2.091
+    },
+    {
+      "name": "replacement_peer_can_access_lan",
+      "status": "PASS",
+      "seconds": 0.272
+    },
+    {
+      "name": "kernel_timeout_blocks_noncooperating_client_with_both_services_frozen",
+      "status": "PASS",
+      "seconds": 118.554
+    },
+    {
+      "name": "control_service_recovers_after_resume",
+      "status": "PASS",
+      "seconds": 0.158
+    },
+    {
+      "name": "disconnect_a",
+      "status": "PASS",
+      "seconds": 0.002
+    },
+    {
+      "name": "route_cleanup_a",
+      "status": "PASS",
+      "seconds": 0.006
+    },
+    {
+      "name": "disconnect_b",
+      "status": "PASS",
+      "seconds": 0.356
+    },
+    {
+      "name": "route_cleanup_b",
+      "status": "PASS",
+      "seconds": 0.004
+    },
+    {
+      "name": "cleanup_netgo-lab-client-c",
+      "status": "PASS",
+      "seconds": 2.287
+    },
+    {
+      "name": "cleanup_netgo-lab-client-b",
+      "status": "PASS",
+      "seconds": 2.08
+    },
+    {
+      "name": "cleanup_netgo-lab-client-a",
+      "status": "PASS",
+      "seconds": 2.076
+    },
+    {
+      "name": "delete_vpna7deaa3e0",
+      "status": "PASS",
+      "seconds": 0.578
+    },
+    {
+      "name": "delete_vpnb7deaa3e0",
+      "status": "PASS",
+      "seconds": 0.736
+    },
+    {
+      "name": "delete_vpn7deaa3e0tcp",
+      "status": "PASS",
+      "seconds": 0.168
+    },
+    {
+      "name": "delete_vpn7deaa3e0udp",
+      "status": "PASS",
+      "seconds": 0.142
+    },
+    {
+      "name": "delete_vpn7deaa3e0other",
+      "status": "PASS",
+      "seconds": 0.142
+    },
+    {
+      "name": "host_dns_preserved",
+      "status": "PASS",
+      "seconds": 0.0
+    }
+  ],
+  "generated_utc": "2026-11-22T11:57:13.660723+00:00",
+  "topology": "Real Linux services, three network namespace clients, independent non-VPN LAN target",
+  "limits": [
+    "Namespaces do not prove Internet NAT, public DDNS, VPS, Windows or 72-hour reliability"
+  ]
+}

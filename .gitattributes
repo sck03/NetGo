@@ -3,6 +3,8 @@
 *.jpg binary
 *.zip binary
 *.pdf binary
+# Patch context intentionally has a leading space before source indentation.
+upstream/patches/*.patch -whitespace
 
 # Verification records bind raw bytes; preserve evidence across checkouts.
 docs/evidence/** -text whitespace=cr-at-eol

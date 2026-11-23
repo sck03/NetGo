@@ -1,9 +1,9 @@
 diff --git a/server/netgo_native.go b/server/netgo_native.go
 new file mode 100644
-index 0000000..1638ad2
+index 0000000..2ac4ba3
 --- /dev/null
 +++ b/server/netgo_native.go
-@@ -0,0 +1,75 @@
+@@ -0,0 +1,98 @@
 +package server
 +
 +// NetGo extension: internal-only, secret-authenticated native login. Passwords
@@ -13,6 +13,7 @@ index 0000000..1638ad2
 +	"crypto/subtle"
 +	"encoding/base64"
 +	"encoding/json"
++	"errors"
 +	"github.com/netbirdio/dex/connector"
 +	"github.com/netbirdio/dex/storage"
 +	"net/http"
@@ -71,6 +72,28 @@ index 0000000..1638ad2
 +		return
 +	}
 +	code := storage.AuthCode{ID: storage.NewID(), ClientID: "netbird-cli", RedirectURI: "http://localhost:53000/", Nonce: in.Nonce, Scopes: scopes, ConnectorID: "local", ConnectorData: id.ConnectorData, Claims: storage.Claims{UserID: id.UserID, Username: id.Username, PreferredUsername: id.PreferredUsername, Email: id.Email, EmailVerified: id.EmailVerified, Groups: id.Groups}, Expiry: s.now().Add(time.Minute), AuthTime: s.now(), PKCE: storage.PKCE{CodeChallenge: in.Challenge, CodeChallengeMethod: "S256"}}
++	// Native login must persist the same identity/auth_time used by standard
++	// logins. With sessions enabled the normal refresh handler requires it.
++	if s.sessionConfig != nil {
++		update := func(old storage.UserIdentity) (storage.UserIdentity, error) {
++			old.Claims = code.Claims
++			old.LastLogin = code.AuthTime
++			return old, nil
++		}
++		_, e = s.storage.GetUserIdentity(ctx, id.UserID, "local")
++		if errors.Is(e, storage.ErrNotFound) {
++			e = s.storage.CreateUserIdentity(ctx, storage.UserIdentity{UserID: id.UserID, ConnectorID: "local", Claims: code.Claims, Consents: make(map[string][]string), CreatedAt: code.AuthTime, LastLogin: code.AuthTime})
++			if errors.Is(e, storage.ErrAlreadyExists) {
++				e = s.storage.UpdateUserIdentity(ctx, id.UserID, "local", update)
++			}
++		} else if e == nil {
++			e = s.storage.UpdateUserIdentity(ctx, id.UserID, "local", update)
++		}
++		if e != nil {
++			http.Error(w, "unavailable", 503)
++			return
++		}
++	}
 +	if e = s.storage.CreateAuthCode(ctx, code); e != nil {
 +		http.Error(w, "unavailable", 503)
 +		return
@@ -78,6 +101,118 @@ index 0000000..1638ad2
 +	w.Header().Set("Content-Type", "application/json")
 +	w.Header().Set("Cache-Control", "no-store")
 +	_ = json.NewEncoder(w).Encode(map[string]string{"code": code.ID})
++}
+diff --git a/server/netgo_native_sqlite_test.go b/server/netgo_native_sqlite_test.go
+new file mode 100644
+index 0000000..78e8f66
+--- /dev/null
++++ b/server/netgo_native_sqlite_test.go
+@@ -0,0 +1,106 @@
++//go:build cgo
++
++package server
++
++import (
++	"bytes"
++	"crypto/sha256"
++	"encoding/base64"
++	"encoding/json"
++	"net/http/httptest"
++	"net/url"
++	"os"
++	"path/filepath"
++	"strings"
++	"testing"
++	"time"
++
++	"github.com/netbirdio/dex/storage"
++	"github.com/netbirdio/dex/storage/sql"
++	"golang.org/x/crypto/bcrypt"
++)
++
++func TestNetGoNativeSQLiteLoginExchangeAndRefreshWithSessions(t *testing.T) {
++	dir := t.TempDir()
++	secret := strings.Repeat("s", 40)
++	secretPath := filepath.Join(dir, "native.secret")
++	if err := os.WriteFile(secretPath, []byte(secret), 0600); err != nil {
++		t.Fatal(err)
++	}
++	t.Setenv("NETGO_NATIVE_SECRET_FILE", secretPath)
++	db, err := (&sql.SQLite3{File: filepath.Join(dir, "identity.db")}).Open(newLogger(t))
++	if err != nil {
++		t.Fatal(err)
++	}
++	t.Cleanup(func() { _ = db.Close() })
++	httpServer, s := newTestServer(t, func(c *Config) { c.Storage = db; c.Now = time.Now })
++	defer httpServer.Close()
++	s.sessionConfig = &SessionConfig{CookieName: "dex_session", AbsoluteLifetime: 24 * time.Hour}
++	ctx := t.Context()
++	client := storage.Client{ID: "netbird-cli", Public: true, RedirectURIs: []string{"http://localhost:53000/"}}
++	if err = db.CreateClient(ctx, client); err != nil {
++		t.Fatal(err)
++	}
++	conn := storage.Connector{ID: "local", Type: "local", Name: "Local", ResourceVersion: "1"}
++	if err = db.CreateConnector(ctx, conn); err != nil {
++		t.Fatal(err)
++	}
++	if _, err = s.OpenConnector(conn); err != nil {
++		t.Fatal(err)
++	}
++	hash, err := bcrypt.GenerateFromPassword([]byte("test-only-password"), bcrypt.DefaultCost)
++	if err != nil {
++		t.Fatal(err)
++	}
++	if err = db.CreatePassword(ctx, storage.Password{Email: "alice@example.test", UserID: "alice", Username: "Alice", Hash: hash}); err != nil {
++		t.Fatal(err)
++	}
++	verifier := strings.Repeat("v", 43)
++	digest := sha256.Sum256([]byte(verifier))
++	nonce := "netgo:" + base64.RawURLEncoding.EncodeToString(make([]byte, 32)) + ":" + base64.StdEncoding.EncodeToString(make([]byte, 32)) + ":" + strings.Repeat("n", 43)
++	data, _ := json.Marshal(map[string]string{"username": "alice@example.test", "password": "test-only-password", "nonce": nonce, "challenge": base64.RawURLEncoding.EncodeToString(digest[:])})
++	r := httptest.NewRequest("POST", "/netgo/native", bytes.NewReader(data))
++	r.Header.Set("Authorization", "Bearer "+secret)
++	w := httptest.NewRecorder()
++	s.handleNetGoNative(w, r)
++	if w.Code != 200 {
++		t.Fatalf("native login status %d", w.Code)
++	}
++	var auth struct{ Code string }
++	if err = json.Unmarshal(w.Body.Bytes(), &auth); err != nil {
++		t.Fatal(err)
++	}
++	token := func(values url.Values) map[string]string {
++		t.Helper()
++		values.Set("client_id", "netbird-cli")
++		req := httptest.NewRequest("POST", httpServer.URL+"/token", strings.NewReader(values.Encode()))
++		req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
++		response := httptest.NewRecorder()
++		s.ServeHTTP(response, req)
++		if response.Code != 200 {
++			t.Fatalf("token endpoint status %d", response.Code)
++		}
++		var payload map[string]json.RawMessage
++		if err = json.Unmarshal(response.Body.Bytes(), &payload); err != nil {
++			t.Fatal(err)
++		}
++		result := map[string]string{}
++		for _, key := range []string{"id_token", "refresh_token"} {
++			var resultValue string
++			if err = json.Unmarshal(payload[key], &resultValue); err != nil {
++				t.Fatal(err)
++			}
++			result[key] = resultValue
++		}
++		return result
++	}
++	first := token(url.Values{"grant_type": {"authorization_code"}, "code": {auth.Code}, "code_verifier": {verifier}, "redirect_uri": {"http://localhost:53000/"}})
++	next := token(url.Values{"grant_type": {"refresh_token"}, "refresh_token": {first["refresh_token"]}})
++	if next["refresh_token"] == "" || next["refresh_token"] == first["refresh_token"] {
++		t.Fatal("refresh did not rotate")
++	}
++	claims := decodeJWTClaims(t, next["id_token"])
++	if claims["nonce"] != nonce || claims["sub"] != decodeJWTClaims(t, first["id_token"])["sub"] || claims["auth_time"] == nil {
++		t.Fatal("refresh lost subject, device binding or authentication time")
++	}
 +}
 diff --git a/server/netgo_native_test.go b/server/netgo_native_test.go
 new file mode 100644
@@ -156,6 +291,151 @@ index 0000000..2aee4ec
 +		t.Fatal("MFA bypass", w.Code)
 +	}
 +}
+diff --git a/server/netgo_refresh_sqlite_test.go b/server/netgo_refresh_sqlite_test.go
+new file mode 100644
+index 0000000..f4619ea
+--- /dev/null
++++ b/server/netgo_refresh_sqlite_test.go
+@@ -0,0 +1,100 @@
++//go:build cgo
++
++package server
++
++import (
++	"path/filepath"
++	"sync"
++	"testing"
++	"time"
++
++	"github.com/netbirdio/dex/server/internal"
++	"github.com/netbirdio/dex/storage"
++	"github.com/netbirdio/dex/storage/sql"
++)
++
++func TestNetGoLocalRefreshSQLite(t *testing.T) {
++	logger := newLogger(t)
++	db, err := (&sql.SQLite3{File: filepath.Join(t.TempDir(), "identity.db")}).Open(logger)
++	if err != nil {
++		t.Fatal(err)
++	}
++	t.Cleanup(func() { _ = db.Close() })
++	ctx := t.Context()
++	policy, err := NewRefreshTokenPolicy(logger, false, "", "", "")
++	if err != nil {
++		t.Fatal(err)
++	}
++	s := &Server{storage: db, now: time.Now, logger: logger, refreshTokenPolicy: policy}
++	p := storage.Password{Email: "alice@example.test", UserID: "alice", Username: "Updated Alice", Groups: []string{"staff"}, Hash: []byte("unused-by-refresh-test")}
++	if err = db.CreatePassword(ctx, p); err != nil {
++		t.Fatal(err)
++	}
++	old := storage.RefreshToken{ID: "refresh", Token: "original", ClientID: "netbird-cli", ConnectorID: "local",
++		CreatedAt: time.Now(), LastUsed: time.Now(), Scopes: []string{"openid", "offline_access"},
++		Claims: storage.Claims{UserID: p.UserID, Email: p.Email, Username: "Before"}}
++	if err = db.CreateRefresh(ctx, old); err != nil {
++		t.Fatal(err)
++	}
++	if err = db.CreateOfflineSessions(ctx, storage.OfflineSessions{UserID: p.UserID, ConnID: "local",
++		Refresh: map[string]*storage.RefreshTokenRef{"netbird-cli": {ID: old.ID, ClientID: old.ClientID}}}); err != nil {
++		t.Fatal(err)
++	}
++	refresh := func(token storage.RefreshToken) (*internal.RefreshToken, *refreshError) {
++		r := &refreshContext{storageToken: &token, requestToken: &internal.RefreshToken{RefreshId: token.ID, Token: token.Token},
++			connector: Connector{Connector: passwordDB{db}}, scopes: token.Scopes}
++		next, ident, failure := s.updateRefreshToken(ctx, r)
++		if failure == nil && (ident.UserID != p.UserID || ident.Username != p.Username || len(ident.Groups) != 1) {
++			t.Error("refreshed local identity lost its current account claims")
++		}
++		return next, failure
++	}
++	next, failure := refresh(old)
++	if failure != nil || next.Token == old.Token {
++		t.Fatal("local SQLite refresh failed to rotate", failure)
++	}
++	if _, failure = refresh(old); failure == nil {
++		t.Fatal("stale refresh token accepted")
++	}
++	current, err := db.GetRefresh(ctx, old.ID)
++	if err != nil {
++		t.Fatal(err)
++	}
++	if current.Token != next.Token || current.Claims.Username != p.Username {
++		t.Fatal("rotation or claims were not persisted")
++	}
++	var wait sync.WaitGroup
++	results := make(chan bool, 2)
++	for range 2 {
++		wait.Add(1)
++		go func() { defer wait.Done(); _, failure := refresh(current); results <- failure == nil }()
++	}
++	wait.Wait()
++	close(results)
++	successes := 0
++	for ok := range results {
++		if ok {
++			successes++
++		}
++	}
++	if successes != 1 {
++		t.Fatalf("concurrent rotation accepted %d requests, want one", successes)
++	}
++	current, err = db.GetRefresh(ctx, old.ID)
++	if err != nil {
++		t.Fatal(err)
++	}
++	if err = db.DeletePassword(ctx, p.Email); err != nil {
++		t.Fatal(err)
++	}
++	if _, failure = refresh(current); failure == nil {
++		t.Fatal("deleted local user refreshed")
++	}
++	p.UserID = "replacement-user"
++	if err = db.CreatePassword(ctx, p); err != nil {
++		t.Fatal(err)
++	}
++	if _, failure = refresh(current); failure == nil {
++		t.Fatal("recreated email inherited the old user's refresh token")
++	}
++}
+diff --git a/server/refreshhandlers.go b/server/refreshhandlers.go
+index e064860..13bb813 100644
+--- a/server/refreshhandlers.go
++++ b/server/refreshhandlers.go
+@@ -327,6 +327,19 @@ func (s *Server) updateRefreshToken(ctx context.Context, rCtx *refreshContext) (
+ 		Groups:            rCtx.storageToken.Claims.Groups,
+ 	}
+ 
++	// The local connector reads this same storage. SQLite holds its only
++	// connection while UpdateRefreshToken executes the updater, so reading the
++	// password inside that callback deadlocks. Validate local users first; token
++	// rotation and the stale-token check still happen atomically below. Remote
++	// connectors retain their existing single-call/reuse semantics.
++	_, localPassword := rCtx.connector.Connector.(passwordDB)
++	if localPassword {
++		ident, rerr = s.refreshWithConnector(ctx, rCtx, ident)
++		if rerr != nil {
++			return nil, ident, rerr
++		}
++	}
++
+ 	refreshTokenUpdater := func(old storage.RefreshToken) (storage.RefreshToken, error) {
+ 		rotationEnabled := s.refreshTokenPolicy.RotationEnabled()
+ 		reusingAllowed := s.refreshTokenPolicy.AllowedToReuse(old.LastUsed)
+@@ -371,9 +384,11 @@ func (s *Server) updateRefreshToken(ctx context.Context, rCtx *refreshContext) (
+ 		// Call  only once if there is a request which is not in the reuse interval.
+ 		// This is required to avoid multiple calls to the external IdP for concurrent requests.
+ 		// Dex will call the connector's Refresh method only once if request is not in reuse interval.
+-		ident, rerr = s.refreshWithConnector(ctx, rCtx, ident)
+-		if rerr != nil {
+-			return old, rerr
++		if !localPassword {
++			ident, rerr = s.refreshWithConnector(ctx, rCtx, ident)
++			if rerr != nil {
++				return old, rerr
++			}
+ 		}
+ 
+ 		// Update the claims of the refresh token.
 diff --git a/server/server.go b/server/server.go
 index 4bf15c5..95de1eb 100644
 --- a/server/server.go

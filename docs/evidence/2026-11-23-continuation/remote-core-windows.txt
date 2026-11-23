@@ -1,0 +1,28 @@
+UpdateCTestConfiguration  from :E:/NetGo/.cache/remote-core-build/DartConfiguration.tcl
+Parse Config file:E:/NetGo/.cache/remote-core-build/DartConfiguration.tcl
+Test project E:/NetGo/.cache/remote-core-build
+Constructing a list of tests
+Done constructing a list of tests
+Updating test list for fixtures
+Added 0 tests to meet fixture requirements
+Checking test dependency graph...
+Checking test dependency graph end
+test 1
+    Start 1: remote-session
+
+1: Test command: E:\NetGo\.cache\remote-core-build\remote-session-tests.exe
+1: Working Directory: E:/NetGo/.cache/remote-core-build
+1: Test timeout computed to be: 1500
+1: PASS 79 remote gate checks (test verifier; no media/crypto integration claim)
+1/2 Test #1: remote-session ...................   Passed    0.03 sec
+test 2
+    Start 2: remote-c-abi
+
+2: Test command: E:\NetGo\.cache\remote-core-build\remote-c-abi-test.exe
+2: Working Directory: E:/NetGo/.cache/remote-core-build
+2: Test timeout computed to be: 1500
+2/2 Test #2: remote-c-abi .....................   Passed    0.01 sec
+
+100% tests passed, 0 tests failed out of 2
+
+Total Test time (real) =   0.04 sec

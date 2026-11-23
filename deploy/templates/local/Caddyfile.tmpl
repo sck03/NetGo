@@ -1,6 +1,7 @@
 {
- admin 127.0.0.1:2019
+ admin 127.0.0.1:@@CADDY_ADMIN_PORT@@
  auto_https off
+ default_sni @@CONTROL_HOST@@
  servers {
   protocols h1 h2
  }
@@ -8,8 +9,10 @@
 https://@@CONTROL_HOST@@:@@CONTROL_PORT@@ {
 @@CONTROL_BIND_DIRECTIVE@@
  tls /etc/netgo/tls/control.crt /etc/netgo/tls/control.key
- @private path /oauth2/netgo/*
- respond @private 404
+ @private path /oauth2/netgo/* /api/setup
+ handle @private {
+  respond 404
+ }
  @netgo path /netgo/* /netgo-ui/* /assets/* /
  handle @netgo {
   reverse_proxy @@PRODUCT_LISTEN@@

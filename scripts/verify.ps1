@@ -15,7 +15,7 @@ if(Test-Path -LiteralPath $Output){throw 'Verification output must be a new dire
 New-Item -ItemType Directory -Path $Output|Out-Null
 $checks=[Collections.Generic.List[object]]::new()
 $saved=@{}
-foreach($name in @('PATH','GOOS','GOARCH','CGO_ENABLED','CC')){$saved[$name]=[Environment]::GetEnvironmentVariable($name,'Process')}
+foreach($name in @('PATH','GOOS','GOARCH','CGO_ENABLED','CC','GOCACHE','GOPATH','GOMODCACHE','GOTMPDIR','TEMP','TMP','npm_config_cache')){$saved[$name]=[Environment]::GetEnvironmentVariable($name,'Process')}
 function Run-Check([string]$Name,[scriptblock]$Action){
  $log=Join-Path $Output ($Name+'.txt')
  $timer=[Diagnostics.Stopwatch]::StartNew()
@@ -38,6 +38,7 @@ function Check-Command { if($LASTEXITCODE -ne 0){throw "Command failed ($LASTEXI
 $success=$false
 try {
  $env:PATH=(Join-Path $root '.tools/go/bin')+';'+(Join-Path $root '.tools/node-v26.13.1-win-x64')+';'+(Join-Path $Toolchain 'bin')+';'+$env:PATH
+ . (Join-Path $PSScriptRoot 'project-environment.ps1')
  Remove-Item Env:GOOS -ErrorAction SilentlyContinue
  Remove-Item Env:GOARCH -ErrorAction SilentlyContinue
  $env:CGO_ENABLED='1';$env:CC=Join-Path $Toolchain 'bin/gcc.exe'
@@ -53,9 +54,11 @@ try {
  Run-Check 'source-inputs' { & $Python -B "$PSScriptRoot/fingerprint.py";Check-Command }
  $sourceInputs=Get-Content -LiteralPath (Join-Path $Output 'source-inputs.txt') -Raw | ConvertFrom-Json
  Run-Check 'tools-tests' { & $Python -B -m unittest discover -s tests/tools -v;Check-Command }
+ Run-Check 'remote-core' { & $Python -B "$PSScriptRoot/verify-remote.py" --output "$Output/remote-core-build";Check-Command }
+ # Build embedded web assets before Go tests, including in a clean checkout.
+ Run-Check 'frontend' { npm ci --no-fund;Check-Command;npm test;Check-Command;npm run build;Check-Command }
  Run-Check 'go-race' { go test -race ./internal/... ./cmd/...;Check-Command }
  Run-Check 'go-vet' { go vet ./internal/... ./cmd/...;Check-Command }
- Run-Check 'frontend' { npm test;Check-Command;npm run build;Check-Command }
  Run-Check 'scripts' { & "$PSScriptRoot/verify-scripts.ps1" -Bash $Bash -Python $Python }
  Run-Check 'certificates' { & $Python -B "$PSScriptRoot/verify-certificates.py" --bash $Bash;Check-Command }
  $ctl=Join-Path $Output 'netgoctl.exe'
@@ -82,7 +85,7 @@ try {
  $success=$true
 } finally {
  $status=if(-not $success){'FAIL'}elseif($SkipNative -or $SkipUpstream){'INCOMPLETE'}else{'PASS'}
- [ordered]@{schema=2;platform='windows';status=$status;generated_utc=[DateTime]::UtcNow.ToString('o');code_sha256=$sourceInputs.code_sha256;checks=$checks.ToArray();real_network_acceptance='NOT-RUN';limits=@('Debian 13 upstream CGO/runtime, systemd, nftables and HAProxy need the target lab','A01-A33, cross-user installation and 72-hour reliability remain NOT-RUN')} | ConvertTo-Json -Depth 8 | Set-Content -LiteralPath (Join-Path $Output 'verification.json') -Encoding utf8NoBOM
+ [ordered]@{schema=2;platform='windows';status=$status;generated_utc=[DateTime]::UtcNow.ToString('o');code_sha256=$sourceInputs.code_sha256;checks=$checks.ToArray();real_network_acceptance='NOT-RUN';limits=@('Debian 12/13 upstream CGO/runtime, systemd, nftables and HAProxy need the target lab','A01-A33, cross-user installation and 72-hour reliability remain NOT-RUN')} | ConvertTo-Json -Depth 8 | Set-Content -LiteralPath (Join-Path $Output 'verification.json') -Encoding utf8NoBOM
  foreach($name in $saved.Keys){[Environment]::SetEnvironmentVariable($name,$saved[$name],'Process')}
 }
 Write-Output "Verification $status. Report: $Output/verification.json"

@@ -1,4 +1,4 @@
-#include "netgo.hpp"
+#include "connection.hpp"
 #include <iostream>
 #include <openssl/evp.h>
 #include <sddl.h>
@@ -8,6 +8,8 @@ template<class F>void rejects(F f,const char* message){bool failed=false;try{f()
 Json profile(){return {{"Protocol",1},{"ID","test"},{"Name","实验站点"},{"Origin","https://site.example"},{"Candidates",Json::array({{{"ID","direct"},{"Address","127.0.0.1:443"},{"Kind","direct"}}})},{"CA",""},{"GatewayIP","100.96.0.1"},{"GatewayPeerID","gateway"},{"LocalRelay","relay.example"},{"AuxiliaryRelay",""}};}
 int main(int argc,char** argv){
  try{
+  require(OpenSSL_version_num()==OPENSSL_VERSION_NUMBER,"OpenSSL header/library version mismatch");
+  std::cout<<"Linked "<<OpenSSL_version(OPENSSL_VERSION)<<'\n';
   WSADATA wsa{};WSAStartup(MAKEWORD(2,2),&wsa);
   if(argc==3&&std::string(argv[1])=="--profile-contract"){
    auto fixture=Json::parse(readFile(wide(argv[2])));
@@ -58,6 +60,14 @@ int main(int argc,char** argv){
    require(pipeCall({{"action","status"}}).at("state")=="disconnected","oversized frame blocked agent");
    rejects([]{pipeCall({{"action","delete"},{"site","../outside"}});},"path traversal accepted");
    rejects([]{pipeCall({{"action","import"},{"profile",{{"Password","must-not-save"}}}});},"secret config accepted");
+   p["Candidates"][0]["Address"]="127.0.0.1:1";
+   pipeCall({{"action","import"},{"profile",p}});
+   pipeCall({{"action","connect"},{"site","test"},{"alias","fixture"},{"password","fixture-password"}});
+   Json connection;
+   for(int i=0;i<50;++i){connection=pipeCall({{"action","status"}});if(connection.at("state")=="failed")break;Sleep(100);}
+   require(connection.at("state")=="failed"&&!connection.value("error","").empty(),"connection error was lost in IPC");
+   require(pipeCall({{"action","diagnostic"}}).at("state")=="failed","diagnostic error confused with IPC failure");
+   pipeCall({{"action","disconnect"}});
    pipeCall({{"action","delete"},{"site","test"}});
    pipeCall({{"action","shutdown"}});require(WaitForSingleObject(process,5000)==WAIT_OBJECT_0,"agent shutdown blocked");
    std::filesystem::remove_all(root);std::cout<<"PASS native IPC actions, bounds, path rejection and shutdown\n";return 0;
@@ -65,6 +75,9 @@ int main(int argc,char** argv){
   auto p=profile();validateProfile(p);require(originHost("https://site.example:8443")=="site.example","origin host");
   auto health=Json{{"protocol",1},{"site_id","test"},{"capabilities",{"native-auth-v1","device-signature-v1","leases-v1","profile-revision-v1"}}};
   validateHealth(health,"test");
+  auto timed=health;timed["server_unix"]=int64_t(std::time(nullptr));validateHealth(timed,"test");
+  timed["server_unix"]=int64_t(std::time(nullptr))+60;
+  try{validateHealth(timed,"test");throw Error("clock skew accepted");}catch(const Error& e){require(std::string(e.what())=="clock_out_of_sync","clock skew not diagnosed");}
   auto incompatible=health;incompatible["capabilities"].erase(3);rejects([&]{validateHealth(incompatible,"test");},"missing capability accepted");
   incompatible=health;incompatible["protocol"]=2;rejects([&]{validateHealth(incompatible,"test");},"future protocol accepted");
   rejects([&]{validateHealth(health,"other");},"wrong health identity accepted");
@@ -76,6 +89,10 @@ int main(int argc,char** argv){
   bad=p;bad["CA"]="garbage";rejects([&]{validateProfile(bad);},"invalid CA");
   require(sha256("abc")=="ba7816bf8f01cfea414140de5dae2223b00361a396177a9cb410ff61f20015ad","SHA256 fixture");
   require(sha256("abc",true)=="ungWv48Bz-pBQUDeXa4iI7ADYaOWF3qctBD_YfIAFa0","PKCE fixture");
+  require(sha256("")=="e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855","empty SHA256 fixture");
+  const unsigned char binary[]={0xfb,0xff,0xff};
+  require(base64url(binary,0).empty()&&base64url(binary,1)=="-w"&&base64url(binary,2)=="-_8"&&base64url(binary,3)=="-___","binary URL-safe encoding and padding");
+  auto random=randomID();require(random.size()==43&&random.find_first_not_of("ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789-_")==std::string::npos&&random!=randomID(),"OS random ID format");
   require(parseTime("2026-11-22T08:00:00+08:00")==parseTime("2026-11-22T00:00:00Z"),"RFC3339 offset");
   rejects([]{parseTime("2026-02-31T00:00:00Z");},"invalid date accepted");
   // RFC8032 test vector: empty message, deterministic Ed25519 seed.

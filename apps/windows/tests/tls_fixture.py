@@ -46,6 +46,7 @@ def run(binary):
             assert len(nonce)>=32 and abs(int(stamp)-now.timestamp())<60
             assert self.headers["Host"]==expected_host and self.path in ("/fixture","/enable-wan")
             if self.path=="/enable-wan": wan_ready.set()
+            if getattr(self.server,'response_delay',0):time.sleep(self.server.response_delay)
             events.append(("verified",self.headers["Host"]));self.reply({"verified":True})
     with tempfile.TemporaryDirectory(prefix="netgo-tls-") as directory:
         root=pathlib.Path(directory)
@@ -66,6 +67,11 @@ def run(binary):
                 file.write_text(json.dumps(p),encoding="utf-8");subprocess.run([binary,"--tls-reject",str(file)],check=True,timeout=30)
             else:
                 file.write_text(json.dumps(p),encoding="utf-8");subprocess.run([binary,"--tls",str(file)],check=True,timeout=30)
+                server.response_delay=3.5
+                try:
+                    subprocess.run([binary,"--tls",str(file)],check=True,timeout=30)
+                    print('PASS signed API response slower than health-probe deadline')
+                finally:server.response_delay=0
                 expected_host="netgo.test:10443"
                 p["Origin"]="https://"+expected_host
                 file.write_text(json.dumps(p),encoding="utf-8");subprocess.run([binary,"--tls",str(file)],check=True,timeout=30)

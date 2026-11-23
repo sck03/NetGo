@@ -1,0 +1,66 @@
+{
+  "schema": 1,
+  "platform": "windows",
+  "files": [
+    {
+      "path": "dist/linux-amd64/SHA256SUMS",
+      "bytes": 482,
+      "sha256": "9717a760eb7d1b2c96d5e656700cfc95f778d7a86dc3b184d6a8aa58c9a81955"
+    },
+    {
+      "path": "dist/linux-amd64/netgo-client-service",
+      "bytes": 27180862,
+      "sha256": "21107325605c39315c5bc3e3201e0b575f85510e11ca130e357d69df5fb87661"
+    },
+    {
+      "path": "dist/linux-amd64/netgo-ddns",
+      "bytes": 10476676,
+      "sha256": "193572d3d3b4d67d4efcd4267b4b8b07416b24e38637a0a7706db81f9fc6f676"
+    },
+    {
+      "path": "dist/linux-amd64/netgo-helper",
+      "bytes": 10341774,
+      "sha256": "9b91a82696a1d892224a24a81db10f946662b558a9f29c8e2c9ae6f114337ebf"
+    },
+    {
+      "path": "dist/linux-amd64/netgo-server",
+      "bytes": 28282365,
+      "sha256": "5b2b91dc2aff280811fff316006a0d331848d1ce302daba9ce3bc585ed309b7f"
+    },
+    {
+      "path": "dist/linux-amd64/netgoctl",
+      "bytes": 26606364,
+      "sha256": "c6785d1797a40bfd1f2a6e506411815f3b17f780e0539076fc0ee3962380d6e5"
+    },
+    {
+      "path": "dist/linux-amd64/release.json",
+      "bytes": 104,
+      "sha256": "4de9f8a2484f6c2eba2781cb64e6f22a0be649c04b803b87c2611cd31f5b9c62"
+    },
+    {
+      "path": "dist/windows-amd64/SHA256SUMS",
+      "bytes": 325,
+      "sha256": "9bfcbff5b961502d5775ad7499159c3501cc16617b95b05aedaef5f80994cfe0"
+    },
+    {
+      "path": "dist/windows-amd64/netbird.exe",
+      "bytes": 56588800,
+      "sha256": "e9aa00c888730d7483ff2682f6ad0e50bc35779085da989fda73118868d5c1d3"
+    },
+    {
+      "path": "dist/windows-amd64/netgo-agent.exe",
+      "bytes": 11225675,
+      "sha256": "76571cb7f105c75ab20369fcce6caf8023f066f354165f6d9d942ff4d6f01a33"
+    },
+    {
+      "path": "dist/windows-amd64/netgo-desktop.exe",
+      "bytes": 11289629,
+      "sha256": "5e7c33ab148b7e74a0480931a5484007e583ba08cc86e585e1d94b1b99ee7350"
+    },
+    {
+      "path": "dist/windows-amd64/wintun.dll",
+      "bytes": 427552,
+      "sha256": "e5da8447dc2c320edc0fc52fa01885c103de8c118481f683643cacc3220dafce"
+    }
+  ]
+}

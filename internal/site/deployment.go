@@ -11,9 +11,14 @@ import (
 // Zero ports select the documented defaults. Origin remains the canonical
 // control authority; changing a physical candidate never changes the issuer.
 type Deployment struct {
-	Mode           string
-	LocalRelayPort int
-	LocalSTUNPort  int
+	Mode                  string
+	LocalRelayPort        int
+	LocalSTUNPort         int
+	ManagementHealthPort  int
+	ManagementMetricsPort int
+	RelayHealthPort       int
+	RelayMetricsPort      int
+	CaddyAdminPort        int
 }
 
 func validPort(port int) bool { return port > 0 && port <= 65535 }
@@ -30,6 +35,11 @@ func (d Deployment) Validate(origin string) error {
 	}
 	if !validPort(portOr(d.LocalRelayPort, 8443)) || !validPort(portOr(d.LocalSTUNPort, 3478)) {
 		return errors.New("invalid local Relay/STUN port")
+	}
+	for _, port := range []int{d.ManagementHealthPort, d.ManagementMetricsPort, d.RelayHealthPort, d.RelayMetricsPort, d.CaddyAdminPort} {
+		if port != 0 && !validPort(port) {
+			return errors.New("invalid internal health, metrics or Caddy admin port")
+		}
 	}
 	if d.Mode == "443" {
 		u, err := url.Parse(origin)

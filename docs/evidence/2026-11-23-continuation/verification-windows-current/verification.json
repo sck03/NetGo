@@ -1,0 +1,119 @@
+{
+  "schema": 2,
+  "platform": "windows",
+  "status": "PASS",
+  "generated_utc": "2026-11-23T11:09:26.7591521Z",
+  "code_sha256": "33c58a7bdc985d2280d8a2a2328f4717e57e6bda9d62ec9cb2b4a27d3c3d706d",
+  "checks": [
+    {
+      "name": "tool-versions",
+      "status": "PASS",
+      "seconds": 0.253,
+      "log": "tool-versions.txt",
+      "sha256": "dad1c00f7a9e862b2295ab89a71f429fef82a7b51ff62a5852823955ebaffeef"
+    },
+    {
+      "name": "source-inputs",
+      "status": "PASS",
+      "seconds": 0.179,
+      "log": "source-inputs.txt",
+      "sha256": "31bb7f73c4d77b39b61054a6dc87398e231102895dee684eb53d4acedf6492fa"
+    },
+    {
+      "name": "tools-tests",
+      "status": "PASS",
+      "seconds": 10.218,
+      "log": "tools-tests.txt",
+      "sha256": "a2dda191d12126559896bf220fff529cecccba010942460460b4ce74334833e2"
+    },
+    {
+      "name": "frontend",
+      "status": "PASS",
+      "seconds": 8.692,
+      "log": "frontend.txt",
+      "sha256": "a979fcd75954d2cb7dbc4aea50fe468a0e471751e92d47ee0e7f9ecbb0f6bd50"
+    },
+    {
+      "name": "go-race",
+      "status": "PASS",
+      "seconds": 16.504,
+      "log": "go-race.txt",
+      "sha256": "3962784043d59363a041c493373548481734926038798b5dc2b7136b91074860"
+    },
+    {
+      "name": "go-vet",
+      "status": "PASS",
+      "seconds": 2.186,
+      "log": "go-vet.txt",
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+    },
+    {
+      "name": "scripts",
+      "status": "PASS",
+      "seconds": 2.643,
+      "log": "scripts.txt",
+      "sha256": "1263a4294c00c1fea33b04db5fbf25e3dd3736497d25765e9237735584295ac3"
+    },
+    {
+      "name": "certificates",
+      "status": "PASS",
+      "seconds": 2.099,
+      "log": "certificates.txt",
+      "sha256": "2c6fbccd3c6f80f913a6fafcec8de363b837b3fd85907a13aa7f9611aaf123ee"
+    },
+    {
+      "name": "cli-build",
+      "status": "PASS",
+      "seconds": 4.014,
+      "log": "cli-build.txt",
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+    },
+    {
+      "name": "deploy-validators",
+      "status": "PASS",
+      "seconds": 4.129,
+      "log": "deploy-validators.txt",
+      "sha256": "570ca50f31b7081e4624aed20b5cab8b145a586a2a132b398f1638802c45da96"
+    },
+    {
+      "name": "native",
+      "status": "PASS",
+      "seconds": 25.467,
+      "log": "native.txt",
+      "sha256": "1d73ab7b9ba3d935297e6d9b393be9eac9559e306dd36b67fce3e4fca7277a80"
+    },
+    {
+      "name": "upstream",
+      "status": "PASS",
+      "seconds": 29.353,
+      "log": "upstream.txt",
+      "sha256": "c4b83820d0f5e0f4ac82ce78f0b5ad8e850aef983e68fee65aa7f799994f16fc"
+    },
+    {
+      "name": "product-build",
+      "status": "PASS",
+      "seconds": 18.533,
+      "log": "product-build.txt",
+      "sha256": "2f52ad11d9e6d2d5ff6ba3afe790faad769e5cedc630954a73ff981047b357ea"
+    },
+    {
+      "name": "release-manifest",
+      "status": "PASS",
+      "seconds": 0.41,
+      "log": "release-manifest.txt",
+      "sha256": "4de9f8a2484f6c2eba2781cb64e6f22a0be649c04b803b87c2611cd31f5b9c62"
+    },
+    {
+      "name": "artifact-inputs",
+      "status": "PASS",
+      "seconds": 0.719,
+      "log": "artifact-inputs.txt",
+      "sha256": "7a0dca9b035f7ec29c3a2978ae36442e3b8c17c4f7aa650b8a48ba6a94000e24"
+    }
+  ],
+  "real_network_acceptance": "NOT-RUN",
+  "limits": [
+    "Debian 12/13 upstream CGO/runtime, systemd, nftables and HAProxy need the target lab",
+    "A01-A33, cross-user installation and 72-hour reliability remain NOT-RUN"
+  ]
+}

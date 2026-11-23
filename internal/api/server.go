@@ -78,7 +78,7 @@ func body(w http.ResponseWriter, r *http.Request, v any) error {
 func (s *Server) Handler() http.Handler {
 	m := http.NewServeMux()
 	m.HandleFunc("GET /netgo/v1/health", func(w http.ResponseWriter, r *http.Request) {
-		reply(w, 200, protocol.Health{Protocol: model.Protocol, SiteID: s.Config.Site.ID, Capabilities: protocol.Capabilities()})
+		reply(w, 200, protocol.Health{Protocol: model.Protocol, SiteID: s.Config.Site.ID, Capabilities: protocol.Capabilities(), ServerUnix: time.Now().Unix()})
 	})
 	m.HandleFunc("POST /netgo/v1/auth/transactions", func(w http.ResponseWriter, r *http.Request) {
 		var b identity.Begin

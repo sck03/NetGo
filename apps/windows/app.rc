@@ -1,8 +1,8 @@
 #include <windows.h>
 1 RT_MANIFEST "app.manifest"
 1 VERSIONINFO
- FILEVERSION 0,2,3,0
- PRODUCTVERSION 0,2,3,0
+ FILEVERSION 0,2,4,0
+ PRODUCTVERSION 0,2,4,0
  FILETYPE VFT_APP
 BEGIN
  BLOCK "StringFileInfo"
@@ -11,7 +11,7 @@ BEGIN
   BEGIN
    VALUE "ProductName", "NetGo Native\0"
    VALUE "FileDescription", "NetGo Windows native client\0"
-   VALUE "ProductVersion", "0.2.3-dev\0"
+   VALUE "ProductVersion", "0.2.4-dev\0"
   END
  END
  BLOCK "VarFileInfo" BEGIN VALUE "Translation", 0x409, 1200 END

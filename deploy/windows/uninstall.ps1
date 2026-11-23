@@ -8,10 +8,13 @@ $engine=Join-Path $engineDir 'netbird.exe'
 $service=Get-CimInstance Win32_Service -Filter "Name='NetGoNetBird'"
 if($service -and -not(Test-NetGoServiceImage $service.PathName $engine)){throw 'Unrecognized service executable; uninstall refused'}
 $ownerRecord=Join-Path $env:ProgramData 'NetGoNativeEngine\owner.sid'
-if($service -and (-not(Test-Path -LiteralPath $ownerRecord) -or (Get-Content -LiteralPath $ownerRecord -Raw).Trim() -ne [System.Security.Principal.WindowsIdentity]::GetCurrent().User.Value)){throw 'Managed service belongs to a different desktop SID'}
 if($Plan){[pscustomobject]@{UI=$dest;Engine=$engineDir;Service='NetGoNetBird';RetainData=$true};return}
 $id=[System.Security.Principal.WindowsIdentity]::GetCurrent()
 if(-not([System.Security.Principal.WindowsPrincipal]$id).IsInRole([System.Security.Principal.WindowsBuiltInRole]::Administrator)){throw 'Run elevated as the intended desktop user'}
+if($service -and (-not(Test-Path -LiteralPath $ownerRecord) -or (Get-Content -LiteralPath $ownerRecord -Raw).Trim() -ne $id.User.Value)){throw 'Managed service belongs to a different desktop SID'}
+$oldStateDir=[Environment]::GetEnvironmentVariable('NB_STATE_DIR','Process')
+$env:NB_STATE_DIR=Join-Path $env:ProgramData 'NetGoNativeEngine'
+try {
 foreach($name in @('netgo-desktop','netgo-agent')){Get-Process -Name $name -ErrorAction SilentlyContinue|Where-Object {$_.Path -like ($dest+'\*')}|Stop-Process}
 if($service){
  & $engine '--daemon-addr' 'npipe://netgo-netbird' 'down'
@@ -25,3 +28,6 @@ $link=Join-Path ([Environment]::GetFolderPath('Programs')) 'NetGo.lnk';if(Test-P
 foreach($file in @((Join-Path $dest 'netgo-desktop.exe'),(Join-Path $dest 'netgo-agent.exe'),$engine,(Join-Path $engineDir 'wintun.dll'))){if(Test-Path -LiteralPath $file){Remove-Item -LiteralPath $file}}
 Write-Host 'Protected profile data was retained. Use the client Forget/Delete commands before uninstalling to remove saved credentials.'
 Write-Host 'Removed native program and managed network service; retained configuration for recovery.'
+} finally {
+ [Environment]::SetEnvironmentVariable('NB_STATE_DIR',$oldStateDir,'Process')
+}

@@ -2,10 +2,12 @@ package netbird
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"netgo/internal/model"
 	"netgo/internal/store"
+	"reflect"
 	"sort"
 	"strings"
 	"sync"
@@ -18,10 +20,97 @@ type Reconciler struct {
 	SiteID, GatewayID string
 }
 type object struct {
-	ID          string `json:"id"`
-	Name        string `json:"name"`
-	Enabled     bool   `json:"enabled"`
-	Description string `json:"description"`
+	ID          string         `json:"id"`
+	Name        string         `json:"name"`
+	Enabled     bool           `json:"enabled"`
+	Description string         `json:"description"`
+	Raw         map[string]any `json:"-"`
+}
+
+func (o *object) UnmarshalJSON(data []byte) error {
+	type plain object
+	var value plain
+	if err := json.Unmarshal(data, &value); err != nil {
+		return err
+	}
+	if err := json.Unmarshal(data, &value.Raw); err != nil {
+		return err
+	}
+	*o = object(value)
+	return nil
+}
+
+// The upstream read model expands group/peer references and includes read-only
+// fields. Compare only the intended write fields, preserving exact membership.
+func sameDesired(actual, desired any, key string) bool {
+	if key == "sources" || key == "destinations" || key == "groups" || key == "peers" || key == "ports" {
+		ids := func(value any) ([]string, bool) {
+			if value == nil {
+				return []string{}, true
+			}
+			list, ok := value.([]any)
+			if !ok {
+				return nil, false
+			}
+			out := make([]string, 0, len(list))
+			for _, item := range list {
+				id, ok := item.(string)
+				if !ok {
+					if expanded, yes := item.(map[string]any); yes {
+						id, ok = expanded["id"].(string)
+					}
+				}
+				if !ok || id == "" {
+					return nil, false
+				}
+				out = append(out, id)
+			}
+			sort.Strings(out)
+			return out, true
+		}
+		a, aok := ids(actual)
+		b, bok := ids(desired)
+		return aok && bok && reflect.DeepEqual(a, b)
+	}
+	switch wanted := desired.(type) {
+	case map[string]any:
+		current, ok := actual.(map[string]any)
+		if !ok {
+			return false
+		}
+		for field, value := range wanted {
+			got, exists := current[field]
+			if !exists || !sameDesired(got, value, field) {
+				return false
+			}
+		}
+		return true
+	case []any:
+		current, ok := actual.([]any)
+		if !ok || len(current) != len(wanted) {
+			return false
+		}
+		for i := range wanted {
+			if !sameDesired(current[i], wanted[i], "") {
+				return false
+			}
+		}
+		return true
+	default:
+		return reflect.DeepEqual(actual, desired)
+	}
+}
+
+func matchesDesired(o object, data map[string]any) bool {
+	encoded, err := json.Marshal(data)
+	if err != nil {
+		return false
+	}
+	var wanted any
+	if json.Unmarshal(encoded, &wanted) != nil {
+		return false
+	}
+	return sameDesired(o.Raw, wanted, "")
 }
 
 func (r *Reconciler) Apply(ctx context.Context) error {
@@ -66,6 +155,9 @@ func (r *Reconciler) apply(ctx context.Context, st model.State) error {
 		data["name"] = name
 		for _, o := range objects {
 			if o.Name == name {
+				if matchesDesired(o, data) {
+					return o.ID, nil
+				}
 				var out object
 				_, e := m.Request(ctx, "PUT", path+"/"+o.ID, data, &out)
 				return o.ID, e
@@ -83,8 +175,11 @@ func (r *Reconciler) apply(ctx context.Context, st model.State) error {
 		return errors.New("gateway peer ID required")
 	}
 	var routers []struct {
-		ID   string `json:"id"`
-		Peer string `json:"peer"`
+		ID         string `json:"id"`
+		Peer       string `json:"peer"`
+		Masquerade bool   `json:"masquerade"`
+		Enabled    bool   `json:"enabled"`
+		Metric     int    `json:"metric"`
 	}
 	if _, e = m.Request(ctx, "GET", "/networks/"+networkID+"/routers", nil, &routers); e != nil {
 		return e
@@ -93,7 +188,9 @@ func (r *Reconciler) apply(ctx context.Context, st model.State) error {
 	if len(routers) == 0 {
 		_, e = m.Request(ctx, "POST", "/networks/"+networkID+"/routers", router, nil)
 	} else if len(routers) == 1 && routers[0].Peer == r.GatewayID {
-		_, e = m.Request(ctx, "PUT", "/networks/"+networkID+"/routers/"+routers[0].ID, router, nil)
+		if !routers[0].Enabled || !routers[0].Masquerade || routers[0].Metric != 999 {
+			_, e = m.Request(ctx, "PUT", "/networks/"+networkID+"/routers/"+routers[0].ID, router, nil)
+		}
 	} else {
 		return errors.New("unexpected routers in managed network")
 	}

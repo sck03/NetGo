@@ -1,0 +1,13 @@
+-- The CXX compiler identification is GNU 16.1.0
+-- Detecting CXX compiler ABI info
+-- Detecting CXX compiler ABI info - done
+-- Check for working CXX compiler: D:/msys64/ucrt64/bin/c++.exe - skipped
+-- Detecting CXX compile features
+-- Detecting CXX compile features - done
+-- Configuring incomplete, errors occurred!
+CMake Error at E:/NetGo/scripts/cmake/NetGoOpenSSL.cmake:24 (message):
+  Pinned OpenSSL archive missing:
+  E:/NetGo/.cache/does-not-exist-openssl/lib64/libssl.a; run
+  prepare-native.ps1
+Call Stack (most recent call first):
+  CMakeLists.txt:7 (include)

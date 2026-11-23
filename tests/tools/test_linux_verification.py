@@ -17,6 +17,14 @@ spec.loader.exec_module(linux)
 
 
 class LinuxVerificationTests(unittest.TestCase):
+    def test_embedded_frontend_is_built_before_go_checks(self):
+        steps = linux.steps(Path('verification'), sys.executable)
+        names = [name for name, _ in steps]
+        self.assertLess(names.index('frontend'), names.index('go-race'))
+        self.assertLess(names.index('frontend'), names.index('go-vet'))
+        self.assertIn(['npm', 'ci', '--no-fund'], dict(steps)['frontend'])
+        self.assertIn(['npm', 'run', 'build'], dict(steps)['frontend'])
+
     def test_failed_command_keeps_evidence_and_stops_later_builds(self):
         with tempfile.TemporaryDirectory() as temporary:
             output = Path(temporary) / 'verification'

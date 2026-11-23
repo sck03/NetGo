@@ -12,6 +12,7 @@ import (
 	"os/exec"
 	"regexp"
 	"sort"
+	"strconv"
 	"strings"
 	"sync"
 	"time"
@@ -131,7 +132,47 @@ func Inspect(ctx context.Context, iface, lan string) error {
 	if err != nil {
 		return errors.New("cannot inspect host firewall")
 	}
+	// nftables 1.0.6 omits table comments from JSON, although the kernel
+	// retains them. Verify its explicit text representation before enriching
+	// the document; a rule/chain comment never establishes table ownership.
+	var rules struct {
+		Objects []map[string]json.RawMessage `json:"nftables"`
+	}
+	if err := json.Unmarshal(b, &rules); err != nil {
+		return err
+	}
+	for _, object := range rules.Objects {
+		raw, ok := object["table"]
+		if !ok {
+			continue
+		}
+		var table map[string]any
+		if err := json.Unmarshal(raw, &table); err != nil {
+			return err
+		}
+		if table["family"] == "inet" && table["name"] == "netgo" && table["comment"] == nil {
+			text, err := exec.CommandContext(ctx, "nft", "list", "table", "inet", "netgo").Output()
+			if err != nil || !legacyOwnedTable(text) {
+				return errors.New("inet netgo table is not owned by NetGo")
+			}
+			table["comment"] = Owner
+			object["table"], err = json.Marshal(table)
+			if err != nil {
+				return err
+			}
+		}
+	}
+	b, err = json.Marshal(rules)
+	if err != nil {
+		return err
+	}
 	return ValidateRuleset(b, iface, lan)
+}
+
+func legacyOwnedTable(text []byte) bool {
+	lines := strings.Split(strings.TrimSpace(string(text)), "\n")
+	return len(lines) >= 3 && strings.TrimSpace(lines[0]) == "table inet netgo {" &&
+		strings.TrimSpace(lines[1]) == "comment "+strconv.Quote(Owner)
 }
 func ValidateRuleset(b []byte, iface, lan string) error {
 	var rules struct {
@@ -216,6 +257,9 @@ func Render(iface, lan, overlay string, leases []model.Lease, now time.Time) (st
 	var b strings.Builder
 	fmt.Fprintf(&b, "add table inet netgo { comment %q; }\nflush table inet netgo\n", Owner)
 	fmt.Fprintln(&b, "add set inet netgo active4 { type ipv4_addr; flags timeout; }")
+	// flush table clears rules, but leaves set elements and their old timeouts.
+	// Replace memberships within this same atomic batch on every renewal/revoke.
+	fmt.Fprintln(&b, "flush set inet netgo active4")
 	fmt.Fprintln(&b, "add chain inet netgo input { type filter hook input priority -150; policy accept; }")
 	fmt.Fprintf(&b, "add rule inet netgo input iifname %q counter drop\n", iface)
 	fmt.Fprintln(&b, "add chain inet netgo forward { type filter hook forward priority -150; policy accept; }")

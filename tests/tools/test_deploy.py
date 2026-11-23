@@ -117,6 +117,20 @@ class DeploymentTests(unittest.TestCase):
         with self.assertRaises(ValueError):
             self.render()
 
+    def test_internal_ports_avoid_existing_host_services(self):
+        self.config['Deployment'].update(ManagementHealthPort=19000, ManagementMetricsPort=19090,
+                                         RelayHealthPort=19001, RelayMetricsPort=19091, CaddyAdminPort=12019)
+        out, manifest = self.render()
+        self.assertIn('127.0.0.1:19000', (out/'local/netbird.yaml').read_text())
+        self.assertIn('metricsPort: 19090', (out/'local/netbird.yaml').read_text())
+        self.assertIn('NB_HEALTH_LISTEN_ADDRESS=127.0.0.1:19001', (out/'local/relay.env').read_text())
+        self.assertIn('admin 127.0.0.1:12019', (out/'local/Caddyfile').read_text())
+        self.assertIn('/api/setup', (out/'local/Caddyfile').read_text())
+        self.assertEqual(manifest['local']['internal_ports']['ManagementHealthPort'], 19000)
+        self.config['Deployment']['ManagementHealthPort'] = 12019
+        with self.assertRaises(ValueError):
+            self.render(suffix='conflicting')
+
     def test_repeat_render_preserves_secrets_and_rejects_overwrite(self):
         first, _ = self.render()
         second, _ = self.render(suffix="second", secrets=first / "secrets.json")

@@ -2,6 +2,7 @@ package controlpath
 
 import (
 	"context"
+	"crypto/tls"
 	"crypto/x509"
 	"encoding/json"
 	"encoding/pem"
@@ -10,6 +11,7 @@ import (
 	"netgo/internal/protocol"
 	"netgo/internal/site"
 	"strings"
+	"sync/atomic"
 	"testing"
 	"time"
 )
@@ -83,5 +85,53 @@ func TestMultiWANRecoveryChecksHealthySecondEntry(t *testing.T) {
 	}
 	if s.Current().ID != "wan2" {
 		t.Fatal("failed first WAN prevented return to a healthy WAN", s.Current())
+	}
+}
+
+func TestSlowAPIHandshakeDoesNotInheritProbeDeadline(t *testing.T) {
+	var requests atomic.Int32
+	srv := httptest.NewUnstartedServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		requests.Add(1)
+		w.WriteHeader(http.StatusNoContent)
+	}))
+	srv.TLS = &tls.Config{GetConfigForClient: func(*tls.ClientHelloInfo) (*tls.Config, error) {
+		time.Sleep(120 * time.Millisecond)
+		return nil, nil
+	}}
+	srv.StartTLS()
+	t.Cleanup(srv.Close)
+	candidate := site.Candidate{ID: "wan", Kind: "direct", Address: strings.TrimPrefix(srv.URL, "https://")}
+	profile := site.Profile{ID: "slow", Protocol: 1, Origin: srv.URL,
+		CA:         string(pem.EncodeToMemory(&pem.Block{Type: "CERTIFICATE", Bytes: srv.Certificate().Raw})),
+		Candidates: []site.Candidate{candidate}}
+	selector, err := New(profile)
+	if err != nil {
+		t.Fatal(err)
+	}
+	selector.ProbeTimeout = 40 * time.Millisecond
+	selector.selected = candidate
+	if err := selector.probe(context.Background(), candidate); err == nil {
+		t.Fatal("health probe exceeded its separate budget")
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
+	defer cancel()
+	req, _ := http.NewRequestWithContext(ctx, http.MethodPost, srv.URL+"/netgo/v1/sessions", strings.NewReader("{}"))
+	resp, err := selector.Client().Do(req)
+	if err != nil {
+		t.Fatal("API handshake was cut off by probe timeout:", err)
+	}
+	resp.Body.Close()
+	if requests.Load() != 1 {
+		t.Fatal("API write replayed", requests.Load())
+	}
+	short, stop := context.WithTimeout(context.Background(), 20*time.Millisecond)
+	defer stop()
+	req, _ = http.NewRequestWithContext(short, http.MethodPost, srv.URL+"/netgo/v1/sessions", strings.NewReader("{}"))
+	if resp, err := selector.Client().Do(req); err == nil {
+		resp.Body.Close()
+		t.Fatal("caller cancellation was ignored")
+	}
+	if requests.Load() != 1 {
+		t.Fatal("cancelled request reached handler")
 	}
 }

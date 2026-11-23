@@ -1,0 +1,112 @@
+{
+  "schema": 1,
+  "code_sha256": "924b5b4744c13c9dd17493600979b3997758d47b4ec8ffa55e051c134f827b1a",
+  "status": "PASS",
+  "installed_artifacts": [
+    {
+      "path": "/opt/netgo/current/netgo-client-service",
+      "sha256": "724615732111568b3e4acf2fccc8db1685c2f7e877e550b4cc3b2485293f64f1",
+      "matches_verified_build": true
+    },
+    {
+      "path": "/opt/netgo/current/netgo-ddns",
+      "sha256": "6a603a3b7ccf8b9fe677bff133d6aa826a00a8cfa858d4e6dbe696dcdb2a4a79",
+      "matches_verified_build": true
+    },
+    {
+      "path": "/opt/netgo/current/netgo-helper",
+      "sha256": "cf6106ee97abeb2b91bbe8f13c18e3a8168701321c9076be1e793caa8cf21508",
+      "matches_verified_build": true
+    },
+    {
+      "path": "/opt/netgo/current/netgo-server",
+      "sha256": "0065232fa97e78d0aec66fc17f8d4b405ea666390ae51f14d7b967be8d58966e",
+      "matches_verified_build": true
+    },
+    {
+      "path": "/opt/netgo/current/netgoctl",
+      "sha256": "63bb7e99215783e557d428f9b806805427683c8a9a2aaf95446a3105afaeec39",
+      "matches_verified_build": true
+    },
+    {
+      "path": "/opt/netgo/current/release.json",
+      "sha256": "89bcdd2039347f11191d72c5b24eeee6711e0d6d274b0dc249c807e1f8e745d4",
+      "matches_verified_build": true
+    },
+    {
+      "path": "/opt/netgo/upstream/caddy",
+      "sha256": "928f0dfb822c8e1532636f8c3294436d1d7bf837a2ef73eb6d9d6d14dd0e46e8",
+      "matches_verified_build": true
+    },
+    {
+      "path": "/opt/netgo/upstream/frpc",
+      "sha256": "55272bb81d44645a5df5f1c96d37da9dcbca8fe2ec05dfcb13eff84930a924df",
+      "matches_verified_build": true
+    },
+    {
+      "path": "/opt/netgo/upstream/frps",
+      "sha256": "31b4d3b20c0a9efbe7697c00f8384d9c5d64dd9c0d582f4f623a15485464bad9",
+      "matches_verified_build": true
+    },
+    {
+      "path": "/opt/netgo/upstream/netbird",
+      "sha256": "478e6690bf3c7ca56a5ab5b6d0783a68b284ee7d966f230ddd2d5493484d4565",
+      "matches_verified_build": true
+    },
+    {
+      "path": "/opt/netgo/upstream/netbird-relay",
+      "sha256": "41084a6b8030cf57fcb0495225299bcd318e15f55fbacbc95fdc299a95906125",
+      "matches_verified_build": true
+    },
+    {
+      "path": "/opt/netgo/upstream/netbird-server",
+      "sha256": "8afb77d50bcd3e43417cdea0b289268206723d43c9be928b8c2a34b710d930ce",
+      "matches_verified_build": true
+    }
+  ],
+  "running_services": [
+    {
+      "service": "netgo-server",
+      "active": true,
+      "running_sha256": "0065232fa97e78d0aec66fc17f8d4b405ea666390ae51f14d7b967be8d58966e",
+      "matches_verified_build": true
+    },
+    {
+      "service": "netgo-helper",
+      "active": true,
+      "running_sha256": "cf6106ee97abeb2b91bbe8f13c18e3a8168701321c9076be1e793caa8cf21508",
+      "matches_verified_build": true
+    },
+    {
+      "service": "netbird-server",
+      "active": true,
+      "running_sha256": "8afb77d50bcd3e43417cdea0b289268206723d43c9be928b8c2a34b710d930ce",
+      "matches_verified_build": true
+    },
+    {
+      "service": "netbird-relay",
+      "active": true,
+      "running_sha256": "41084a6b8030cf57fcb0495225299bcd318e15f55fbacbc95fdc299a95906125",
+      "matches_verified_build": true
+    },
+    {
+      "service": "netgo-router",
+      "active": true,
+      "running_sha256": "478e6690bf3c7ca56a5ab5b6d0783a68b284ee7d966f230ddd2d5493484d4565",
+      "matches_verified_build": true
+    },
+    {
+      "service": "netgo-caddy",
+      "active": true,
+      "running_sha256": "928f0dfb822c8e1532636f8c3294436d1d7bf837a2ef73eb6d9d6d14dd0e46e8",
+      "matches_verified_build": true
+    },
+    {
+      "service": "netgo-frpc",
+      "active": true,
+      "running_sha256": "55272bb81d44645a5df5f1c96d37da9dcbca8fe2ec05dfcb13eff84930a924df",
+      "matches_verified_build": true
+    }
+  ],
+  "scope": "Linux installation and currently running executable bytes; no remote-desktop acceptance"
+}

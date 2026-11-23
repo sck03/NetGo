@@ -1,10 +1,11 @@
 #!/usr/bin/env python3
 """Package verified development artifacts without promoting network acceptance."""
 import argparse, hashlib, json, pathlib, re, shutil, subprocess, tempfile, zipfile
+from datetime import datetime, timedelta, timezone
 from verification import validate_report, verify_archive, read_json
 
 parser=argparse.ArgumentParser()
-parser.add_argument('--version',default='0.2.3-dev')
+parser.add_argument('--version',default='0.2.4-dev')
 parser.add_argument('--toolchain',default='D:/msys64/ucrt64')
 parser.add_argument('--verification',type=pathlib.Path,required=True,help='Complete verification.json for the exact current source and artifacts')
 args=parser.parse_args()
@@ -63,12 +64,12 @@ def archive(folder,name,expected=None):
     delivered.append(verify_archive(destination,expected))
     return destination
 
-metadata={'version':version,'date':'2026-11-22','timezone':'Asia/Shanghai','status':'development build; network acceptance pending','windows_language':'C++20 / Win32','network_engine':'separate patched NetBird','inputs':lock}
+metadata={'version':version,'date':datetime.now(timezone(timedelta(hours=8))).date().isoformat(),'timezone':'Asia/Shanghai','status':'development build; see runtime acceptance report','windows_language':'C++20 / Win32','network_engine':'separate patched NetBird','inputs':lock}
 metadata['verification']=verified
 delivered=[]
 components=[
     {'type':'application','name':'NetGo native Windows client','version':version},
-    {'type':'library','name':'OpenSSL','version':'4.1.0','licenses':[{'license':{'id':'Apache-2.0'}}]},
+    {'type':'library','name':'OpenSSL','version':lock['openssl']['version'],'licenses':[{'license':{'id':'Apache-2.0'}}]},
     {'type':'library','name':'nlohmann/json','version':'3.12.0','licenses':[{'license':{'id':'MIT'}}]},
     {'type':'library','name':'Wintun signed DLL','version':'0.14.1','licenses':[{'license':{'name':'Wintun prebuilt binaries license'}}]},
 ]
@@ -92,9 +93,11 @@ with tempfile.TemporaryDirectory(prefix='netgo-package-') as temporary:
     for name in required: shutil.copy2(windows/name,stage/'bin'/name)
     hashes(stage/'bin')
     (stage/'deploy/windows').mkdir(parents=True)
+    shutil.copy2(root/'install-client.ps1',stage/'install-client.ps1')
     for name in ['install.ps1','uninstall.ps1','common.ps1']: shutil.copy2(root/'deploy/windows'/name,stage/'deploy/windows'/name)
     (stage/'docs').mkdir()
-    shutil.copy2(root/'docs/OPERATIONS.zh-CN.md',stage/'docs/OPERATIONS.zh-CN.md')
+    for name in ('OPERATIONS.zh-CN.md','INSTALLERS.zh-CN.md','WINDOWS_CLIENT.zh-CN.md'):
+        shutil.copy2(root/'docs'/name,stage/'docs'/name)
     shutil.copy2(root/'THIRD_PARTY_NOTICES.md',stage/'THIRD_PARTY_NOTICES.md')
     license_sources={
         'openssl.txt':root/'.tools/openssl-source/LICENSE.txt',
@@ -121,6 +124,7 @@ with tempfile.TemporaryDirectory(prefix='netgo-package-') as temporary:
     for file in (root/'dist/linux-amd64').iterdir():
         if file.is_file():shutil.copy2(file,linux/'dist/linux-amd64'/file.name)
     shutil.copytree(root/'deploy',linux/'deploy')
+    shutil.copy2(root/'install-server.sh',linux/'install-server.sh')
     shutil.copytree(root/'examples',linux/'examples')
     shutil.copytree(root/'scripts',linux/'scripts')
     shutil.copytree(root/'tests/network',linux/'tests/network',ignore=shutil.ignore_patterns('__pycache__','*.pyc'))

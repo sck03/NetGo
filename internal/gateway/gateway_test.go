@@ -95,6 +95,21 @@ func TestFirewallOwnershipAndOffload(t *testing.T) {
 		t.Fatal(err)
 	}
 }
+
+func TestLegacyOwnershipRequiresTopLevelTableComment(t *testing.T) {
+	if !legacyOwnedTable([]byte("table inet netgo {\n\tcomment \"NetGo lease gate v1\"\n}\n")) {
+		t.Fatal("Debian 12 table ownership rejected")
+	}
+	for _, text := range []string{
+		"table inet other {\n comment \"NetGo lease gate v1\"\n}",
+		"table inet netgo {\n chain x {\n comment \"NetGo lease gate v1\"\n}\n}",
+		"table inet netgo {\n comment \"other\"\n}",
+	} {
+		if legacyOwnedTable([]byte(text)) {
+			t.Fatal("unowned table accepted")
+		}
+	}
+}
 func TestConntrackEmptyScopeDoesNotMaskPermissionFailure(t *testing.T) {
 	if !noConntrackEntries([]byte("conntrack v1.4.8 (conntrack-tools): 0 flow entries have been deleted.\n")) {
 		t.Fatal("empty scope rejected")

@@ -1,8 +1,8 @@
 server:
   listenAddress: "@@MANAGEMENT_LISTEN@@"
   exposedAddress: "@@CONTROL_ORIGIN@@"
-  healthcheckAddress: "127.0.0.1:9000"
-  metricsPort: 9090
+  healthcheckAddress: "127.0.0.1:@@MANAGEMENT_HEALTH_PORT@@"
+  metricsPort: @@MANAGEMENT_METRICS_PORT@@
   logLevel: "info"
   logFile: "console"
   dataDir: "/var/lib/netbird-server"

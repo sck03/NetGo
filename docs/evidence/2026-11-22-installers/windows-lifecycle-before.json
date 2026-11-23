@@ -1,0 +1,23 @@
+{
+    "status":  "FAIL",
+    "utc":  "2026-11-22T13:28:25.2926387Z",
+    "schema":  1,
+    "error":  "Dedicated state directory missing",
+    "checks":  [
+                   {
+                       "status":  "PASS",
+                       "seconds":  1.16,
+                       "name":  "validated_local_package"
+                   },
+                   {
+                       "status":  "PASS",
+                       "seconds":  3.737,
+                       "name":  "update_owned_service_and_compact_client"
+                   },
+                   {
+                       "status":  "FAIL",
+                       "seconds":  0.044,
+                       "name":  "dedicated_state_directory_and_service"
+                   }
+               ]
+}

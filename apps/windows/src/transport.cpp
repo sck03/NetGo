@@ -1,4 +1,5 @@
-#include "netgo.hpp"
+#include "connection.hpp"
+#include <openssl/ssl.h>
 #include <wincrypt.h>
 #undef X509_NAME
 #include <openssl/pem.h>
@@ -11,61 +12,17 @@
 #include <bit>
 
 namespace netgo {
-Address address(const std::string& s) {
- static const std::regex r(R"(^(\[[0-9a-fA-F:.]+\]|[a-zA-Z0-9_.-]+):([0-9]{1,5})$)");
- std::smatch m;if(!std::regex_match(s,m,r))throw Error("invalid_candidate");
- int p=std::stoi(m[2]);if(p<1||p>65535)throw Error("invalid_candidate");
- std::string host=m[1];if(host.front()=='[')host=host.substr(1,host.size()-2);return {host,static_cast<unsigned short>(p)};
-}
-std::string originHost(const std::string& s) {
- static const std::regex r(R"(^https://(\[[0-9a-fA-F:.]+\]|[a-zA-Z0-9.-]+)(:[0-9]{1,5})?$)");
- std::smatch m;if(!std::regex_match(s,m,r))throw Error("invalid_https_origin");
- if(m[2].matched)address(m[1].str()+m[2].str());
- std::string host=m[1];if(host.front()=='[')host=host.substr(1,host.size()-2);return host;
-}
-void validateProfile(const Json& p) {
- static const std::vector<std::string> allowed={"Protocol","ConfigRevision","ID","Name","Origin","Candidates","CA","GatewayPeerID","GatewayIP","LocalRelay","AuxiliaryRelay"};
- if(!p.is_object())throw Error("invalid_profile");
- for(auto i=p.begin();i!=p.end();++i)if(std::find(allowed.begin(),allowed.end(),i.key())==allowed.end())throw Error("unknown_profile_field");
- std::string id=p.at("ID");
- if(p.contains("ConfigRevision")&&(!p["ConfigRevision"].is_number_unsigned()&&!p["ConfigRevision"].is_number_integer()))throw Error("invalid_profile_revision");
- if(p.contains("ConfigRevision")&&(p["ConfigRevision"]<0||p["ConfigRevision"]>9007199254740991ULL))throw Error("invalid_profile_revision");
- if(!std::regex_match(id,std::regex(R"(^[a-zA-Z0-9][a-zA-Z0-9_.-]{0,62}$)"))||p.at("Protocol")!=1)throw Error("unsupported_profile");
- auto name=p.at("Name").get<std::string>();if(name.empty()||name.size()>256)throw Error("invalid_profile_name");
- wide(name);originHost(p.at("Origin"));
- const auto& candidates=p.at("Candidates");if(!candidates.is_array()||candidates.empty()||candidates.size()>8)throw Error("invalid_candidates");
- bool direct=false;std::vector<std::string> ids;
- for(const auto& c:candidates) {
-  if(!c.is_object()||c.size()!=3||!c.contains("ID")||!c.contains("Address")||!c.contains("Kind"))throw Error("invalid_candidate");
-  std::string ci=c.at("ID");if(!std::regex_match(ci,std::regex(R"(^[a-zA-Z0-9][a-zA-Z0-9_.-]{0,62}$)"))||std::find(ids.begin(),ids.end(),ci)!=ids.end())throw Error("duplicate_candidate");
-  ids.push_back(ci);address(c.at("Address"));std::string kind=c.at("Kind");
-  if(kind!="direct"&&kind!="auxiliary")throw Error("invalid_candidate_kind");
-  direct|=kind=="direct";
- }
- if(!direct)throw Error("direct_candidate_required");
- in_addr ip{};if(InetPtonA(AF_INET,p.at("GatewayIP").get<std::string>().c_str(),&ip)!=1)throw Error("invalid_gateway_ip");
- auto ca=p.value("CA","");if(ca.size()>32*1024)throw Error("invalid_ca");
- if(!ca.empty()){
-  std::unique_ptr<BIO,decltype(&BIO_free)> bio(BIO_new_mem_buf(ca.data(),int(ca.size())),BIO_free);
-  X509* cert=PEM_read_bio_X509(bio.get(),nullptr,nullptr,nullptr);if(!cert)throw Error("invalid_ca");X509_free(cert);
- }
-}
-void validateProfileUpdate(const Json& old,const Json& next) {
- validateProfile(next);
- for(const auto& key:{"ID","Origin","Protocol"})if(old.at(key)!=next.at(key))throw Error("site_trust_changed_use_new_id");
- if(old.value("CA","")!=next.value("CA",""))throw Error("site_trust_changed_use_new_id");
- auto previous=old.value("ConfigRevision",uint64_t(0)),revision=next.value("ConfigRevision",uint64_t(0));
- if(revision<previous)throw Error("profile_revision_stale");
- if(previous&&revision==previous){
-  for(const auto& key:{"Candidates","GatewayPeerID","GatewayIP","LocalRelay","AuxiliaryRelay"})if(old.value(key,Json(""))!=next.value(key,Json("")))throw Error("profile_revision_conflict");
- }
-}
 static std::string lower(std::string s){for(char& c:s)c=char(std::tolower(static_cast<unsigned char>(c)));return s;}
 void validateHealth(const Json& h,const std::string& siteID) {
  if(h.value("site_id","")!=siteID)throw Error("site_identity_mismatch");
  if(h.value("protocol",0)!=1||!h.contains("capabilities")||!h["capabilities"].is_array())throw Error("protocol_incompatible");
  for(const auto& c:{"native-auth-v1","device-signature-v1","leases-v1","profile-revision-v1"}){
   if(std::find(h["capabilities"].begin(),h["capabilities"].end(),Json(c))==h["capabilities"].end())throw Error("protocol_incompatible");
+ }
+ if(h.contains("server_unix")){
+  if(!h["server_unix"].is_number_integer())throw Error("invalid_control_health");
+  auto remote=h["server_unix"].get<int64_t>(),local=int64_t(std::time(nullptr));
+  if(remote<local-30||remote>local+30)throw Error("clock_out_of_sync");
  }
 }
 HttpResponse decodeHttp(const std::string& raw) {
@@ -175,7 +132,10 @@ Json Transport::requestAt(size_t index,const std::string& method,const std::stri
   Deadline(SOCKET s,Clock::time_point until):worker([this,s,until]{std::unique_lock lock(mutex);if(!ready.wait_until(lock,until,[this]{return stopped;}))shutdown(s,SD_BOTH);}){}
   ~Deadline(){{std::lock_guard lock(mutex);stopped=true;}ready.notify_one();worker.join();}
  } timeoutGuard(raw,deadline);
- u_long nonblock=0;ioctlsocket(raw,FIONBIO,&nonblock);DWORD timeout=3000;
+ u_long nonblock=0;ioctlsocket(raw,FIONBIO,&nonblock);
+ auto remainingMs=std::chrono::duration_cast<std::chrono::milliseconds>(deadline-Clock::now()).count();
+ if(remainingMs<=0)throw Error("control_unreachable");
+ DWORD timeout=DWORD(std::max<int64_t>(1,remainingMs));
  setsockopt(raw,SOL_SOCKET,SO_RCVTIMEO,reinterpret_cast<char*>(&timeout),sizeof(timeout));setsockopt(raw,SOL_SOCKET,SO_SNDTIMEO,reinterpret_cast<char*>(&timeout),sizeof(timeout));
  std::unique_ptr<SSL,decltype(&SSL_free)> tls(SSL_new(context_.get()),SSL_free);auto host=originHost(profile_.at("Origin"));
  if(!tls||SSL_set_fd(tls.get(),int(raw))!=1||SSL_set_tlsext_host_name(tls.get(),host.c_str())!=1)throw Error("tls_initialization_failed");
@@ -211,10 +171,10 @@ Json Transport::requestAt(size_t index,const std::string& method,const std::stri
 }
 bool Transport::probe(size_t i) {
  try{auto h=requestAt(i,"GET","/netgo/v1/health","","");validateHealth(h,profile_.at("ID"));return true;}
- catch(const std::exception& e){if(std::string(e.what())=="protocol_incompatible")incompatible_=true;return false;}
+ catch(const std::exception& e){if(std::string(e.what())=="protocol_incompatible")incompatible_=true;if(std::string(e.what())=="clock_out_of_sync")clockSkew_=true;return false;}
 }
 void Transport::select() {
- incompatible_=false;
+ incompatible_=false;clockSkew_=false;
  std::mutex mutex;std::condition_variable ready;size_t winner=SIZE_MAX,finished=0;
  std::vector<std::thread> probes;
  for(size_t i=0;i<profile_["Candidates"].size();++i)probes.emplace_back([&,i]{
@@ -226,7 +186,7 @@ void Transport::select() {
  });
  {std::unique_lock lock(mutex);ready.wait_for(lock,std::chrono::seconds(10),[&]{return winner!=SIZE_MAX||finished==probes.size();});}
  for(auto& thread:probes)thread.join();
- if(winner==SIZE_MAX)throw Error(incompatible_?"protocol_incompatible":"no_trusted_control_entry");
+ if(winner==SIZE_MAX)throw Error(clockSkew_?"clock_out_of_sync":incompatible_?"protocol_incompatible":"no_trusted_control_entry");
  selected_=winner;switched_=Clock::now();directSuccess_=0;directCandidate_=SIZE_MAX;
 }
 void Transport::recover() {

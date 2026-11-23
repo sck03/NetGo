@@ -1,12 +1,25 @@
 # 执行方案与源码追踪
 
-修订：2026-11-22（Asia/Shanghai）。对应执行方案 v1.6、0.2.3-dev；Debian 13 amd64 服务端、Windows 11 x64 原生客户端、Linux 诊断 CLI。
+修订：2026-11-23（Asia/Shanghai）。对应执行方案 v2.2；当前代码 0.2.4-dev，远控/原生多平台目标 0.3.0-dev。当前 LAN/VPS 为 Debian 13，Windows 为 10 LTSC 1809；其他平台需新增实现与独立验收。跨模块融合必须逐项通过 [I01–I10](INTEGRATION_CONTRACT.zh-CN.md)，当前未完成。
 
-本表说明代码所在位置和验证边界，供审阅定位。“自动验证”指单元、替身、回环、配置解析或构建，不代表真实网络用例通过。当前运行记录见 [本轮报告](evidence/2026-11-22-plan-v1.6/REPORT.zh-CN.md)，实时进度见 [PROGRESS](PROGRESS.zh-CN.md)。
+## 新增范围追踪
+
+| 条款 | 实现落点（计划，不代表文件已有） | 自动/实机门槛 | 状态 |
+| --- | --- | --- | --- |
+| R13/R16 远控授权与撤销 | packages/remote-core/src/session.cpp；主机适配/管理 UI 待实现 | 门禁 79 项与竞态/C ABI；完整 RD-A03–A06、A09/A10 仍需主机集成 | 独立门禁已实现；持久防重放/媒体未集成 |
+| R13/R16 认证票据 | internal/remote/ticket；packages/remote-ticket；tests/contracts/remote/tickets.txt | Go race/vet/fuzz、C++ 423 项、C11；Windows/Debian 一致，Debian ASan/UBSan | 格式/签发/验签/绑定及门禁衔接已实现；主机登记/持钥证明/一次消费未实现 |
+| R14/R15 共享核心与原生 UI | packages/remote-core/include/netgo_remote.h；各平台适配待实现 | Windows/Debian C/C++ 与 ASan/UBSan 通过；RD1b/平台设备另验 | 核心基础已实现；原生远控 UI 尚未实现 |
+| R15/RD1b Windows 系统采集 | apps/windows/remote | DXGI/D3D11 实际 GPU 帧、CPU 探针回读与三次关闭重开；只输出元数据 | 当前 1920×1080 桌面通过；编码/网络/主机授权、锁屏/UAC/多屏仍待实现或测试 |
+| R17 新接口/新库 | model/store/api/client/协议契约与安装器 | v2 空库/拒绝旧版/归档恢复，RD-A12 | 未实现 |
+| R18/R19 交付与项目目录测试 | 构建/签名/安装、scripts/publish-artifact.ps1、tests/tools/windows_publish.ps1 | 锁定文件保留回归；RD-A13/A14、各平台包摘要和设备记录 | 构建锁问题已修复；全目标未完成 |
+
+## 既有 VPN 基线追踪
+
+本表说明代码所在位置和验证边界，供审阅定位。“自动验证”指单元、替身、回环、配置解析或构建，不代表真实网络用例通过。当前运行记录见 [本轮报告](evidence/2026-11-23-delivery/REPORT.zh-CN.md)，实时进度见 [PROGRESS](PROGRESS.zh-CN.md)。下表的 A 编号保留完整场景边界，已执行的具体子项以本轮报告为准。
 
 | 方案与需求 | 实现入口 | 自动验证入口 | 仍须在目标环境验收 |
 | --- | --- | --- | --- |
-| §2/§3：Debian 13 与固定依赖 | upstream/versions.lock.json；scripts/linux_preflight.py；scripts/build*.sh/ps1 | tests/tools/test_linux_preflight.py；verify.ps1 | Debian 包版本、CGO IdP、内核与架构，A28 |
+| §2/§3：Debian 12/13 与固定依赖 | upstream/versions.lock.json；scripts/linux_preflight.py；scripts/build*.sh/ps1 | tests/tools/test_linux_preflight.py；verify.ps1 | 当前 Debian 12 版本与 CGO 已记录；其他 OS/架构单独执行 A28 |
 | §4：本地完整控制与可选 VPS，R01/R02/R04/R06 | deploy/templates/local/、auxiliary/；internal/site；internal/engine/netbird | test_deploy.py；verify-deploy.py | 无 VPS 冷启动、添加后全停、反向通道，A01–A06 |
 | §5：逻辑身份、动态入口、配置版本，R03/R04/R12 | internal/controlpath；internal/site/profile.go；internal/client/profile.go；apps/windows/src/transport.cpp；上游控制补丁 | transport_test.go；profile_test.go；18 项 tests/contracts/profiles.json；原生 TLS | 实际 DNS、IPv4/IPv6、多 WAN/NAT、Signal/gRPC 故障切换，A04/A05/A07/A08/A32/A33 |
 | §6.1：真实用户原生认证，R07 | internal/identity；upstream/patches/dex.patch、netbird.patch | native_test.go；revocation_test.go；上游 TestNetGo | 真正 Windows→Debian IdP/Management 登录、令牌刷新与禁用，A14/A15 |
@@ -30,7 +43,7 @@ v1.6 专项定位：`internal/engine/netbird/daemon.go`/`daemon_test.go` 修复 
 - 原生认证、管理请求、Linux 网关租约共同保护 LAN。密码维护撤销产品凭据，并调用唯一 IdP；已签 OIDC JWT 的有效期仍由上游决定。
 - 告警在管理网页/JSON 诊断中提供。服务活动、TCP 监听、证书文件和可信控制健康均有各自含义，不合并成“公网/LAN 已通过”。外部通知由运维监控接入。
 - 产品升级命令目前支持 schema 1 产品程序。新增 systemd 单元、上游二进制、数据库不可逆迁移仍需要完整维护部署及 A29 演练，不能仅替换产品程序就宣称升级完成。
-- Windows 上的完整自动检查包括 Linux 产品交叉编译。完整 Linux 服务端的 NetBird/Dex 必须在 Debian 13 原生构建；现有 Linux 开发 ZIP 不是生产安装包。
-- 第一版外的平台、OpenWrt、互联网出口、多站点并发、IPv6 LAN 等仍按主方案后续扩展；本轮没有新增这些承诺。
+- Windows 上的完整自动检查包括 Linux 产品交叉编译。完整 Linux 服务端由 Debian 12/13 原生 CGO 构建，经独立 Linux 验证后生成；仅含产品程序的开发 ZIP 单独命名，不能当作完整服务端安装包。
+- Android/Apple/Linux 原生端与远控已纳入当前 RD 任务；OpenWrt、互联网出口、多站点并发、IPv6 LAN 等仍是后续扩展。不得沿用旧范围关闭新增要求。
 
-G1–G6 与 A01–A33 没有真实通过证据，项目不能标记生产发行完成。代码段落完成、自动检查完成、真实验收完成分别登记。
+本轮已有真实 API、隔离隧道、租约强制撤销、本地 Relay/TCP、运维和十会话证据；它们不能替代 G1–G6 / A01–A33 的所有外部网络、跨系统和 72 小时条件。项目仍为开发交付，未标记生产发行完成。

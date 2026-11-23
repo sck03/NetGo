@@ -1,0 +1,87 @@
+{
+  "schema": 1,
+  "mode": "relay",
+  "status": "PASS",
+  "generated_utc": "2026-11-22T12:38:56.811956+00:00",
+  "checks": [
+    {
+      "name": "administrator_login",
+      "status": "PASS",
+      "seconds": 0.883
+    },
+    {
+      "name": "grant_bounded_lab_resources_and_session_limit",
+      "status": "PASS",
+      "seconds": 0.092
+    },
+    {
+      "name": "start_isolated_client_1",
+      "status": "PASS",
+      "seconds": 1.329
+    },
+    {
+      "name": "block_all_client_underlay_udp",
+      "status": "PASS",
+      "seconds": 0.006
+    },
+    {
+      "name": "login_and_lease_with_udp_unavailable",
+      "status": "PASS",
+      "seconds": 7.174
+    },
+    {
+      "name": "real_core_reports_local_relay",
+      "status": "PASS",
+      "seconds": 5.004
+    },
+    {
+      "name": "tcp_integrity_through_local_relay",
+      "status": "PASS",
+      "seconds": 0.131
+    },
+    {
+      "name": "udp_application_payload_through_tcp_relay",
+      "status": "PASS",
+      "seconds": 0.086
+    },
+    {
+      "name": "ungranted_port_remains_blocked_on_relay",
+      "status": "PASS",
+      "seconds": 2.09
+    },
+    {
+      "name": "kernel_counters_prove_underlay_udp_blocked",
+      "status": "PASS",
+      "seconds": 0.023
+    },
+    {
+      "name": "cleanup_netgo-lab-client-a",
+      "status": "PASS",
+      "seconds": 2.892
+    },
+    {
+      "name": "delete_path_test_user",
+      "status": "PASS",
+      "seconds": 0.369
+    },
+    {
+      "name": "delete_resource_path8baa32detcp",
+      "status": "PASS",
+      "seconds": 0.159
+    },
+    {
+      "name": "delete_resource_path8baa32deudp",
+      "status": "PASS",
+      "seconds": 0.142
+    },
+    {
+      "name": "host_dns_preserved",
+      "status": "PASS",
+      "seconds": 0.0
+    }
+  ],
+  "limits": [
+    "Local network namespaces and controlled UDP loss do not establish public NAT/VPS behavior",
+    "Ten sessions are a functional baseline, not a capacity or 72-hour reliability claim"
+  ]
+}

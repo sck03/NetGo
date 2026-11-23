@@ -1,0 +1,56 @@
+#pragma once
+#include <winsock2.h>
+#include <ws2tcpip.h>
+#include <windows.h>
+#include <nlohmann/json.hpp>
+#include <atomic>
+#include <chrono>
+#include <filesystem>
+#include <functional>
+#include <memory>
+#include <mutex>
+#include <string>
+#include <stdexcept>
+#include <thread>
+#include <vector>
+
+namespace netgo {
+using Json = nlohmann::json;
+using Clock = std::chrono::steady_clock;
+inline constexpr size_t maxJson = 1024 * 1024;
+struct Error : std::runtime_error { using std::runtime_error::runtime_error; };
+struct Handle {
+ HANDLE value = nullptr;
+ explicit Handle(HANDLE h = nullptr): value(h) {}
+ ~Handle() { if(value && value != INVALID_HANDLE_VALUE) CloseHandle(value); }
+ Handle(const Handle&) = delete;
+ Handle& operator=(const Handle&) = delete;
+ operator HANDLE() const { return value; }
+};
+std::wstring wide(const std::string& s);
+std::string utf8(const std::wstring& s);
+std::string sid(HANDLE process = GetCurrentProcess());
+std::filesystem::path dataRoot();
+std::filesystem::path executableDir();
+void secureDirectory(const std::filesystem::path& path);
+std::string readFile(const std::filesystem::path& path, size_t limit = maxJson);
+void atomicFile(const std::filesystem::path& path, const std::string& data);
+void wipe(std::string& value);
+std::string credentialRead(const std::string& target);
+void credentialWrite(const std::string& target, const std::string& value);
+void credentialDelete(const std::string& target);
+std::string base64url(const unsigned char* p, size_t n);
+std::string randomID();
+std::string sha256(const std::string& s, bool url = false);
+std::chrono::system_clock::time_point parseTime(const std::string& s);
+std::wstring pipeName();
+void testPipe(const std::filesystem::path& root);
+Json pipeCall(const Json& request);
+void servePipe(std::atomic_bool& stop, const std::function<Json(const Json&)>& dispatch);
+
+struct Address { std::string host; unsigned short port; };
+Address address(const std::string& s);
+std::string originHost(const std::string& origin);
+void validateProfile(const Json& p);
+void validateProfileUpdate(const Json& previous,const Json& next);
+}

@@ -108,7 +108,9 @@ def configuration(config, selected_mode=None):
     origin_port = port(origin.port, 443)
     local_relay = hostname(site["LocalRelay"])
     deployment = config.get("Deployment") or {}
-    if set(deployment) - {"Mode", "LocalRelayPort", "LocalSTUNPort"}:
+    internal_defaults = {"ManagementHealthPort": 9000, "ManagementMetricsPort": 9090,
+                         "RelayHealthPort": 9001, "RelayMetricsPort": 9091, "CaddyAdminPort": 2019}
+    if set(deployment) - {"Mode", "LocalRelayPort", "LocalSTUNPort", *internal_defaults}:
         raise ValueError("unknown deployment field")
     configured_mode = deployment.get("Mode") or None
     if selected_mode and configured_mode and selected_mode != configured_mode:
@@ -129,8 +131,9 @@ def configuration(config, selected_mode=None):
     management_port = port(management.port, 80)
     management_host = "[" + management.hostname + "]" if ":" in management.hostname else management.hostname
     management_listen = loopback(management_host + ":" + str(management_port))
+    internal_ports = {key: port(deployment.get(key), fallback) for key, fallback in internal_defaults.items()}
     tcp = [control_port, relay_bind_port, urlsplit("http://" + product).port, management_port,
-           2019, 9000, 9001, 9090, 9091]
+           *internal_ports.values()]
     if mode == "443":
         tcp.append(443)
     distinct(tcp, "local TCP")
@@ -152,10 +155,15 @@ def configuration(config, selected_mode=None):
               "LOCAL_RELAY": local_relay, "PUBLIC_RELAY_PORT": str(relay_port),
               "RELAY_BIND_PORT": str(relay_bind_port), "STUN_PORT": str(stun_port),
               "AUX_STUN": "", "AUX_RELAY": ""}
+    values.update({"MANAGEMENT_HEALTH_PORT": str(internal_ports["ManagementHealthPort"]),
+                   "MANAGEMENT_METRICS_PORT": str(internal_ports["ManagementMetricsPort"]),
+                   "RELAY_HEALTH_PORT": str(internal_ports["RelayHealthPort"]),
+                   "RELAY_METRICS_PORT": str(internal_ports["RelayMetricsPort"]),
+                   "CADDY_ADMIN_PORT": str(internal_ports["CaddyAdminPort"])})
     local = {"mode": mode, "control_origin": site["Origin"], "control_port": origin_port,
              "control_backend_port": control_port, "product_listen": product, "management_listen": management_listen,
              "relay_endpoint": f"rels://{local_relay}:{relay_port}", "relay_port": relay_port,
-             "relay_bind_port": relay_bind_port, "stun_port": stun_port}
+             "relay_bind_port": relay_bind_port, "stun_port": stun_port, "internal_ports": internal_ports}
     auxiliaries = config.get("Auxiliaries") or []
     if len(auxiliaries) > 1:
         raise ValueError("only one auxiliary is supported")

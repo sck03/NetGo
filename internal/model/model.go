@@ -10,7 +10,7 @@ import (
 )
 
 const Protocol = 1
-const Version = "0.2.3-dev"
+const Version = "0.2.4-dev"
 
 var (
 	ErrUnauthorized = errors.New("unauthorized")

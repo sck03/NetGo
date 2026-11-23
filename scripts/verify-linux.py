@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Run the complete Debian 13 build checks without installing or starting services."""
+"""Run the complete Debian 12/13 build checks without installing or starting services."""
 import argparse
 import ast
 from datetime import datetime, timezone
@@ -14,7 +14,7 @@ import time
 from fingerprint import ROOT, fingerprint
 from verification import CHECKS, sha256, validate_report
 
-BASH_FILES = ('scripts/build.sh', 'scripts/build-upstream.sh', 'deploy/linux/install.sh',
+BASH_FILES = ('install-server.sh', 'scripts/bootstrap-linux.sh', 'scripts/build.sh', 'scripts/build-upstream.sh', 'deploy/linux/install.sh',
               'deploy/linux/uninstall.sh', 'deploy/linux/switch-release.sh', 'deploy/linux/deploy-certificate.sh')
 
 
@@ -31,11 +31,13 @@ def steps(output, python):
         ('tool-versions', [[python, '-B', 'scripts/linux_preflight.py', '--mode', 'build'], ['openssl', 'version'], [haproxy, '-v']]),
         ('source-inputs', [[python, '-B', 'scripts/fingerprint.py']]),
         ('tools-tests', [[python, '-B', '-m', 'unittest', 'discover', '-s', 'tests/tools', '-v']]),
+        ('remote-core', [[python, '-B', 'scripts/verify-remote.py', '--output', str(output / 'remote-core-build')]]),
+        # go:embed requires the current frontend output in a clean checkout.
+        ('frontend', [['npm', 'ci', '--no-fund'], ['npm', 'test'], ['npm', 'run', 'build']]),
         ('go-race', [['go', 'test', '-race', './internal/...', './cmd/...']]),
         ('go-vet', [['go', 'vet', './internal/...', './cmd/...']]),
-        ('frontend', [['npm', 'ci', '--no-fund'], ['npm', 'test'], ['npm', 'run', 'build']]),
         ('scripts', [['bash', '-n', name] for name in BASH_FILES] +
-                    [['bash', 'deploy/linux/install.sh', '--plan'], ['bash', 'deploy/linux/uninstall.sh', '--plan'],
+                    [['bash', 'install-server.sh', 'install', '--plan'], ['bash', 'deploy/linux/install.sh', '--plan'], ['bash', 'deploy/linux/uninstall.sh', '--plan'],
                      ['bash', 'deploy/linux/deploy-certificate.sh', '--plan', 'control', 'control.site.example']]),
         ('certificates', [[python, '-B', 'scripts/verify-certificates.py', '--bash', shutil.which('bash') or 'bash']]),
         ('upstream', [['bash', 'scripts/build-upstream.sh']]),
@@ -109,7 +111,7 @@ def main():
     output = (args.output or ROOT / '.cache' / ('verification-linux-' + datetime.now(timezone.utc).strftime('%Y%m%d-%H%M%S'))).resolve()
     commands = steps(output, sys.executable)
     if args.plan:
-        print(json.dumps({'platform': 'linux', 'target': 'Debian 13 amd64', 'output': str(output),
+        print(json.dumps({'platform': 'linux', 'target': 'Debian 12/13 amd64', 'output': str(output),
                           'checks': [{'name': name, 'commands': actions} for name, actions in commands],
                           'system_changed': False, 'real_network_acceptance': 'NOT-RUN'}, ensure_ascii=False, indent=2))
         return 0

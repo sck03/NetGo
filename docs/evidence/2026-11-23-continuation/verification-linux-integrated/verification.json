@@ -1,0 +1,112 @@
+{
+  "schema": 2,
+  "platform": "linux",
+  "status": "PASS",
+  "checks": [
+    {
+      "name": "tool-versions",
+      "status": "PASS",
+      "seconds": 0.138,
+      "log": "tool-versions.txt",
+      "sha256": "d0890e87da4430d3dc5f4cd95a246e21f28cd137e685259d79d7de35fa67171d"
+    },
+    {
+      "name": "source-inputs",
+      "status": "PASS",
+      "seconds": 0.114,
+      "log": "source-inputs.txt",
+      "sha256": "c5d408e91b8e7553012fd57c3e6860ee9913c0463df40c14ba67790f88a416f5"
+    },
+    {
+      "name": "tools-tests",
+      "status": "PASS",
+      "seconds": 2.969,
+      "log": "tools-tests.txt",
+      "sha256": "0de7d1a65ffeb29a678362907369c72baba5f39827d7d0c90ed9d55c6dee18d5"
+    },
+    {
+      "name": "remote-core",
+      "status": "PASS",
+      "seconds": 5.279,
+      "log": "remote-core.txt",
+      "sha256": "c2222cacc5fa8ab74cfb666fae3532c80d4a4d017881895daf23af6deb00e1d4"
+    },
+    {
+      "name": "frontend",
+      "status": "PASS",
+      "seconds": 11.187,
+      "log": "frontend.txt",
+      "sha256": "352e5830605ef406cbec3c22d6054f1c029e469fc582ece58b83e56bc851ec02"
+    },
+    {
+      "name": "go-race",
+      "status": "PASS",
+      "seconds": 65.272,
+      "log": "go-race.txt",
+      "sha256": "1fca73630e60577a801c65507404cddc9f36885c307a994a9eb95a25c688dd05"
+    },
+    {
+      "name": "go-vet",
+      "status": "PASS",
+      "seconds": 10.078,
+      "log": "go-vet.txt",
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+    },
+    {
+      "name": "scripts",
+      "status": "PASS",
+      "seconds": 0.299,
+      "log": "scripts.txt",
+      "sha256": "5456cc2d0679ba05b3ad142cfd6da5b7b9a3582dccefbeb4bad83468efd18a12"
+    },
+    {
+      "name": "certificates",
+      "status": "PASS",
+      "seconds": 0.766,
+      "log": "certificates.txt",
+      "sha256": "7687b14721ac5df52f9f006e1ae2770450797f93f3b3a59444124138000b8a8f"
+    },
+    {
+      "name": "upstream",
+      "status": "PASS",
+      "seconds": 840.432,
+      "log": "upstream.txt",
+      "sha256": "d3b386136fd0d100b2c038b7e32bd3b5cb2415270e2a21531d4fb9a4db74ac94"
+    },
+    {
+      "name": "product-build",
+      "status": "PASS",
+      "seconds": 40.986,
+      "log": "product-build.txt",
+      "sha256": "6b3ba871ed58cf8d7ce8e0395640771b30dd6e7aeacf0baddc341e5978bae369"
+    },
+    {
+      "name": "deploy-validators",
+      "status": "PASS",
+      "seconds": 3.001,
+      "log": "deploy-validators.txt",
+      "sha256": "2c1e874b5b79885d6be87a710d05bf5560feee83339102d97a95fb4829234746"
+    },
+    {
+      "name": "release-manifest",
+      "status": "PASS",
+      "seconds": 0.754,
+      "log": "release-manifest.txt",
+      "sha256": "5aa84f4c6778cfed7706fbf5cd063cac28fd4d2ad03b2d91875fffe1c6b46733"
+    },
+    {
+      "name": "artifact-inputs",
+      "status": "PASS",
+      "seconds": 2.145,
+      "log": "artifact-inputs.txt",
+      "sha256": "6df0fe2397aebfa5894ed3482c54dca389f44f10fd186939fe80077aaf912a38"
+    }
+  ],
+  "code_sha256": "34a86d7ec2b40e43a774e3a39634c719ce9dea3f8c741171c9b7e92749830468",
+  "real_network_acceptance": "NOT-RUN",
+  "limits": [
+    "Builds, unit tests and configuration parsing do not prove installation or network acceptance",
+    "G1-G6, A01-A33, cross-user installation and 72-hour reliability require the target lab"
+  ],
+  "generated_utc": "2026-11-23T12:30:31.047488+00:00"
+}

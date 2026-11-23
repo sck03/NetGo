@@ -138,3 +138,30 @@ func TestPasswordResetStopsBeforeChangeOnGateFailureOrInvalidInput(t *testing.T)
 		}
 	}
 }
+
+func TestInvalidPasswordLeavesServicesAndCredentialsUntouched(t *testing.T) {
+	path, db := passwordFixture(t)
+	unexpected := func() { t.Fatal("invalid password reached maintenance side effects") }
+	tx := PasswordTransaction{
+		Run:    func(context.Context, string, ...string) error { unexpected(); return nil },
+		Active: func(context.Context, string) (bool, error) { unexpected(); return false, nil },
+		Change: func(context.Context, string, string, []byte) error { unexpected(); return nil },
+	}
+	for _, password := range []string{"short", "lowercase1!", "NoDigits!", "NoSpecial123", "New-Pass-123!\n", "New-Pass-123!\x00", "New-Pass-123!\xff", strings.Repeat("A", 71) + "1!"} {
+		if err := tx.Reset(context.Background(), path, "u", []byte(password)); err == nil {
+			t.Fatal("invalid password accepted")
+		}
+	}
+	if _, err := os.Stat(path + ".password-reset.json"); !os.IsNotExist(err) {
+		t.Fatal("invalid password created a maintenance journal", err)
+	}
+	st, err := db.View()
+	if err != nil || len(st.Credentials) != 2 || len(st.Leases) != 1 || st.Users["u"].AuthRevision != 0 {
+		t.Fatal("invalid password changed active credentials or leases", err)
+	}
+	for _, password := range []string{"New-Pass-123!", "\u00c9clair\u0661!", strings.Repeat("A", 70) + "1!"} {
+		if err := validateResetPassword([]byte(password)); err != nil {
+			t.Fatal("valid IdP password rejected", err)
+		}
+	}
+}

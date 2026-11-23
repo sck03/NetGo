@@ -1,0 +1,105 @@
+{
+  "schema": 1,
+  "status": "PASS",
+  "checks": [
+    {
+      "name": "owned_uninstall",
+      "status": "PASS",
+      "seconds": 0.006
+    },
+    {
+      "name": "managed_units_links_and_gate_removed",
+      "status": "PASS",
+      "seconds": 0.0
+    },
+    {
+      "name": "static_site_tls_and_router_identity_retained",
+      "status": "PASS",
+      "seconds": 0.001
+    },
+    {
+      "name": "repeat_uninstall_is_idempotent",
+      "status": "PASS",
+      "seconds": 0.006
+    },
+    {
+      "name": "ssh_docker_default_route_preserved_after_uninstall",
+      "status": "PASS",
+      "seconds": 0.048
+    },
+    {
+      "name": "unrelated_firewall_objects_preserved",
+      "status": "PASS",
+      "seconds": 0.01
+    },
+    {
+      "name": "archive_previous_unpublished_dev_install_without_data_loss",
+      "status": "PASS",
+      "seconds": 0.025
+    },
+    {
+      "name": "fresh_current_debian13_install",
+      "status": "PASS",
+      "seconds": 7.559
+    },
+    {
+      "name": "restart_retained_site_and_optional_frp",
+      "status": "PASS",
+      "seconds": 0.566
+    },
+    {
+      "name": "trusted_https_current_clock_health",
+      "status": "PASS",
+      "seconds": 5.523
+    },
+    {
+      "name": "repeat_current_install_is_idempotent",
+      "status": "PASS",
+      "seconds": 5.146
+    },
+    {
+      "name": "uninstall_current_verified_build",
+      "status": "PASS",
+      "seconds": 9.872
+    },
+    {
+      "name": "current_uninstall_preserves_unrelated_firewall",
+      "status": "PASS",
+      "seconds": 0.01
+    },
+    {
+      "name": "reinstall_same_verified_build_with_retained_data",
+      "status": "PASS",
+      "seconds": 6.765
+    },
+    {
+      "name": "restart_after_current_reinstall",
+      "status": "PASS",
+      "seconds": 0.539
+    },
+    {
+      "name": "trusted_health_after_current_reinstall",
+      "status": "PASS",
+      "seconds": 1.058
+    },
+    {
+      "name": "site_tls_router_keys_preserved_after_reinstall",
+      "status": "PASS",
+      "seconds": 0.011
+    },
+    {
+      "name": "six_core_services_and_frp_active",
+      "status": "PASS",
+      "seconds": 0.01
+    },
+    {
+      "name": "ssh_docker_and_default_route_preserved_after_reinstall",
+      "status": "PASS",
+      "seconds": 0.124
+    }
+  ],
+  "limits": [
+    "Dedicated site; previous unpublished build retained as recovery archive",
+    "Host OS/Docker/SSH were not reinstalled"
+  ]
+}

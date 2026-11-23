@@ -14,7 +14,7 @@ UPSTREAM = ('netbird-server', 'netbird', 'netbird-relay', 'caddy', 'frpc', 'frps
 WINDOWS = ('netgo-desktop.exe', 'netgo-agent.exe', 'netbird.exe', 'wintun.dll')
 COMMON_CHECKS = frozenset(('tool-versions', 'source-inputs', 'tools-tests', 'go-race',
                            'go-vet', 'frontend', 'scripts', 'certificates', 'upstream',
-                           'product-build', 'deploy-validators', 'release-manifest', 'artifact-inputs'))
+                           'product-build', 'deploy-validators', 'release-manifest', 'artifact-inputs', 'remote-core'))
 CHECKS = {'windows': COMMON_CHECKS | {'cli-build', 'native'}, 'linux': COMMON_CHECKS}
 
 

@@ -7,6 +7,14 @@ const unb64 = s => Buffer.from(s, 'base64url')
 const sha = s => createHash('sha256').update(s).digest('hex')
 const health = { protocol: 1, site_id: 'site', capabilities: ['native-auth-v1','device-signature-v1','leases-v1','profile-revision-v1','admin-v1','diagnostics-v1'] }
 
+test('clock skew is diagnosed before sending credentials or creating a transaction', async t => {
+  const original = globalThis.fetch, paths = []
+  globalThis.fetch = async path => { paths.push(path); return new Response(JSON.stringify({ ...health, server_unix: Math.floor(Date.now() / 1000) + 60 })) }
+  t.after(() => { globalThis.fetch = original })
+  await assert.rejects(new AdminSession().login('site', 'admin', 'password'), /时间相差/)
+  assert.deepEqual(paths, ['/netgo/v1/health'])
+})
+
 function server(t, role = 'admin') {
   const original = globalThis.fetch
   let publicKey, begin, token = 'first-token', sawRefresh = false

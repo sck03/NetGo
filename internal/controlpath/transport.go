@@ -45,16 +45,16 @@ func New(p site.Profile) (*Selector, error) {
 	return &Selector{Profile: p, Roots: roots, ProbeTimeout: 3 * time.Second, FallbackDelay: 800 * time.Millisecond}, nil
 }
 func (s *Selector) Current() site.Candidate { s.mu.RLock(); defer s.mu.RUnlock(); return s.selected }
-func (s *Selector) transport(c site.Candidate) *http.Transport {
+func (s *Selector) transport(c site.Candidate, budget time.Duration) *http.Transport {
 	u, _ := url.Parse(s.Profile.Origin)
 	return &http.Transport{Proxy: nil, ForceAttemptHTTP2: true, TLSClientConfig: &tls.Config{MinVersion: tls.VersionTLS12, ServerName: u.Hostname(), RootCAs: s.Roots}, DialContext: func(ctx context.Context, network, _ string) (net.Conn, error) {
-		return (&net.Dialer{Timeout: s.ProbeTimeout, KeepAlive: 30 * time.Second}).DialContext(ctx, network, c.Address)
-	}, TLSHandshakeTimeout: s.ProbeTimeout, ResponseHeaderTimeout: 10 * time.Second}
+		return (&net.Dialer{Timeout: budget, KeepAlive: 30 * time.Second}).DialContext(ctx, network, c.Address)
+	}, TLSHandshakeTimeout: budget, ResponseHeaderTimeout: budget}
 }
 func (s *Selector) probe(ctx context.Context, c site.Candidate) error {
 	ctx, cancel := context.WithTimeout(ctx, s.ProbeTimeout)
 	defer cancel()
-	tr := s.transport(c)
+	tr := s.transport(c, s.ProbeTimeout)
 	defer tr.CloseIdleConnections()
 	cl := &http.Client{Transport: tr, CheckRedirect: func(*http.Request, []*http.Request) error { return http.ErrUseLastResponse }}
 	req, _ := http.NewRequestWithContext(ctx, "GET", s.Profile.Origin+"/netgo/v1/health", nil)
@@ -77,7 +77,7 @@ func (s *Selector) Select(ctx context.Context) (site.Candidate, error) {
 		e error
 	}
 	out := make(chan result, len(s.Profile.Candidates))
-	incompatible := false
+	incompatible, clockSkew := false, false
 	for _, c := range s.Profile.Candidates {
 		go func(c site.Candidate) {
 			if c.Kind == "auxiliary" {
@@ -97,6 +97,7 @@ func (s *Selector) Select(ctx context.Context) (site.Candidate, error) {
 		select {
 		case r := <-out:
 			incompatible = incompatible || errors.Is(r.e, protocol.ErrIncompatible)
+			clockSkew = clockSkew || errors.Is(r.e, protocol.ErrClockSkew)
 			if r.e == nil {
 				s.mu.Lock()
 				if s.selected.ID != r.c.ID {
@@ -108,11 +109,17 @@ func (s *Selector) Select(ctx context.Context) (site.Candidate, error) {
 				return r.c, nil
 			}
 		case <-ctx.Done():
+			if clockSkew {
+				return site.Candidate{}, protocol.ErrClockSkew
+			}
 			if incompatible {
 				return site.Candidate{}, protocol.ErrIncompatible
 			}
 			return site.Candidate{}, errors.New("no reachable trusted control entry")
 		}
+	}
+	if clockSkew {
+		return site.Candidate{}, protocol.ErrClockSkew
 	}
 	if incompatible {
 		return site.Candidate{}, protocol.ErrIncompatible
@@ -134,7 +141,15 @@ func (s *Selector) RoundTrip(r *http.Request) (*http.Response, error) {
 			return nil, e
 		}
 	}
-	tr := s.transport(c)
+	budget := 20 * time.Second
+	if deadline, ok := r.Context().Deadline(); ok {
+		budget = min(budget, time.Until(deadline))
+	}
+	if budget <= 0 {
+		return nil, context.DeadlineExceeded
+	}
+	// API requests use their remaining total budget, not the short probe budget.
+	tr := s.transport(c, budget)
 	// This request owns its transport; disabling reuse also prevents idle
 	// connections retaining goroutines after each lease renewal.
 	tr.DisableKeepAlives = true

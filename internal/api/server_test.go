@@ -130,7 +130,7 @@ func TestHealthMinimalAndCrossOriginBlocked(t *testing.T) {
 	}
 	var fields map[string]any
 	_ = json.Unmarshal(w.Body.Bytes(), &fields)
-	if len(fields) != 3 {
+	if len(fields) != 4 || health.ServerUnix <= 0 || time.Since(time.Unix(health.ServerUnix, 0)) > 2*time.Second {
 		t.Fatal("public health disclosed extra fields")
 	}
 	r := httptest.NewRequest("GET", "/netgo/v1/health", nil)

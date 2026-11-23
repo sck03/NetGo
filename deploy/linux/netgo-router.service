@@ -8,7 +8,11 @@ StateDirectory=netgo-router
 StateDirectoryMode=0700
 RuntimeDirectory=netgo-router
 RuntimeDirectoryMode=0755
-ExecStart=/opt/netgo/upstream/netbird --config /var/lib/netgo-router/config.json --daemon-addr unix:///run/netgo-router/netbird.sock service run
+Environment=SSL_CERT_FILE=/etc/netgo/tls/trust.pem
+Environment=NB_STATE_DIR=/var/lib/netgo-router
+Environment=NB_LAZY_CONN=false
+Environment=NB_NETGO_ROUTING_PEER=true
+ExecStart=/opt/netgo/upstream/netbird --log-file console --config /var/lib/netgo-router/config.json --daemon-addr unix:///run/netgo-router/netbird.sock service run
 Restart=on-failure
 RestartSec=3
 UMask=0077

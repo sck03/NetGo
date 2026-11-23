@@ -85,11 +85,14 @@ func TestConfiguredCertificateRenewalAndHostnameAlerts(t *testing.T) {
 }
 
 func TestDebianBaselineDoesNotTrustIDLikeOrDuplicateFields(t *testing.T) {
-	if !Debian13Release("ID=debian\nVERSION_ID=\"13\"\n") {
-		t.Fatal("Debian 13 rejected")
+	if !SupportedDebianRelease("ID=debian\nVERSION_ID=\"13\"\n") {
+		t.Fatal("Debian 12/13 rejected")
 	}
-	for _, release := range []string{"ID=ubuntu\nID_LIKE=debian\nVERSION_ID=13\n", "ID=debian\nVERSION_ID=12\n", "ID=debian\nVERSION_ID=13\nID=ubuntu\n"} {
-		if Debian13Release(release) {
+	if !SupportedDebianRelease("ID=debian\nVERSION_ID=12\n") {
+		t.Fatal("Debian 12 rejected")
+	}
+	for _, release := range []string{"ID=ubuntu\nID_LIKE=debian\nVERSION_ID=13\n", "ID=debian\nVERSION_ID=11\n", "ID=debian\nVERSION_ID=13\nID=ubuntu\n"} {
+		if SupportedDebianRelease(release) {
 			t.Fatal("unsupported release accepted")
 		}
 	}

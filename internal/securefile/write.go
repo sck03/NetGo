@@ -47,8 +47,13 @@ func Create(path string, data []byte, mode os.FileMode) error {
 	if err != nil {
 		return err
 	}
-	if _, err = f.Write(data); err == nil {
-		err = f.Sync()
+	// Callers specify the final permissions, just as they do with Write.
+	// A restrictive administrative umask must not turn service binaries into
+	// owner-only executables; secret callers still explicitly request 0600.
+	if err = f.Chmod(mode); err == nil {
+		if _, err = f.Write(data); err == nil {
+			err = f.Sync()
+		}
 	}
 	closeErr := f.Close()
 	if err != nil {

@@ -197,6 +197,11 @@ func (t ReleaseTransaction) Upgrade(ctx context.Context, source, expected string
 	if _, err = Verify(target, expected); err != nil {
 		return err
 	}
+	// Stage privately under an inherited umask, then allow the unprivileged
+	// service account to traverse this verified executable directory.
+	if err = os.Chmod(target, 0755); err != nil {
+		return err
+	}
 	staged = true
 	return t.switchTo(ctx, target, true)
 }

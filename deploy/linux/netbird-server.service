@@ -6,6 +6,9 @@ After=network-online.target
 User=netgo
 Group=netgo
 Environment=NETGO_NATIVE_SECRET_FILE=/etc/netgo/native.secret
+Environment=NB_DISABLE_GEOLOCATION=true
+Environment=SSL_CERT_FILE=/etc/netgo/tls/trust.pem
+EnvironmentFile=-/etc/netgo/bootstrap.env
 ExecStart=/opt/netgo/upstream/netbird-server --config /etc/netgo/netbird.yaml
 Restart=on-failure
 StateDirectory=netbird-server

@@ -1,6 +1,6 @@
 # NetGo 架构与实施规划
 
-> 历史方案：最新需求已收敛为 Linux 服务端、局域网设备访问和可选 VPS。实施请以 [完整执行方案](EXECUTION_PLAN.zh-CN.md)、[任务清单](IMPLEMENTATION_BACKLOG.zh-CN.md)与[验收手册](NETWORK_ACCEPTANCE.zh-CN.md)为准；本文件保留用于追溯早期 OpenWrt/出口代理讨论。
+> 历史方案：最新需求包括 Linux 控制服务、局域网访问、可选 VPS，以及远程桌面和各平台原生客户端。实施以 [完整执行方案 v2.2](EXECUTION_PLAN.zh-CN.md)、[远控多平台方案](REMOTE_NATIVE_PLAN.zh-CN.md)、[任务清单](IMPLEMENTATION_BACKLOG.zh-CN.md)为准；本文件保留用于追溯早期讨论。
 
 日期：2026-11-21（Asia/Shanghai）。状态：架构规划，尚未实现或完成网络实测。
 

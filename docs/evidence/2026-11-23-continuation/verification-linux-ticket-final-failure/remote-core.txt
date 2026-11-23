@@ -1,0 +1,29 @@
++ /usr/bin/g++ -std=c++17 -Wall -Wextra -Wpedantic -Werror -pthread -I /root/netgo-installer-lab/source-integrated/packages/remote-core/include -O2 -c /root/netgo-installer-lab/source-integrated/packages/remote-core/src/session.cpp -o /root/netgo-installer-lab/verification-linux-ticket-final/remote-core-build/session.o
++ /usr/bin/g++ -std=c++17 -Wall -Wextra -Wpedantic -Werror -pthread -I /root/netgo-installer-lab/source-integrated/packages/remote-core/include -O2 /root/netgo-installer-lab/source-integrated/packages/remote-core/tests/session_tests.cpp /root/netgo-installer-lab/verification-linux-ticket-final/remote-core-build/session.o -o /root/netgo-installer-lab/verification-linux-ticket-final/remote-core-build/session-tests
++ /usr/bin/gcc -std=c11 -Wall -Wextra -Wpedantic -Werror -I /root/netgo-installer-lab/source-integrated/packages/remote-core/include -c /root/netgo-installer-lab/source-integrated/packages/remote-core/tests/c_abi_test.c -o /root/netgo-installer-lab/verification-linux-ticket-final/remote-core-build/caller.o
++ /usr/bin/g++ -pthread /root/netgo-installer-lab/verification-linux-ticket-final/remote-core-build/session.o /root/netgo-installer-lab/verification-linux-ticket-final/remote-core-build/caller.o -o /root/netgo-installer-lab/verification-linux-ticket-final/remote-core-build/c-abi-test
++ /root/netgo-installer-lab/verification-linux-ticket-final/remote-core-build/session-tests
+PASS 79 remote gate checks (test verifier; no media/crypto integration claim)
++ /root/netgo-installer-lab/verification-linux-ticket-final/remote-core-build/c-abi-test
++ /usr/bin/g++ -std=c++17 -Wall -Wextra -Wpedantic -Werror -pthread -I /root/netgo-installer-lab/source-integrated/packages/remote-core/include -I /root/netgo-installer-lab/source-integrated/packages/remote-ticket/include -O2 -c /root/netgo-installer-lab/source-integrated/packages/remote-ticket/src/ticket.cpp -I/root/netgo-installer-lab/source-integrated/.tools/openssl-check/root/usr/include -L/root/netgo-installer-lab/source-integrated/.tools/openssl-check/root/usr/lib/x86_64-linux-gnu -lcrypto -o /root/netgo-installer-lab/verification-linux-ticket-final/remote-core-build/ticket.o
+In file included from /root/netgo-installer-lab/source-integrated/.tools/openssl-check/root/usr/include/openssl/evp.h:14,
+                 from /root/netgo-installer-lab/source-integrated/packages/remote-ticket/src/ticket.cpp:2:
+/root/netgo-installer-lab/source-integrated/.tools/openssl-check/root/usr/include/openssl/macros.h:14:10: fatal error: openssl/opensslconf.h: No such file or directory
+   14 | #include <openssl/opensslconf.h>
+      |          ^~~~~~~~~~~~~~~~~~~~~~~
+compilation terminated.
+Traceback (most recent call last):
+  File "/root/netgo-installer-lab/source-integrated/scripts/verify-remote.py", line 76, in <module>
+    verify(args.output)
+    ~~~~~~^^^^^^^^^^^^^
+  File "/root/netgo-installer-lab/source-integrated/scripts/verify-remote.py", line 45, in verify
+    run([cxx, *ticket_flags, '-O2', '-c', ticket / 'src/ticket.cpp', *crypto, '-o', output / 'ticket.o'])
+    ~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/root/netgo-installer-lab/source-integrated/scripts/verify-remote.py", line 16, in run
+    subprocess.run(list(map(str, args)), cwd=ROOT, check=True, **kwargs)
+    ~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/usr/lib/python3.13/subprocess.py", line 577, in run
+    raise CalledProcessError(retcode, process.args,
+                             output=stdout, stderr=stderr)
+subprocess.CalledProcessError: Command '['/usr/bin/g++', '-std=c++17', '-Wall', '-Wextra', '-Wpedantic', '-Werror', '-pthread', '-I', '/root/netgo-installer-lab/source-integrated/packages/remote-core/include', '-I', '/root/netgo-installer-lab/source-integrated/packages/remote-ticket/include', '-O2', '-c', '/root/netgo-installer-lab/source-integrated/packages/remote-ticket/src/ticket.cpp', '-I/root/netgo-installer-lab/source-integrated/.tools/openssl-check/root/usr/include', '-L/root/netgo-installer-lab/source-integrated/.tools/openssl-check/root/usr/lib/x86_64-linux-gnu', '-lcrypto', '-o', '/root/netgo-installer-lab/verification-linux-ticket-final/remote-core-build/ticket.o']' returned non-zero exit status 1.
+Verification error: Command '['/usr/bin/python3', '-B', 'scripts/verify-remote.py', '--output', '/root/netgo-installer-lab/verification-linux-ticket-final/remote-core-build']' returned non-zero exit status 1.

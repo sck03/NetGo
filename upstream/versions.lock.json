@@ -2,7 +2,11 @@
   "schema": 1,
   "checked_at": "2026-11-22",
   "timezone": "Asia/Shanghai",
-  "linux_target": {"distribution":"debian","version_id":"13","architecture":"amd64","compiler":"Debian build-essential; record exact installed GCC/libc/kernel versions in acceptance evidence"},
+  "linux_target": {"distribution":"debian","version_ids":["12","13"],"architecture":"amd64","compiler":"Debian build-essential; native CGO build on Debian 12; record exact installed GCC/libc/kernel versions in acceptance evidence"},
+  "linux_toolchain_archives": {
+    "go": {"filename":"go1.27.4.linux-amd64.tar.gz","url":"https://dl.google.com/go/go1.27.4.linux-amd64.tar.gz","sha256":"7226736c2339719cda28fbf3a54d71aa63bcefe376e98cef00034268dab24840"},
+    "node": {"filename":"node-v26.13.1-linux-x64.tar.xz","url":"https://nodejs.org/dist/v26.13.1/node-v26.13.1-linux-x64.tar.xz","sha256":"5c063e46bab0fbc1c17cc445d7ff129cbdcd0471be6ed83b6ab864f8143bc864"}
+  },
   "netbird": {"version":"0.83.2","commit":"6d4814d22726c16961be79409dfbf6a2b2f7537b","source":"https://github.com/netbirdio/netbird","patch":"patches/netbird.patch","license":"BSD-3-Clause; AGPL-3.0 in server directories"},
   "dex": {"commit":"0319b501f1a6822b9f941dcac82d0d4edca5018b","source":"https://github.com/netbirdio/dex","patch":"patches/dex.patch","license":"Apache-2.0","note":"NetBird-pinned fork"},
   "openssl": {"version":"4.1.0","commit":"2f4e3a5fec05394068cfa7379890ab552483a8a6","source":"https://github.com/openssl/openssl","license":"Apache-2.0","flags":["mingw64","no-shared","no-tests","no-module","no-asm","no-legacy"]},

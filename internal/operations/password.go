@@ -16,6 +16,8 @@ import (
 	"os/exec"
 	"path/filepath"
 	"time"
+	"unicode"
+	"unicode/utf8"
 )
 
 type PasswordTransaction struct {
@@ -35,6 +37,29 @@ type passwordJournal struct {
 }
 
 var passwordServices = []string{"netgo-server", "netgo-router", "netbird-server"}
+
+// Match the pinned NetBird IdP policy before stopping writers or revoking
+// credentials. The IdP remains authoritative and validates again on mutation.
+func validateResetPassword(password []byte) error {
+	if len(password) < 8 || len(password) > 72 || !utf8.Valid(password) || bytes.ContainsAny(password, "\r\n\x00") {
+		return errors.New("an 8..72 byte UTF-8 password without line breaks or NUL is required")
+	}
+	var digit, upper, special bool
+	for _, c := range string(password) {
+		switch {
+		case unicode.IsDigit(c):
+			digit = true
+		case unicode.IsUpper(c):
+			upper = true
+		case !unicode.IsLetter(c):
+			special = true
+		}
+	}
+	if !digit || !upper || !special {
+		return errors.New("password must contain a digit, an uppercase letter and a special character")
+	}
+	return nil
+}
 
 func serviceActive(ctx context.Context, service string) (bool, error) {
 	err := exec.CommandContext(ctx, "systemctl", "is-active", "--quiet", service).Run()
@@ -65,8 +90,11 @@ func changePassword(ctx context.Context, configPath, email string, password []by
 // it retains a secret-free journal and keeps writers stopped. Retrying the same
 // user resumes with the original service states and never restores old tokens.
 func (t PasswordTransaction) Reset(ctx context.Context, path, userID string, password []byte) error {
-	if userID == "" || len(password) < 8 || len(password) > 72 || bytes.ContainsAny(password, "\r\n\x00") {
-		return errors.New("user ID and an 8..72 byte password without line breaks are required")
+	if userID == "" {
+		return errors.New("user ID is required")
+	}
+	if err := validateResetPassword(password); err != nil {
+		return err
 	}
 	unlock, err := lockOperation(path)
 	if err != nil {

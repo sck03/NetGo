@@ -1,0 +1,5 @@
+PASS closed/invalid/deadline/missing-display/idempotent-close boundaries
+PASS capture-close-reopen cycle=1 width=1920 height=1080 clockwise_rotation=0 readback_bytes=8294400
+PASS capture-close-reopen cycle=2 width=1920 height=1080 clockwise_rotation=0 readback_bytes=8294400
+PASS capture-close-reopen cycle=3 width=1920 height=1080 clockwise_rotation=0 readback_bytes=8294400
+PASS GPU capture with bounded CPU readback; no media/input/network/session authorization tested

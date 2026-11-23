@@ -1,0 +1,126 @@
+{
+  "schema": 2,
+  "platform": "windows",
+  "status": "PASS",
+  "generated_utc": "2026-11-23T13:46:19.9361541Z",
+  "code_sha256": "924b5b4744c13c9dd17493600979b3997758d47b4ec8ffa55e051c134f827b1a",
+  "checks": [
+    {
+      "name": "tool-versions",
+      "status": "PASS",
+      "seconds": 0.781,
+      "log": "tool-versions.txt",
+      "sha256": "dad1c00f7a9e862b2295ab89a71f429fef82a7b51ff62a5852823955ebaffeef"
+    },
+    {
+      "name": "source-inputs",
+      "status": "PASS",
+      "seconds": 0.316,
+      "log": "source-inputs.txt",
+      "sha256": "65d77127a4bcef345677f91b8f666b4576316fa5643cd84b7f3259caae0478e4"
+    },
+    {
+      "name": "tools-tests",
+      "status": "PASS",
+      "seconds": 13.26,
+      "log": "tools-tests.txt",
+      "sha256": "f283723e2e46d8447be531f8f4c4e5dc4eb7624d1331100435c06f6b1acb9bcb"
+    },
+    {
+      "name": "remote-core",
+      "status": "PASS",
+      "seconds": 15.464,
+      "log": "remote-core.txt",
+      "sha256": "3c70aef469970021e4085af75407ea7747221e7b1a51603e497cd8d9e77c519a"
+    },
+    {
+      "name": "frontend",
+      "status": "PASS",
+      "seconds": 11.161,
+      "log": "frontend.txt",
+      "sha256": "e2932631ff781cbe71bd6008e269098757804a7db16c62984dff0d5e8f9811c6"
+    },
+    {
+      "name": "go-race",
+      "status": "PASS",
+      "seconds": 17.229,
+      "log": "go-race.txt",
+      "sha256": "67d4d55aef97eb8c21cff4e3c76deab66dbe440c9d0a5dd221c9f62256827aff"
+    },
+    {
+      "name": "go-vet",
+      "status": "PASS",
+      "seconds": 2.643,
+      "log": "go-vet.txt",
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+    },
+    {
+      "name": "scripts",
+      "status": "PASS",
+      "seconds": 3.057,
+      "log": "scripts.txt",
+      "sha256": "87735c7efe69dbe9d8c03ca10bc83447bde0d38026459b881dc2c21bf758dce5"
+    },
+    {
+      "name": "certificates",
+      "status": "PASS",
+      "seconds": 2.48,
+      "log": "certificates.txt",
+      "sha256": "2c6fbccd3c6f80f913a6fafcec8de363b837b3fd85907a13aa7f9611aaf123ee"
+    },
+    {
+      "name": "cli-build",
+      "status": "PASS",
+      "seconds": 4.813,
+      "log": "cli-build.txt",
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+    },
+    {
+      "name": "deploy-validators",
+      "status": "PASS",
+      "seconds": 3.38,
+      "log": "deploy-validators.txt",
+      "sha256": "570ca50f31b7081e4624aed20b5cab8b145a586a2a132b398f1638802c45da96"
+    },
+    {
+      "name": "native",
+      "status": "PASS",
+      "seconds": 27.213,
+      "log": "native.txt",
+      "sha256": "8f89d9e0697a911e47497b8b84d9ddb3701046d4a73b3fab6e6d2e8cb0c000a5"
+    },
+    {
+      "name": "upstream",
+      "status": "PASS",
+      "seconds": 52.105,
+      "log": "upstream.txt",
+      "sha256": "c1103970c1899100b69f0bdf98480a8fab154f225f56099421389079ef46280c"
+    },
+    {
+      "name": "product-build",
+      "status": "PASS",
+      "seconds": 13.527,
+      "log": "product-build.txt",
+      "sha256": "2f52ad11d9e6d2d5ff6ba3afe790faad769e5cedc630954a73ff981047b357ea"
+    },
+    {
+      "name": "release-manifest",
+      "status": "PASS",
+      "seconds": 0.334,
+      "log": "release-manifest.txt",
+      "sha256": "4de9f8a2484f6c2eba2781cb64e6f22a0be649c04b803b87c2611cd31f5b9c62"
+    },
+    {
+      "name": "artifact-inputs",
+      "status": "PASS",
+      "seconds": 0.618,
+      "log": "artifact-inputs.txt",
+      "sha256": "4b3d66a663351d09f2ef8327d06aa9540b98883a39d7a7a872d413c98f52687b"
+    }
+  ],
+  "real_network_acceptance": "NOT-RUN",
+  "limits": [
+    "Debian 12/13 upstream CGO/runtime, systemd, nftables and HAProxy need the target lab",
+    "A01-A33, cross-user installation and 72-hour reliability remain NOT-RUN"
+  ]
+}

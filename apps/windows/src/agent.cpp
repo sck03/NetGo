@@ -1,4 +1,4 @@
-#include "netgo.hpp"
+#include "connection.hpp"
 #include <shellapi.h>
 
 int WINAPI wWinMain(HINSTANCE,HINSTANCE,PWSTR,int) {

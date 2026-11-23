@@ -11,7 +11,7 @@ EXCLUDED = {'dist', '__pycache__', 'node_modules', '.git'}
 
 def fingerprint(root=ROOT):
     root = Path(root).resolve()
-    files = [root / name for name in ('go.mod', 'go.sum', 'package.json', 'package-lock.json', 'tsconfig.json', 'vite.config.ts')]
+    files = [root / name for name in ('go.mod', 'go.sum', 'package.json', 'package-lock.json', 'tsconfig.json', 'vite.config.ts', 'install-server.sh', 'install-client.ps1')]
     for scope in SCOPES:
         files.extend(path for path in (root / scope).rglob('*') if path.is_file()
                      and not any(part in EXCLUDED for part in path.relative_to(root).parts)

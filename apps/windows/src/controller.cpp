@@ -1,4 +1,4 @@
-#include "netgo.hpp"
+#include "connection.hpp"
 #include <openssl/rand.h>
 #include <regex>
 

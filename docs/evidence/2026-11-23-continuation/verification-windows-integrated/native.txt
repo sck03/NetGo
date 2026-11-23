@@ -1,0 +1,29 @@
+-- Configuring done (2.3s)
+-- Generating done (0.1s)
+-- Build files have been written to: E:/NetGo/.cache/native-build
+ninja: no work to do.
+Test project E:/NetGo/.cache/native-build
+    Start 1: native-core
+1/3 Test #1: native-core ......................   Passed    2.39 sec
+    Start 2: native-ipc
+2/3 Test #2: native-ipc .......................   Passed    1.37 sec
+    Start 3: native-profile-contract
+3/3 Test #3: native-profile-contract ..........   Passed    0.10 sec
+
+100% tests passed, 0 tests failed out of 3
+
+Total Test time (real) =   3.88 sec
+PASS canonical TLS identity, fallback and signed request
+PASS canonical TLS identity, fallback and signed request
+PASS canonical TLS identity, fallback and signed request
+PASS multi-WAN recovery: unavailable WAN1/WAN3, three WAN2 confirmations and canonical signed request
+PASS canonical TLS identity, fallback and signed request
+PASS TLS rejection
+PASS TLS rejection
+PASS TLS rejection
+PASS signed API response slower than health-probe deadline
+PASS seven stalled TLS candidates: bounded parallel fallback
+PASS loopback TLS: canonical SNI/Host including port 10443, auxiliary fallback, Ed25519, wrong host, unknown CA, expired certificate
+netgo-desktop.exe : 1522688 bytes; system DLL imports verified
+netgo-agent.exe : 7221248 bytes; system DLL imports verified
+Built and verified native Windows UI and agent. Build patched NetBird before packaging.

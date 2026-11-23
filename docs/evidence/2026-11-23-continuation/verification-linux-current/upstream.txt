@@ -1,0 +1,84 @@
+{
+  "schema": 1,
+  "target": "Debian 12/13 amd64",
+  "mode": "build",
+  "status": "PASS",
+  "checks": [
+    {
+      "name": "os",
+      "status": "PASS",
+      "detail": "Required: Debian 12 or 13; observed: Debian GNU/Linux 13 (trixie)"
+    },
+    {
+      "name": "architecture",
+      "status": "PASS",
+      "detail": "Required: amd64; observed: x86_64"
+    },
+    {
+      "name": "command_go",
+      "status": "PASS",
+      "detail": "Required executable: go"
+    },
+    {
+      "name": "command_node",
+      "status": "PASS",
+      "detail": "Required executable: node"
+    },
+    {
+      "name": "command_npm",
+      "status": "PASS",
+      "detail": "Required executable: npm"
+    },
+    {
+      "name": "command_gcc",
+      "status": "PASS",
+      "detail": "Required executable: gcc"
+    },
+    {
+      "name": "command_git",
+      "status": "PASS",
+      "detail": "Required executable: git"
+    },
+    {
+      "name": "command_python3",
+      "status": "PASS",
+      "detail": "Required executable: python3"
+    },
+    {
+      "name": "command_pkg-config",
+      "status": "PASS",
+      "detail": "Required executable: pkg-config"
+    },
+    {
+      "name": "version_go",
+      "status": "PASS",
+      "detail": "go version go1.27.4 linux/amd64"
+    },
+    {
+      "name": "version_node",
+      "status": "PASS",
+      "detail": "v26.13.1"
+    }
+  ],
+  "system_changed": false,
+  "real_network_acceptance": "NOT-RUN"
+}
+ok  	github.com/netbirdio/netbird/client/firewall/nftables	0.020s
+ok  	github.com/netbirdio/netbird/client/firewall/uspfilter	8.629s
+ok  	github.com/netbirdio/netbird/client/cmd	6.529s
+ok  	github.com/netbirdio/netbird/client/grpc	0.975s
+ok  	github.com/netbirdio/netbird/client/server	0.049s
+ok  	github.com/netbirdio/netbird/client/internal/peer	0.027s
+ok  	github.com/netbirdio/netbird/shared/relay/client	1.949s
+ok  	github.com/netbirdio/netbird/shared/relay/tls	0.007s
+ok  	github.com/netbirdio/netbird/shared/relay/client/dialer/ws	0.055s
+ok  	github.com/netbirdio/netbird/shared/relay/client/dialer/quic	0.061s
+ok  	github.com/netbirdio/netbird/management/internals/shared/grpc	0.044s
+ok  	github.com/netbirdio/netbird/management/server/http/handlers/peers	0.039s [no tests to run]
+ok  	github.com/netbirdio/netbird/management/internals/server	0.099s
+ok  	github.com/netbirdio/netbird/combined/cmd	0.081s
+ok  	github.com/netbirdio/netbird/relay/cmd	0.033s
+ok  	github.com/netbirdio/dex/server	0.241s
+v2.11.9
+0.72.0
+0.72.0

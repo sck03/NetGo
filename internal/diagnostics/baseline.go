@@ -2,7 +2,7 @@ package diagnostics
 
 import "strings"
 
-func Debian13Release(data string) bool {
+func SupportedDebianRelease(data string) bool {
 	values := map[string]string{}
 	for _, line := range strings.Split(data, "\n") {
 		key, value, ok := strings.Cut(strings.TrimSpace(line), "=")
@@ -14,5 +14,6 @@ func Debian13Release(data string) bool {
 		}
 		values[key] = strings.Trim(value, "\"'")
 	}
-	return values["ID"] == "debian" && strings.Split(values["VERSION_ID"], ".")[0] == "13"
+	version := strings.Split(values["VERSION_ID"], ".")[0]
+	return values["ID"] == "debian" && (version == "12" || version == "13")
 }

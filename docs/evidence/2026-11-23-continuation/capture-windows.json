@@ -1,0 +1,48 @@
+{
+  "platform": "Windows 10 LTSC 1809 x64",
+  "source": [
+    {
+      "path": "apps/windows/remote/CMakeLists.txt",
+      "sha256": "13cb9de9d5b65d3979b10977ea5b4384cd95a3249da901bc226642edcd1d808f"
+    },
+    {
+      "path": "apps/windows/remote/include/desktop_capture.hpp",
+      "sha256": "b23bf00ea80890bcc516d0b8672f842e0c8cb794cc798ea20891e90bff8de960"
+    },
+    {
+      "path": "apps/windows/remote/src/desktop_capture.cpp",
+      "sha256": "4ae7539df64868f05d9fbd7d50b87d263e08d622494c0e98d8efdfa024571ec7"
+    },
+    {
+      "path": "apps/windows/remote/tests/capture_probe.cpp",
+      "sha256": "c39ee97da2546881f9f63a71352c00a2093a11aa981ba4e80740c5d9f46da551"
+    }
+  ],
+  "probe_bytes": 1071104,
+  "probe_sha256": "c935e490310228772ced35bda43135cf2fc4c973441dbc5a0e96ba0f1d2faf20",
+  "imports": [
+    "DLL Name: d3d11.dll",
+    "DLL Name: dxgi.dll",
+    "DLL Name: KERNEL32.dll",
+    "DLL Name: api-ms-win-crt-convert-l1-1-0.dll",
+    "DLL Name: api-ms-win-crt-environment-l1-1-0.dll",
+    "DLL Name: api-ms-win-crt-filesystem-l1-1-0.dll",
+    "DLL Name: api-ms-win-crt-heap-l1-1-0.dll",
+    "DLL Name: api-ms-win-crt-locale-l1-1-0.dll",
+    "DLL Name: api-ms-win-crt-math-l1-1-0.dll",
+    "DLL Name: api-ms-win-crt-private-l1-1-0.dll",
+    "DLL Name: api-ms-win-crt-runtime-l1-1-0.dll",
+    "DLL Name: api-ms-win-crt-stdio-l1-1-0.dll",
+    "DLL Name: api-ms-win-crt-string-l1-1-0.dll",
+    "DLL Name: api-ms-win-crt-time-l1-1-0.dll",
+    "DLL Name: api-ms-win-crt-utility-l1-1-0.dll",
+    "DLL Name: USER32.dll"
+  ],
+  "status": "PASS",
+  "limits": [
+    "interactive current desktop only",
+    "no saved screenshots",
+    "no media/input/network/authorization integration",
+    "lock/UAC/sleep/rotation/multiple displays/Windows 11 not tested"
+  ]
+}

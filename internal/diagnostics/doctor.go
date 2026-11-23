@@ -52,10 +52,10 @@ func Doctor(ctx context.Context, c site.Config) DoctorReport {
 		add("linux_host", errors.New("unsupported host"), "Run operational checks on the target Linux host")
 	} else {
 		data, err := os.ReadFile("/etc/os-release")
-		if err == nil && (!Debian13Release(string(data)) || runtime.GOARCH != "amd64") {
+		if err == nil && (!SupportedDebianRelease(string(data)) || runtime.GOARCH != "amd64") {
 			err = errors.New("unsupported Linux baseline")
 		}
-		add("linux_distribution", err, "Debian 13 amd64 is the current server baseline")
+		add("linux_distribution", err, "Debian 12/13 amd64 is the current server baseline")
 	}
 	for _, name := range []string{"nft", "conntrack", "systemctl", "netbird", "openssl", "runuser"} {
 		_, err := exec.LookPath(name)

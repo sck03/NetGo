@@ -59,7 +59,7 @@ new file mode 100644
 index 0000000..f206a86
 --- /dev/null
 +++ b/client/cmd/netgo_rpc.go
-@@ -0,0 +1,231 @@
+@@ -0,0 +1,246 @@
 +package cmd
 +
 +import (
@@ -214,6 +214,21 @@ index 0000000..f206a86
 +		for _, profile := range profiles.Profiles {
 +			if profile.Name == name {
 +				found = true
++				if profile.IsActive {
++					// Down leaves the profile selected. The dedicated service's
++					// offline default must be selected before deleting its keys.
++					state, err := client.Status(ctx, &proto.StatusRequest{})
++					if err != nil {
++						return nil, err
++					}
++					if state.Status != "Idle" && state.Status != "NeedsLogin" {
++						return nil, errors.New("disconnect before removal")
++					}
++					park := "default"
++					if _, err = client.SwitchProfile(ctx, &proto.SwitchProfileRequest{ProfileName: &park, Username: &user.Username}); err != nil {
++						return nil, err
++					}
++				}
 +				break
 +			}
 +		}
@@ -291,6 +306,69 @@ index 0000000..f206a86
 +		return nil, errors.New("unsupported action")
 +	}
 +}
+diff --git a/client/firewall/nftables/chains_linux.go b/client/firewall/nftables/chains_linux.go
+index f31bbac..575ff6f 100644
+--- a/client/firewall/nftables/chains_linux.go
++++ b/client/firewall/nftables/chains_linux.go
+@@ -307,6 +307,9 @@ func (r *family) acceptExternalChainsRules(includeForward bool) error {
+ }
+ 
+ func (r *family) applyExternalChainAccept(chain *nftables.Chain, intf []byte, includeForward bool) {
++	if isNetGoLeaseGate(chain) {
++		return
++	}
+ 	if chain.Hooknum == nil {
+ 		log.Debugf("skipping external chain %s/%s: hooknum is nil", chain.Table.Name, chain.Name)
+ 		return
+@@ -536,7 +539,17 @@ func (r *family) findExternalChains() []*nftables.Chain {
+ 	return chains
+ }
+ 
++// NetGo's independently owned lease gate must run before any broad interface
++// accept. Treating it as a host firewall to open bypasses session revocation
++// and kernel expiry. NetGo separately verifies ownership of this reserved table.
++func isNetGoLeaseGate(chain *nftables.Chain) bool {
++	return chain.Table.Family == nftables.TableFamilyINet && chain.Table.Name == "netgo"
++}
++
+ func (r *family) isExternalChain(chain *nftables.Chain) bool {
++	if isNetGoLeaseGate(chain) {
++		return false
++	}
+ 	if r.workTable != nil && chain.Table.Name == r.workTable.Name {
+ 		return false
+ 	}
+diff --git a/client/firewall/nftables/netgo_gate_linux_test.go b/client/firewall/nftables/netgo_gate_linux_test.go
+new file mode 100644
+index 0000000..3874312
+--- /dev/null
++++ b/client/firewall/nftables/netgo_gate_linux_test.go
+@@ -0,0 +1,25 @@
++package nftables
++
++import (
++	"testing"
++
++	"github.com/google/nftables"
++)
++
++func TestNetGoLeaseGateNeverReceivesInterfaceAccept(t *testing.T) {
++	r := &family{}
++	for _, hook := range []*nftables.ChainHook{nftables.ChainHookInput, nftables.ChainHookForward} {
++		gate := &nftables.Chain{Table: &nftables.Table{Name: "netgo", Family: nftables.TableFamilyINet}, Type: nftables.ChainTypeFilter, Hooknum: hook}
++		if r.isExternalChain(gate) {
++			t.Fatal("lease gate selected for broad interface acceptance")
++		}
++		// There is deliberately no netlink connection: neither startup nor a
++		// later external-chain monitor update may inspect or modify the gate.
++		r.applyExternalChainAccept(gate, ifname("wt0"), true)
++		ordinary := *gate
++		ordinary.Table = &nftables.Table{Name: "host_policy", Family: nftables.TableFamilyINet}
++		if !r.isExternalChain(&ordinary) {
++			t.Fatal("unrelated host firewall integration was disabled")
++		}
++	}
++}
 diff --git a/client/grpc/dialer.go b/client/grpc/dialer.go
 index 9a6bc06..73d1c5f 100644
 --- a/client/grpc/dialer.go
@@ -308,205 +386,6 @@ index 9a6bc06..73d1c5f 100644
  	opts = append(opts, extraOpts...)
  
  	conn, err := grpc.DialContext(connCtx, addr, opts...)
-diff --git a/client/grpc/netgo.go b/client/grpc/netgo.go
-new file mode 100644
-index 0000000..c90a9c0
---- /dev/null
-+++ b/client/grpc/netgo.go
-@@ -0,0 +1,193 @@
-+package grpc
-+
-+import (
-+	"context"
-+	"crypto/tls"
-+	"crypto/x509"
-+	"errors"
-+	"net"
-+	"strconv"
-+	"strings"
-+	"sync"
-+	"time"
-+
-+	"google.golang.org/grpc"
-+	"google.golang.org/grpc/credentials"
-+)
-+
-+type netgoCandidate struct {
-+	address string
-+	kind    string
-+}
-+
-+var netgoRoutes = struct {
-+	sync.RWMutex
-+	m     map[string][]netgoCandidate
-+	roots map[string]*x509.CertPool
-+}{m: map[string][]netgoCandidate{}, roots: map[string]*x509.CertPool{}}
-+
-+// ConfigureNetGoCA accepts public trust material from an authorized Login, never
-+// a caller-supplied path for the privileged daemon to open.
-+func ConfigureNetGoCA(authority, ca string) error {
-+	if len(ca) > 256*1024 {
-+		return errors.New("NetGo CA too large")
-+	}
-+	var roots *x509.CertPool
-+	if ca != "" {
-+		roots, _ = x509.SystemCertPool()
-+		if roots == nil {
-+			roots = x509.NewCertPool()
-+		}
-+		if !roots.AppendCertsFromPEM([]byte(ca)) {
-+			return errors.New("invalid NetGo CA")
-+		}
-+	}
-+	netgoRoutes.Lock()
-+	defer netgoRoutes.Unlock()
-+	if roots == nil {
-+		delete(netgoRoutes.roots, authority)
-+	} else {
-+		netgoRoutes.roots[authority] = roots
-+	}
-+	return nil
-+}
-+func netgoTLSOption(authority string) (grpc.DialOption, bool) {
-+	netgoRoutes.RLock()
-+	roots, ok := netgoRoutes.roots[authority]
-+	netgoRoutes.RUnlock()
-+	if !ok {
-+		return nil, false
-+	}
-+	host, _, err := net.SplitHostPort(authority)
-+	if err != nil {
-+		host = authority
-+	}
-+	return grpc.WithTransportCredentials(credentials.NewTLS(&tls.Config{ServerName: host, RootCAs: roots, MinVersion: tls.VersionTLS12})), true
-+}
-+
-+// ConfigureNetGoRoutes follows the daemon's profile ownership checks. Older
-+// callers without kinds retain a preference for their first configured entry.
-+func ConfigureNetGoRoutes(authority string, candidates []string, kinds ...string) error {
-+	if len(candidates) == 0 || len(candidates) > 8 || (len(kinds) != 0 && len(kinds) != len(candidates)) {
-+		return errors.New("invalid NetGo candidate count")
-+	}
-+	entries := make([]netgoCandidate, 0, len(candidates))
-+	for index, addr := range candidates {
-+		h, p, e := net.SplitHostPort(addr)
-+		port, portErr := strconv.ParseUint(p, 10, 16)
-+		if e != nil || h == "" || portErr != nil || port == 0 || strings.ContainsAny(addr, "\x00\n\r\t/\\ ") {
-+			return errors.New("invalid NetGo candidate")
-+		}
-+		kind := "direct"
-+		if len(kinds) != 0 {
-+			kind = kinds[index]
-+		} else if index != 0 {
-+			kind = "auxiliary"
-+		}
-+		if kind != "direct" && kind != "auxiliary" {
-+			return errors.New("invalid NetGo candidate kind")
-+		}
-+		entries = append(entries, netgoCandidate{address: addr, kind: kind})
-+	}
-+	netgoRoutes.Lock()
-+	defer netgoRoutes.Unlock()
-+	netgoRoutes.m[authority] = entries
-+	return nil
-+}
-+func netgoDialOption(authority string) (grpc.DialOption, bool) {
-+	netgoRoutes.RLock()
-+	_, ok := netgoRoutes.m[authority]
-+	netgoRoutes.RUnlock()
-+	if !ok {
-+		return nil, false
-+	}
-+	return grpc.WithContextDialer(func(ctx context.Context, _ string) (net.Conn, error) {
-+		netgoRoutes.RLock()
-+		list := append([]netgoCandidate(nil), netgoRoutes.m[authority]...)
-+		roots := netgoRoutes.roots[authority]
-+		netgoRoutes.RUnlock()
-+		return dialNetGo(ctx, authority, list, roots)
-+	}), true
-+}
-+
-+func dialNetGo(ctx context.Context, authority string, candidates []netgoCandidate, roots *x509.CertPool) (net.Conn, error) {
-+	if err := ctx.Err(); err != nil {
-+		return nil, err
-+	}
-+	ctx, cancel := context.WithCancel(ctx)
-+	var workers sync.WaitGroup
-+	defer func() { cancel(); workers.Wait() }()
-+	host, _, err := net.SplitHostPort(authority)
-+	if err != nil {
-+		host = authority
-+	}
-+	hasDirect := false
-+	for _, candidate := range candidates {
-+		hasDirect = hasDirect || candidate.kind == "direct"
-+	}
-+	// An unbuffered handoff gives each unsuccessful worker ownership of closing
-+	// its connection once the winner returns or the calling generation cancels.
-+	results := make(chan net.Conn)
-+	for _, candidate := range candidates {
-+		workers.Add(1)
-+		go func(candidate netgoCandidate) {
-+			defer workers.Done()
-+			if candidate.kind == "auxiliary" && hasDirect {
-+				timer := time.NewTimer(800 * time.Millisecond)
-+				defer timer.Stop()
-+				select {
-+				case <-ctx.Done():
-+					return
-+				case <-timer.C:
-+				}
-+			}
-+			connection := probeNetGo(ctx, host, candidate.address, roots)
-+			select {
-+			case results <- connection:
-+			case <-ctx.Done():
-+				if connection != nil {
-+					_ = connection.Close()
-+				}
-+			}
-+		}(candidate)
-+	}
-+	for range candidates {
-+		select {
-+		case <-ctx.Done():
-+			return nil, ctx.Err()
-+		case connection := <-results:
-+			if connection != nil {
-+				if err := ctx.Err(); err != nil {
-+					_ = connection.Close()
-+					return nil, err
-+				}
-+				return connection, nil
-+			}
-+		}
-+	}
-+	return nil, errors.New("no trusted NetGo control candidate")
-+}
-+
-+func probeNetGo(ctx context.Context, host, address string, roots *x509.CertPool) net.Conn {
-+	ctx, cancel := context.WithTimeout(ctx, 3*time.Second)
-+	defer cancel()
-+	dialer := tls.Dialer{NetDialer: &net.Dialer{Timeout: 3 * time.Second}, Config: &tls.Config{
-+		ServerName: host, RootCAs: roots, MinVersion: tls.VersionTLS12, NextProtos: []string{"h2"},
-+	}}
-+	probe, err := dialer.DialContext(ctx, "tcp", address)
-+	if err != nil {
-+		return nil
-+	}
-+	negotiated := probe.(*tls.Conn).ConnectionState().NegotiatedProtocol
-+	_ = probe.Close()
-+	if negotiated != "h2" {
-+		return nil
-+	}
-+	// gRPC performs its own TLS handshake over this transport with the same
-+	// authority and trust roots; the probe never sends application credentials.
-+	connection, err := (&net.Dialer{Timeout: 3 * time.Second, KeepAlive: 30 * time.Second}).DialContext(ctx, "tcp", address)
-+	if err != nil {
-+		return nil
-+	}
-+	return connection
-+}
 diff --git a/client/grpc/netgo_dial_test.go b/client/grpc/netgo_dial_test.go
 new file mode 100644
 index 0000000..ab5a374
@@ -674,6 +553,28 @@ index 0000000..77394a9
 +package grpc
 +import("testing")
 +func TestNetGoCandidateValidation(t *testing.T){if e:=ConfigureNetGoRoutes("site.test:443",[]string{"site.test:443","vps.test:8443"});e!=nil{t.Fatal(e)};if _,ok:=netgoDialOption("site.test:443");!ok{t.Fatal("not registered")};if _,ok:=netgoDialOption("another.test:443");ok{t.Fatal("cross-site route leak")};for _,s:=range []string{"no-port","https://site.test:443","bad\n:443"}{if ConfigureNetGoRoutes("site.test:443",[]string{s})==nil{t.Fatal("unsafe candidate",s)}}}
+diff --git a/client/internal/connect.go b/client/internal/connect.go
+index fa6808b..4e0d15b 100644
+--- a/client/internal/connect.go
++++ b/client/internal/connect.go
+@@ -21,6 +21,7 @@ import (
+ 	"google.golang.org/grpc/codes"
+ 	gstatus "google.golang.org/grpc/status"
+ 
++	netgoGRPC "github.com/netbirdio/netbird/client/grpc"
+ 	"github.com/netbirdio/netbird/client/iface/wgaddr"
+ 
+ 	"github.com/netbirdio/netbird/client/iface"
+@@ -461,7 +462,8 @@ func (c *ConnectClient) run(mobileDependency MobileDependency, runningChan chan
+ 			engineConfig.StateDir = filepath.Dir(path)
+ 		}
+ 
+-		relayManager := relayClient.NewManager(engineCtx, relayURLs, myPrivateKey.PublicKey().String(), engineConfig.MTU,
++		relayCtx := netgoGRPC.NetGoRelayContext(engineCtx, c.config.ManagementURL.Host)
++		relayManager := relayClient.NewManager(relayCtx, relayURLs, myPrivateKey.PublicKey().String(), engineConfig.MTU,
+ 			relayClient.WithNetEvents(c.netMgr))
+ 		c.statusRecorder.SetRelayMgr(relayManager)
+ 		if len(relayURLs) > 0 {
 diff --git a/client/server/server.go b/client/server/server.go
 index c16c5f4..ef384b8 100644
 --- a/client/server/server.go
@@ -726,6 +627,211 @@ index c16c5f4..ef384b8 100644
  	// A probe that errors leaves the login undecided: Management unreachable, a
  	// restart mid-request, an internal error. Those are returned for the caller
  	// to retry, because turning them into an SSO prompt asks the user to solve
+diff --git a/combined/cmd/netgo_listen_test.go b/combined/cmd/netgo_listen_test.go
+new file mode 100644
+index 0000000..ed2462e
+--- /dev/null
++++ b/combined/cmd/netgo_listen_test.go
+@@ -0,0 +1,31 @@
++package cmd
++
++import (
++	"testing"
++
++	mgmtServer "github.com/netbirdio/netbird/management/internals/server"
++)
++
++func TestNetGoCombinedRetainsLoopbackAndClosesLegacyPort(t *testing.T) {
++	previous := newServer
++	t.Cleanup(func() { newServer = previous })
++	var captured *mgmtServer.Config
++	newServer = func(c *mgmtServer.Config) mgmtServer.Server {
++		captured = c
++		return mgmtServer.NewServer(c)
++	}
++	config := DefaultConfig()
++	config.Server.ListenAddress = "127.0.0.1:18080"
++	config.Server.ExposedAddress = "https://control.example:10443"
++	config.ApplySimplifiedDefaults()
++	management, err := config.ToManagementConfig()
++	if err != nil {
++		t.Fatal(err)
++	}
++	if _, err := createManagementServer(config, management, nil); err != nil {
++		t.Fatal(err)
++	}
++	if captured.MgmtListenAddress != "127.0.0.1:18080" || !captured.DisableLegacyManagementPort {
++		t.Fatal("private management bind or legacy-port isolation lost")
++	}
++}
+diff --git a/combined/cmd/root.go b/combined/cmd/root.go
+index 6033156..df366eb 100644
+--- a/combined/cmd/root.go
++++ b/combined/cmd/root.go
+@@ -213,6 +213,11 @@ func createAllServers(ctx context.Context, cfg *CombinedConfig) (*serverInstance
+ 	if err != nil {
+ 		return nil, fmt.Errorf("failed to create metrics server: %w", err)
+ 	}
++	metricsHost, _, err := net.SplitHostPort(cfg.Server.ListenAddress)
++	if err != nil {
++		return nil, fmt.Errorf("invalid server listen address: %w", err)
++	}
++	metricsServer.Addr = net.JoinHostPort(metricsHost, strconv.Itoa(cfg.Server.MetricsPort))
+ 	servers := &serverInstances{
+ 		metricsServer: metricsServer,
+ 	}
+@@ -533,12 +538,14 @@ func createManagementServer(cfg *CombinedConfig, mgmtConfig *nbconfig.Config, tl
+ 	mgmt := cfg.Management
+ 
+ 	// Extract port from listen address
+-	_, portStr, err := net.SplitHostPort(cfg.Server.ListenAddress)
++	host, portStr, err := net.SplitHostPort(cfg.Server.ListenAddress)
+ 	if err != nil {
+-		// If no port specified, assume default
+-		portStr = "443"
++		return nil, fmt.Errorf("invalid management listen address: %w", err)
++	}
++	mgmtPort, err := strconv.Atoi(portStr)
++	if err != nil || mgmtPort < 1 || mgmtPort > 65535 {
++		return nil, fmt.Errorf("invalid management listen port")
+ 	}
+-	mgmtPort, _ := strconv.Atoi(portStr)
+ 
+ 	if err := syncgrpc.ValidateSyncMessageVersion(mgmtConfig.HighestSupportedSyncMessageVersion); err != nil {
+ 		return nil, err
+@@ -552,15 +559,17 @@ func createManagementServer(cfg *CombinedConfig, mgmtConfig *nbconfig.Config, tl
+ 
+ 	mgmtSrv := newServer(
+ 		&mgmtServer.Config{
+-			NbConfig:                mgmtConfig,
+-			DNSDomain:               "",
+-			MgmtSingleAccModeDomain: mgmtServer.DefaultSelfHostedDomain,
+-			AutoResolveDomains:      true,
+-			MgmtPort:                mgmtPort,
+-			MgmtMetricsPort:         cfg.Server.MetricsPort,
+-			TLSConfig:               tlsConfig,
+-			DisableMetrics:          mgmt.DisableAnonymousMetrics,
+-			DisableGeoliteUpdate:    mgmt.DisableGeoliteUpdate,
++			NbConfig:                    mgmtConfig,
++			DNSDomain:                   "",
++			MgmtSingleAccModeDomain:     mgmtServer.DefaultSelfHostedDomain,
++			AutoResolveDomains:          true,
++			MgmtPort:                    mgmtPort,
++			MgmtListenAddress:           cfg.Server.ListenAddress,
++			DisableLegacyManagementPort: net.ParseIP(host).IsLoopback(),
++			MgmtMetricsPort:             cfg.Server.MetricsPort,
++			TLSConfig:                   tlsConfig,
++			DisableMetrics:              mgmt.DisableAnonymousMetrics,
++			DisableGeoliteUpdate:        mgmt.DisableGeoliteUpdate,
+ 			// Always enable user deletion from IDP in combined server (embedded IdP is always enabled)
+ 			UserDeleteFromIDPEnabled: true,
+ 		},
+diff --git a/management/internals/server/netgo_listen_test.go b/management/internals/server/netgo_listen_test.go
+new file mode 100644
+index 0000000..61facdf
+--- /dev/null
++++ b/management/internals/server/netgo_listen_test.go
+@@ -0,0 +1,25 @@
++package server
++
++import (
++	"net"
++	"testing"
++)
++
++func TestNetGoExplicitManagementBinding(t *testing.T) {
++	for _, address := range []string{"127.0.0.1:0", "[::1]:0"} {
++		s := &BaseServer{mgmtPort: 18080, mgmtListenAddress: address}
++		listener, err := net.Listen("tcp", s.managementAddress())
++		if err != nil {
++			t.Fatal(err)
++		}
++		if !listener.Addr().(*net.TCPAddr).IP.IsLoopback() {
++			t.Fatal("explicit loopback bind became public", listener.Addr())
++		}
++		if err := listener.Close(); err != nil {
++			t.Fatal(err)
++		}
++	}
++	if (&BaseServer{mgmtPort: 18080}).managementAddress() != ":18080" {
++		t.Fatal("legacy default changed")
++	}
++}
+diff --git a/management/internals/server/server.go b/management/internals/server/server.go
+index 054077b..3f3386a 100644
+--- a/management/internals/server/server.go
++++ b/management/internals/server/server.go
+@@ -77,6 +77,7 @@ type BaseServer struct {
+ 	mgmtSingleAccModeDomain     string
+ 	mgmtMetricsPort             int
+ 	mgmtPort                    int
++	mgmtListenAddress           string
+ 	disableLegacyManagementPort bool
+ 	letsEncryptListenAddress    string
+ 	autoResolveDomains          bool
+@@ -105,10 +106,12 @@ type BaseServer struct {
+ 
+ // Config holds the configuration parameters for creating a new server
+ type Config struct {
+-	NbConfig                    *nbconfig.Config
+-	DNSDomain                   string
+-	MgmtSingleAccModeDomain     string
+-	MgmtPort                    int
++	NbConfig                *nbconfig.Config
++	DNSDomain               string
++	MgmtSingleAccModeDomain string
++	MgmtPort                int
++	// MgmtListenAddress preserves an explicit bind host behind a TLS gateway.
++	MgmtListenAddress           string
+ 	MgmtMetricsPort             int
+ 	DisableLegacyManagementPort bool
+ 	DisableMetrics              bool
+@@ -132,6 +135,7 @@ func NewServer(cfg *Config) *BaseServer {
+ 		disableGeoliteUpdate:        cfg.DisableGeoliteUpdate,
+ 		userDeleteFromIDPEnabled:    cfg.UserDeleteFromIDPEnabled,
+ 		mgmtPort:                    cfg.MgmtPort,
++		mgmtListenAddress:           cfg.MgmtListenAddress,
+ 		disableLegacyManagementPort: cfg.DisableLegacyManagementPort,
+ 		letsEncryptListenAddress:    cfg.LetsEncryptListenAddress,
+ 		mgmtMetricsPort:             cfg.MgmtMetricsPort,
+@@ -150,6 +154,13 @@ func (s *BaseServer) AfterInit(fn func(s *BaseServer)) {
+ 	s.afterInit = append(s.afterInit, fn)
+ }
+ 
++func (s *BaseServer) managementAddress() string {
++	if s.mgmtListenAddress != "" {
++		return s.mgmtListenAddress
++	}
++	return fmt.Sprintf(":%d", s.mgmtPort)
++}
++
+ // Start begins listening for HTTP requests on the configured address
+ func (s *BaseServer) Start(ctx context.Context) error {
+ 	if err := s.start(ctx); err != nil {
+@@ -240,7 +251,7 @@ func (s *BaseServer) start(ctx context.Context) (err error) {
+ 			rootHandler = s.certManager.HTTPHandler(rootHandler)
+ 			s.listener = s.certManager.Listener()
+ 		} else {
+-			s.listener, err = tls.Listen("tcp", fmt.Sprintf(":%d", s.mgmtPort), s.certManager.TLSConfig())
++			s.listener, err = tls.Listen("tcp", s.managementAddress(), s.certManager.TLSConfig())
+ 			if err != nil {
+ 				return fmt.Errorf("failed creating TLS listener on port %d: %v", s.mgmtPort, err)
+ 			}
+@@ -249,12 +260,12 @@ func (s *BaseServer) start(ctx context.Context) (err error) {
+ 			}
+ 		}
+ 	case s.tlsConfig != nil:
+-		s.listener, err = tls.Listen("tcp", fmt.Sprintf(":%d", s.mgmtPort), s.tlsConfig)
++		s.listener, err = tls.Listen("tcp", s.managementAddress(), s.tlsConfig)
+ 		if err != nil {
+ 			return fmt.Errorf("failed creating TLS listener on port %d: %v", s.mgmtPort, err)
+ 		}
+ 	default:
+-		s.listener, err = net.Listen("tcp", fmt.Sprintf(":%d", s.mgmtPort))
++		s.listener, err = net.Listen("tcp", s.managementAddress())
+ 		if err != nil {
+ 			return fmt.Errorf("failed creating TCP listener on port %d: %v", s.mgmtPort, err)
+ 		}
 diff --git a/management/internals/shared/grpc/server.go b/management/internals/shared/grpc/server.go
 index 6298e19..c81509b 100644
 --- a/management/internals/shared/grpc/server.go
@@ -757,3 +863,829 @@ index 8a9bf1f..65b43e0 100644
  	util.WriteJSONObject(ctx, w, toSinglePeerResponse(peer, grpsInfoMap[peerID], dnsDomain, valid, reason))
  }
  
+diff --git a/relay/cmd/netgo_metrics_test.go b/relay/cmd/netgo_metrics_test.go
+new file mode 100644
+index 0000000..51a1f0c
+--- /dev/null
++++ b/relay/cmd/netgo_metrics_test.go
+@@ -0,0 +1,18 @@
++package cmd
++
++import "testing"
++
++func TestNetGoMetricsListenAddress(t *testing.T) {
++	for _, address := range []string{"", "127.0.0.1:19091", "[::1]:19091"} {
++		c := Config{ExposedAddress: "rels://relay.example:18443", AuthSecret: "test-secret", MetricsListenAddress: address}
++		if err := c.Validate(); err != nil {
++			t.Fatal(err)
++		}
++	}
++	for _, address := range []string{"127.0.0.1:0", "127.0.0.1:65536", "127.0.0.1", "bad host:123"} {
++		c := Config{ExposedAddress: "rels://relay.example:18443", AuthSecret: "test-secret", MetricsListenAddress: address}
++		if c.Validate() == nil {
++			t.Fatal("invalid metrics binding accepted", address)
++		}
++	}
++}
+diff --git a/relay/cmd/root.go b/relay/cmd/root.go
+index a64812d..9ad369d 100644
+--- a/relay/cmd/root.go
++++ b/relay/cmd/root.go
+@@ -10,6 +10,7 @@ import (
+ 	"net/http"
+ 	"os"
+ 	"os/signal"
++	"strconv"
+ 	"sync"
+ 	"syscall"
+ 	"time"
+@@ -32,11 +33,12 @@ type Config struct {
+ 	ListenAddress string
+ 	// in HA every peer connect to a common domain, the instance domain has been distributed during the p2p connection
+ 	// it is a domain:port or ip:port
+-	ExposedAddress     string
+-	MetricsPort        int
+-	LetsencryptEmail   string
+-	LetsencryptDataDir string
+-	LetsencryptDomains []string
++	ExposedAddress       string
++	MetricsPort          int
++	MetricsListenAddress string
++	LetsencryptEmail     string
++	LetsencryptDataDir   string
++	LetsencryptDomains   []string
+ 	// in case of using Route 53 for DNS challenge the credentials should be provided in the environment variables or
+ 	// in the AWS credentials file
+ 	LetsencryptAWSRoute53    bool
+@@ -56,6 +58,13 @@ type Config struct {
+ }
+ 
+ func (c Config) Validate() error {
++	if c.MetricsListenAddress != "" {
++		host, value, err := net.SplitHostPort(c.MetricsListenAddress)
++		port, portErr := strconv.Atoi(value)
++		if err != nil || portErr != nil || net.ParseIP(host) == nil || port < 1 || port > 65535 {
++			return fmt.Errorf("metrics listen address must contain an IP and port")
++		}
++	}
+ 	if c.ExposedAddress == "" {
+ 		return fmt.Errorf("exposed address is required")
+ 	}
+@@ -110,6 +119,7 @@ func init() {
+ 	rootCmd.PersistentFlags().StringVarP(&cobraConfig.ListenAddress, "listen-address", "l", ":443", "listen address")
+ 	rootCmd.PersistentFlags().StringVarP(&cobraConfig.ExposedAddress, "exposed-address", "e", "", "instance domain address (or ip) and port, it will be distributes between peers")
+ 	rootCmd.PersistentFlags().IntVar(&cobraConfig.MetricsPort, "metrics-port", 9090, "metrics endpoint http port. Metrics are accessible under host:metrics-port/metrics")
++	rootCmd.PersistentFlags().StringVar(&cobraConfig.MetricsListenAddress, "metrics-listen-address", "", "explicit metrics listen IP:port; overrides metrics-port")
+ 	rootCmd.PersistentFlags().StringVarP(&cobraConfig.LetsencryptDataDir, "letsencrypt-data-dir", "d", "", "a directory to store Let's Encrypt data. Required if Let's Encrypt is enabled.")
+ 	rootCmd.PersistentFlags().StringSliceVarP(&cobraConfig.LetsencryptDomains, "letsencrypt-domains", "a", nil, "list of domains to issue Let's Encrypt certificate for. Enables TLS using Let's Encrypt. Will fetch and renew certificate, and run the server with TLS")
+ 	rootCmd.PersistentFlags().StringVar(&cobraConfig.LetsencryptEmail, "letsencrypt-email", "", "email address to use for Let's Encrypt certificate registration")
+@@ -159,6 +169,9 @@ func execute(cmd *cobra.Command, args []string) error {
+ 		log.Debugf("setup metrics: %v", err)
+ 		return fmt.Errorf("setup metrics: %v", err)
+ 	}
++	if cobraConfig.MetricsListenAddress != "" {
++		metricsServer.Addr = cobraConfig.MetricsListenAddress
++	}
+ 
+ 	trustedProxies, err := trustedproxy.Parse(cobraConfig.TrustedProxies)
+ 	if err != nil {
+diff --git a/shared/relay/client/dialer/quic/netgo_tls_test.go b/shared/relay/client/dialer/quic/netgo_tls_test.go
+new file mode 100644
+index 0000000..882cfb1
+--- /dev/null
++++ b/shared/relay/client/dialer/quic/netgo_tls_test.go
+@@ -0,0 +1,57 @@
++package quic
++
++import (
++	"context"
++	"crypto/tls"
++	"crypto/x509"
++	"net/http/httptest"
++	"testing"
++	"time"
++
++	relayTLS "github.com/netbirdio/netbird/shared/relay/tls"
++	"github.com/quic-go/quic-go"
++)
++
++func TestNetGoQUICCustomCAAndHostname(t *testing.T) {
++	certificate := httptest.NewTLSServer(nil)
++	defer certificate.Close()
++	listener, err := quic.ListenAddr("127.0.0.1:0", &tls.Config{Certificates: certificate.TLS.Certificates, NextProtos: []string{relayTLS.NBalpn}}, &quic.Config{EnableDatagrams: true})
++	if err != nil {
++		t.Fatal(err)
++	}
++	defer listener.Close()
++	ctx, cancel := context.WithCancel(context.Background())
++	defer cancel()
++	go func() {
++		for {
++			if _, err := listener.Accept(ctx); err != nil {
++				return
++			}
++		}
++	}()
++	address := "rels://" + listener.Addr().String()
++	dial := func(ctx context.Context, name string) error {
++		ctx, cancel := context.WithTimeout(ctx, 3*time.Second)
++		defer cancel()
++		conn, err := (Dialer{}).Dial(ctx, address, name)
++		if conn != nil {
++			_ = conn.Close()
++		}
++		return err
++	}
++	if err := dial(ctx, ""); err == nil {
++		t.Fatal("unknown private CA accepted")
++	}
++	pool := x509.NewCertPool()
++	pool.AddCert(certificate.Certificate())
++	trusted := relayTLS.WithNetGoRootCAs(ctx, pool)
++	if err := dial(trusted, ""); err != nil {
++		t.Fatal("explicit profile CA rejected", err)
++	}
++	if err := dial(trusted, "wrong.example.test"); err == nil {
++		t.Fatal("custom CA bypassed hostname verification")
++	}
++	if err := dial(relayTLS.WithNetGoRootCAs(trusted, nil), ""); err == nil {
++		t.Fatal("next profile inherited the old CA")
++	}
++}
+diff --git a/shared/relay/client/dialer/quic/quic.go b/shared/relay/client/dialer/quic/quic.go
+index cbf6ea3..e4aa0c9 100644
+--- a/shared/relay/client/dialer/quic/quic.go
++++ b/shared/relay/client/dialer/quic/quic.go
+@@ -37,6 +37,9 @@ func (d Dialer) Dial(ctx context.Context, address, serverName string) (net.Conn,
+ 
+ 	// Get the base TLS config
+ 	tlsClientConfig := quictls.ClientQUICTLSConfig()
++	if roots := quictls.NetGoRootCAs(ctx); roots != nil {
++		tlsClientConfig.RootCAs = roots
++	}
+ 
+ 	switch {
+ 	case serverName != "" && net.ParseIP(serverName) == nil:
+diff --git a/shared/relay/client/dialer/ws/netgo_tls_test.go b/shared/relay/client/dialer/ws/netgo_tls_test.go
+new file mode 100644
+index 0000000..7ab521f
+--- /dev/null
++++ b/shared/relay/client/dialer/ws/netgo_tls_test.go
+@@ -0,0 +1,54 @@
++package ws
++
++import (
++	"context"
++	"crypto/x509"
++	"io"
++	"log"
++	"net/http"
++	"net/http/httptest"
++	"strings"
++	"testing"
++	"time"
++
++	"github.com/coder/websocket"
++	relayTLS "github.com/netbirdio/netbird/shared/relay/tls"
++)
++
++func TestNetGoWebSocketCustomCAAndHostname(t *testing.T) {
++	server := httptest.NewTLSServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
++		conn, err := websocket.Accept(w, r, nil)
++		if err != nil {
++			return
++		}
++		defer conn.CloseNow()
++		_, _, _ = conn.Read(r.Context())
++	}))
++	defer server.Close()
++	server.Config.ErrorLog = log.New(io.Discard, "", 0)
++	address := strings.Replace(server.URL, "https://", "rels://", 1)
++	dial := func(ctx context.Context, name string) error {
++		ctx, cancel := context.WithTimeout(ctx, 3*time.Second)
++		defer cancel()
++		conn, err := (Dialer{}).Dial(ctx, address, name)
++		if conn != nil {
++			_ = conn.Close()
++		}
++		return err
++	}
++	if err := dial(context.Background(), ""); err == nil {
++		t.Fatal("unknown private CA accepted")
++	}
++	pool := x509.NewCertPool()
++	pool.AddCert(server.Certificate())
++	ctx := relayTLS.WithNetGoRootCAs(context.Background(), pool)
++	if err := dial(ctx, ""); err != nil {
++		t.Fatal("explicit profile CA rejected", err)
++	}
++	if err := dial(ctx, "wrong.example.test"); err == nil {
++		t.Fatal("custom CA bypassed hostname verification")
++	}
++	if err := dial(relayTLS.WithNetGoRootCAs(ctx, nil), ""); err == nil {
++		t.Fatal("cleared profile kept its predecessor's CA")
++	}
++}
+diff --git a/shared/relay/client/dialer/ws/ws.go b/shared/relay/client/dialer/ws/ws.go
+index 946d267..7fc32b6 100644
+--- a/shared/relay/client/dialer/ws/ws.go
++++ b/shared/relay/client/dialer/ws/ws.go
+@@ -15,6 +15,7 @@ import (
+ 
+ 	nbnet "github.com/netbirdio/netbird/client/net"
+ 	"github.com/netbirdio/netbird/shared/relay"
++	relayTLS "github.com/netbirdio/netbird/shared/relay/tls"
+ 	"github.com/netbirdio/netbird/util/embeddedroots"
+ )
+ 
+@@ -38,6 +39,9 @@ func (d Dialer) Dial(ctx context.Context, address, serverName string) (net.Conn,
+ 
+ 	var underlying net.Conn
+ 	opts := createDialOptions(serverName, host, &underlying)
++	if roots := relayTLS.NetGoRootCAs(ctx); roots != nil {
++		opts.HTTPClient.Transport.(*http.Transport).TLSClientConfig.RootCAs = roots
++	}
+ 
+ 	wsConn, resp, err := websocket.Dial(ctx, wsURL, opts)
+ 	if err != nil {
+diff --git a/shared/relay/tls/netgo.go b/shared/relay/tls/netgo.go
+new file mode 100644
+index 0000000..4f0425a
+--- /dev/null
++++ b/shared/relay/tls/netgo.go
+@@ -0,0 +1,25 @@
++package tls
++
++import (
++	"context"
++	"crypto/x509"
++)
++
++type netGoRootsKey struct{}
++
++// WithNetGoRootCAs carries a per-connection trust snapshot. A nil pool explicitly
++// restores system trust, including when a parent context held another profile.
++func WithNetGoRootCAs(ctx context.Context, roots *x509.CertPool) context.Context {
++	if roots != nil {
++		roots = roots.Clone()
++	}
++	return context.WithValue(ctx, netGoRootsKey{}, roots)
++}
++
++func NetGoRootCAs(ctx context.Context) *x509.CertPool {
++	roots, _ := ctx.Value(netGoRootsKey{}).(*x509.CertPool)
++	if roots == nil {
++		return nil
++	}
++	return roots.Clone()
++}
+diff --git a/shared/relay/tls/netgo_test.go b/shared/relay/tls/netgo_test.go
+new file mode 100644
+index 0000000..2812518
+--- /dev/null
++++ b/shared/relay/tls/netgo_test.go
+@@ -0,0 +1,28 @@
++package tls
++
++import (
++	"context"
++	"crypto/x509"
++	"net/http/httptest"
++	"testing"
++)
++
++func TestNetGoTrustSnapshotDoesNotLeakAcrossProfiles(t *testing.T) {
++	server := httptest.NewTLSServer(nil)
++	defer server.Close()
++	parent := context.Background()
++	pool := x509.NewCertPool()
++	ctx := WithNetGoRootCAs(parent, pool)
++	pool.AddCert(server.Certificate())
++	if NetGoRootCAs(parent) != nil || len(NetGoRootCAs(ctx).Subjects()) != 0 {
++		t.Fatal("mutable trust escaped its connection context")
++	}
++	returned := NetGoRootCAs(ctx)
++	returned.AddCert(server.Certificate())
++	if len(NetGoRootCAs(ctx).Subjects()) != 0 {
++		t.Fatal("dialer modified shared trust")
++	}
++	if NetGoRootCAs(WithNetGoRootCAs(ctx, nil)) != nil {
++		t.Fatal("next profile inherited custom trust")
++	}
++}
+
+diff --git a/client/firewall/uspfilter/filter.go b/client/firewall/uspfilter/filter.go
+index 5e2ca62..e42c3a4 100644
+--- a/client/firewall/uspfilter/filter.go
++++ b/client/firewall/uspfilter/filter.go
+@@ -936,11 +936,8 @@ func (m *Manager) filterOutbound(packetData []byte, size int) bool {
+ 	d := m.decoders.Get().(*decoder)
+ 	defer m.decoders.Put(d)
+ 
+-	if err := d.decodePacket(packetData); err != nil {
+-		return false
+-	}
+-
+-	if len(d.decoded) < 2 {
++	valid, fragment := m.isValidPacket(d, packetData)
++	if !valid {
+ 		return false
+ 	}
+ 
+@@ -951,6 +948,16 @@ func (m *Manager) filterOutbound(packetData []byte, size int) bool {
+ 		}
+ 		return false
+ 	}
++	if fragment {
++		// Register only a first fragment with a complete transport header.
++		// Reply fragments must still pass the inbound conntrack and fragment
++		// verdict checks; trailing outbound fragments create no new flow.
++		meta, ok := fragmentMetadata(d, srcIP, dstIP)
++		if ok && meta.offset == 0 && d.decodeTransport(meta.proto, meta.l4payload) {
++			m.trackOutbound(d, srcIP, dstIP, packetData, size)
++		}
++		return false
++	}
+ 
+ 	switch d.decoded[1] {
+ 	case layers.LayerTypeUDP:
+diff --git a/client/firewall/uspfilter/netgo_fragment_test.go b/client/firewall/uspfilter/netgo_fragment_test.go
+new file mode 100644
+index 0000000..d7217a9
+--- /dev/null
++++ b/client/firewall/uspfilter/netgo_fragment_test.go
+@@ -0,0 +1,22 @@
++package uspfilter
++
++import (
++	"encoding/binary"
++	"github.com/stretchr/testify/require"
++	"testing"
++)
++
++func TestNetGoFragmentedOutboundUDPTracksOnlyItsReply(t *testing.T) {
++	m := newFragmentTestManager(t)
++	outgoing := outboundUDPPacket(t, 12345, 40000)
++	binary.BigEndian.PutUint16(outgoing[6:8], 0x2000)
++	require.False(t, m.filterOutbound(outgoing, len(outgoing)))
++	first := firstFragmentUDP(t, 0x9876, 12345, 32)
++	require.False(t, m.filterInbound(first, len(first)), "first reply fragment needs the outbound flow")
++	trailing := trailingFragment(t, 0x9876, 5, false, 24)
++	require.False(t, m.filterInbound(trailing, len(trailing)))
++	wrongPort := firstFragmentUDP(t, 0x9877, 12346, 32)
++	require.True(t, m.filterInbound(wrongPort, len(wrongPort)), "a different destination port must remain denied")
++	orphan := trailingFragment(t, 0x9878, 5, false, 24)
++	require.True(t, m.filterInbound(orphan, len(orphan)), "orphan fragment must remain denied")
++}
+diff --git a/client/grpc/netgo.go b/client/grpc/netgo.go
+new file mode 100644
+index 0000000..7bd1de9
+--- /dev/null
++++ b/client/grpc/netgo.go
+@@ -0,0 +1,206 @@
++package grpc
++
++import (
++	"context"
++	"crypto/tls"
++	"crypto/x509"
++	"errors"
++	"net"
++	"strconv"
++	"strings"
++	"sync"
++	"time"
++
++	relayClient "github.com/netbirdio/netbird/shared/relay/client"
++	relayTLS "github.com/netbirdio/netbird/shared/relay/tls"
++	"google.golang.org/grpc"
++	"google.golang.org/grpc/credentials"
++)
++
++type netgoCandidate struct {
++	address string
++	kind    string
++}
++
++var netgoRoutes = struct {
++	sync.RWMutex
++	m     map[string][]netgoCandidate
++	roots map[string]*x509.CertPool
++}{m: map[string][]netgoCandidate{}, roots: map[string]*x509.CertPool{}}
++
++// ConfigureNetGoCA accepts public trust material from an authorized Login, never
++// a caller-supplied path for the privileged daemon to open.
++func ConfigureNetGoCA(authority, ca string) error {
++	if len(ca) > 256*1024 {
++		return errors.New("NetGo CA too large")
++	}
++	var roots *x509.CertPool
++	if ca != "" {
++		roots, _ = x509.SystemCertPool()
++		if roots == nil {
++			roots = x509.NewCertPool()
++		}
++		if !roots.AppendCertsFromPEM([]byte(ca)) {
++			return errors.New("invalid NetGo CA")
++		}
++	}
++	netgoRoutes.Lock()
++	defer netgoRoutes.Unlock()
++	if roots == nil {
++		delete(netgoRoutes.roots, authority)
++	} else {
++		netgoRoutes.roots[authority] = roots
++	}
++	return nil
++}
++func netgoTLSOption(authority string) (grpc.DialOption, bool) {
++	netgoRoutes.RLock()
++	roots, ok := netgoRoutes.roots[authority]
++	netgoRoutes.RUnlock()
++	if !ok {
++		return nil, false
++	}
++	host, _, err := net.SplitHostPort(authority)
++	if err != nil {
++		host = authority
++	}
++	return grpc.WithTransportCredentials(credentials.NewTLS(&tls.Config{ServerName: host, RootCAs: roots, MinVersion: tls.VersionTLS12})), true
++}
++
++// NetGoRelayContext snapshots the active profile's trust for both relay
++// transports without modifying the machine's certificate store.
++func NetGoRelayContext(ctx context.Context, authority string) context.Context {
++	netgoRoutes.RLock()
++	roots := netgoRoutes.roots[authority]
++	_, active := netgoRoutes.m[authority]
++	netgoRoutes.RUnlock()
++	ctx = relayTLS.WithNetGoRootCAs(ctx, roots)
++	return relayClient.WithNetGoClient(ctx, active)
++}
++
++// ConfigureNetGoRoutes follows the daemon's profile ownership checks. Older
++// callers without kinds retain a preference for their first configured entry.
++func ConfigureNetGoRoutes(authority string, candidates []string, kinds ...string) error {
++	if len(candidates) == 0 || len(candidates) > 8 || (len(kinds) != 0 && len(kinds) != len(candidates)) {
++		return errors.New("invalid NetGo candidate count")
++	}
++	entries := make([]netgoCandidate, 0, len(candidates))
++	for index, addr := range candidates {
++		h, p, e := net.SplitHostPort(addr)
++		port, portErr := strconv.ParseUint(p, 10, 16)
++		if e != nil || h == "" || portErr != nil || port == 0 || strings.ContainsAny(addr, "\x00\n\r\t/\\ ") {
++			return errors.New("invalid NetGo candidate")
++		}
++		kind := "direct"
++		if len(kinds) != 0 {
++			kind = kinds[index]
++		} else if index != 0 {
++			kind = "auxiliary"
++		}
++		if kind != "direct" && kind != "auxiliary" {
++			return errors.New("invalid NetGo candidate kind")
++		}
++		entries = append(entries, netgoCandidate{address: addr, kind: kind})
++	}
++	netgoRoutes.Lock()
++	defer netgoRoutes.Unlock()
++	netgoRoutes.m[authority] = entries
++	return nil
++}
++func netgoDialOption(authority string) (grpc.DialOption, bool) {
++	netgoRoutes.RLock()
++	_, ok := netgoRoutes.m[authority]
++	netgoRoutes.RUnlock()
++	if !ok {
++		return nil, false
++	}
++	return grpc.WithContextDialer(func(ctx context.Context, _ string) (net.Conn, error) {
++		netgoRoutes.RLock()
++		list := append([]netgoCandidate(nil), netgoRoutes.m[authority]...)
++		roots := netgoRoutes.roots[authority]
++		netgoRoutes.RUnlock()
++		return dialNetGo(ctx, authority, list, roots)
++	}), true
++}
++
++func dialNetGo(ctx context.Context, authority string, candidates []netgoCandidate, roots *x509.CertPool) (net.Conn, error) {
++	if err := ctx.Err(); err != nil {
++		return nil, err
++	}
++	ctx, cancel := context.WithCancel(ctx)
++	var workers sync.WaitGroup
++	defer func() { cancel(); workers.Wait() }()
++	host, _, err := net.SplitHostPort(authority)
++	if err != nil {
++		host = authority
++	}
++	hasDirect := false
++	for _, candidate := range candidates {
++		hasDirect = hasDirect || candidate.kind == "direct"
++	}
++	// An unbuffered handoff gives each unsuccessful worker ownership of closing
++	// its connection once the winner returns or the calling generation cancels.
++	results := make(chan net.Conn)
++	for _, candidate := range candidates {
++		workers.Add(1)
++		go func(candidate netgoCandidate) {
++			defer workers.Done()
++			if candidate.kind == "auxiliary" && hasDirect {
++				timer := time.NewTimer(800 * time.Millisecond)
++				defer timer.Stop()
++				select {
++				case <-ctx.Done():
++					return
++				case <-timer.C:
++				}
++			}
++			connection := probeNetGo(ctx, host, candidate.address, roots)
++			select {
++			case results <- connection:
++			case <-ctx.Done():
++				if connection != nil {
++					_ = connection.Close()
++				}
++			}
++		}(candidate)
++	}
++	for range candidates {
++		select {
++		case <-ctx.Done():
++			return nil, ctx.Err()
++		case connection := <-results:
++			if connection != nil {
++				if err := ctx.Err(); err != nil {
++					_ = connection.Close()
++					return nil, err
++				}
++				return connection, nil
++			}
++		}
++	}
++	return nil, errors.New("no trusted NetGo control candidate")
++}
++
++func probeNetGo(ctx context.Context, host, address string, roots *x509.CertPool) net.Conn {
++	ctx, cancel := context.WithTimeout(ctx, 3*time.Second)
++	defer cancel()
++	dialer := tls.Dialer{NetDialer: &net.Dialer{Timeout: 3 * time.Second}, Config: &tls.Config{
++		ServerName: host, RootCAs: roots, MinVersion: tls.VersionTLS12, NextProtos: []string{"h2"},
++	}}
++	probe, err := dialer.DialContext(ctx, "tcp", address)
++	if err != nil {
++		return nil
++	}
++	negotiated := probe.(*tls.Conn).ConnectionState().NegotiatedProtocol
++	_ = probe.Close()
++	if negotiated != "h2" {
++		return nil
++	}
++	// gRPC performs its own TLS handshake over this transport with the same
++	// authority and trust roots; the probe never sends application credentials.
++	connection, err := (&net.Dialer{Timeout: 3 * time.Second, KeepAlive: 30 * time.Second}).DialContext(ctx, "tcp", address)
++	if err != nil {
++		return nil
++	}
++	return connection
++}
+diff --git a/client/grpc/netgo_relay_role_test.go b/client/grpc/netgo_relay_role_test.go
+new file mode 100644
+index 0000000..fe34813
+--- /dev/null
++++ b/client/grpc/netgo_relay_role_test.go
+@@ -0,0 +1,28 @@
++package grpc
++
++import (
++	"context"
++	"testing"
++
++	relayClient "github.com/netbirdio/netbird/shared/relay/client"
++)
++
++func TestNetGoRelayRoleIsBoundToRegisteredAuthority(t *testing.T) {
++	t.Setenv("NB_NETGO_ROUTING_PEER", "false")
++	authority := "relay-role.test:10443"
++	if err := ConfigureNetGoRoutes(authority, []string{"192.0.2.1:10443"}); err != nil {
++		t.Fatal(err)
++	}
++	t.Cleanup(func() {
++		netgoRoutes.Lock()
++		delete(netgoRoutes.m, authority)
++		netgoRoutes.Unlock()
++	})
++	urls := []string{"rels://192.0.2.1:18443", "rels://198.51.100.1:28443"}
++	selected := relayClient.NewManager(NetGoRelayContext(context.Background(), authority), urls, "client", 1280)
++	parent := NetGoRelayContext(context.Background(), authority)
++	other := relayClient.NewManager(NetGoRelayContext(parent, "other.test:10443"), urls, "other", 1280)
++	if !selected.NetGoRelaySelection() || other.NetGoRelaySelection() {
++		t.Fatal("NetGo relay mode crossed authority boundary")
++	}
++}
+diff --git a/client/internal/peer/worker_relay.go b/client/internal/peer/worker_relay.go
+index 6942078..bf11b44 100644
+--- a/client/internal/peer/worker_relay.go
++++ b/client/internal/peer/worker_relay.go
+@@ -59,9 +59,13 @@ func (w *WorkerRelay) OnNewOffer(remoteOfferAnswer *OfferAnswer) {
+ 		return
+ 	}
+ 
+-	srv := w.preferredRelayServer(currentRelayAddress, remoteOfferAnswer.RelaySrvAddress)
++	srv, err := w.relayManager.PreferredRelay(currentRelayAddress, remoteOfferAnswer.RelaySrvAddress, w.isController)
++	if err != nil {
++		w.log.Warnf("relay selection rejected: %v", err)
++		return
++	}
+ 	var serverIP netip.Addr
+-	if srv == remoteOfferAnswer.RelaySrvAddress {
++	if srv == remoteOfferAnswer.RelaySrvAddress && !w.relayManager.NetGoRelaySelection() {
+ 		serverIP = remoteOfferAnswer.RelaySrvIP
+ 	}
+ 
+@@ -127,13 +131,6 @@ func (w *WorkerRelay) isRelaySupported(answer *OfferAnswer) bool {
+ 	return answer.RelaySrvAddress != ""
+ }
+ 
+-func (w *WorkerRelay) preferredRelayServer(myRelayAddress, remoteRelayAddress string) string {
+-	if w.isController {
+-		return myRelayAddress
+-	}
+-	return remoteRelayAddress
+-}
+-
+ func (w *WorkerRelay) watchRelayedConn(relayedConn *relayClient.Conn) {
+ 	<-relayedConn.Context().Done()
+ 
+diff --git a/shared/relay/client/manager.go b/shared/relay/client/manager.go
+index 518a4a5..ad11546 100644
+--- a/shared/relay/client/manager.go
++++ b/shared/relay/client/manager.go
+@@ -72,6 +72,7 @@ func WithNetEvents(events NetEvents) ManagerOption {
+ // relay servers will be closed if there is no active connection. Periodically the manager will check if there is any
+ // unused relay connection and close it.
+ type Manager struct {
++	netgoRole    netGoRelayRole
+ 	ctx          context.Context
+ 	peerID       string
+ 	running      bool
+@@ -108,6 +109,7 @@ func NewManager(ctx context.Context, serverURLs []string, peerID string, mtu uin
+ 	tf := newTransportFallback()
+ 
+ 	m := &Manager{
++		netgoRole:         netGoRole(ctx),
+ 		ctx:               ctx,
+ 		peerID:            peerID,
+ 		tokenStore:        tokenStore,
+diff --git a/shared/relay/client/netgo_selection.go b/shared/relay/client/netgo_selection.go
+new file mode 100644
+index 0000000..c3f0508
+--- /dev/null
++++ b/shared/relay/client/netgo_selection.go
+@@ -0,0 +1,73 @@
++package client
++
++import (
++	"context"
++	"errors"
++	"os"
++	"strconv"
++)
++
++const netGoRoutingPeerEnv = "NB_NETGO_ROUTING_PEER"
++
++type netGoRelayRole uint8
++
++const (
++	netGoUnmanaged netGoRelayRole = iota
++	netGoClient
++	netGoRoutingPeer
++	netGoInvalidRole
++)
++
++type netGoClientKey struct{}
++
++// WithNetGoClient snapshots whether this context uses the NetGo profile adapter.
++func WithNetGoClient(ctx context.Context, active bool) context.Context {
++	return context.WithValue(ctx, netGoClientKey{}, active)
++}
++
++func netGoRole(ctx context.Context) netGoRelayRole {
++	if value := os.Getenv(netGoRoutingPeerEnv); value != "" {
++		router, err := strconv.ParseBool(value)
++		if err != nil {
++			return netGoInvalidRole
++		}
++		if router {
++			return netGoRoutingPeer
++		}
++	}
++	if active, _ := ctx.Value(netGoClientKey{}).(bool); active {
++		return netGoClient
++	}
++	return netGoUnmanaged
++}
++
++// NetGoRelaySelection reports whether the manager uses the NetGo gateway topology.
++func (m *Manager) NetGoRelaySelection() bool {
++	return m.netgoRole != netGoUnmanaged
++}
++
++// PreferredRelay selects the client's reachable home relay for NetGo gateway links.
++// The gateway follows that choice, independently of WireGuard controller ordering.
++func (m *Manager) PreferredRelay(local, remote string, controller bool) (string, error) {
++	selected := remote
++	switch m.netgoRole {
++	case netGoUnmanaged:
++		if controller {
++			selected = local
++		}
++		return selected, nil
++	case netGoClient:
++		selected = local
++	case netGoRoutingPeer:
++	default:
++		return "", errors.New("invalid NetGo relay role")
++	}
++	// Only Management-published endpoints are eligible. A peer cannot make the
++	// privileged gateway dial an arbitrary address or a different site's relay.
++	for _, allowed := range m.serverPicker.ServerURLs.Load().([]string) {
++		if allowed != "" && selected == allowed {
++			return selected, nil
++		}
++	}
++	return "", errors.New("NetGo relay endpoint is not published by Management")
++}
+diff --git a/shared/relay/client/netgo_selection_test.go b/shared/relay/client/netgo_selection_test.go
+new file mode 100644
+index 0000000..98e5a34
+--- /dev/null
++++ b/shared/relay/client/netgo_selection_test.go
+@@ -0,0 +1,67 @@
++package client
++
++import (
++	"context"
++	"testing"
++)
++
++func TestNetGoRelaySelectionBothControllerOrders(t *testing.T) {
++	t.Setenv(netGoRoutingPeerEnv, "false")
++	const local = "rels://192.0.2.1:18443"
++	const auxiliary = "rels://198.51.100.1:28443"
++	urls := []string{local, auxiliary}
++	client := NewManager(WithNetGoClient(context.Background(), true), urls, "client", 1280)
++	t.Setenv(netGoRoutingPeerEnv, "true")
++	gateway := NewManager(context.Background(), urls, "gateway", 1280)
++	for _, controller := range []bool{false, true} {
++		for _, reachable := range urls {
++			clientChoice, err := client.PreferredRelay(reachable, local, controller)
++			if err != nil || clientChoice != reachable {
++				t.Fatalf("client home=%s controller=%t: %s %v", reachable, controller, clientChoice, err)
++			}
++			gatewayChoice, err := gateway.PreferredRelay(local, reachable, !controller)
++			if err != nil || gatewayChoice != clientChoice {
++				t.Fatalf("peers disagree for controller=%t: client=%s gateway=%s err=%v", controller, clientChoice, gatewayChoice, err)
++			}
++		}
++	}
++}
++
++func TestNetGoRelaySelectionNoVPSAndRemovedEndpoints(t *testing.T) {
++	t.Setenv(netGoRoutingPeerEnv, "true")
++	const local = "rels://192.0.2.1:18443"
++	manager := NewManager(context.Background(), []string{local}, "gateway", 1280)
++	selected, err := manager.PreferredRelay(local, local, false)
++	if err != nil || selected != local {
++		t.Fatalf("standalone local relay rejected: %s %v", selected, err)
++	}
++	for _, foreign := range []string{"", "rels://other-site:18443", "rel://192.0.2.1:18443", "rels://192.0.2.1:18444"} {
++		if _, err := manager.PreferredRelay(local, foreign, true); err == nil {
++			t.Fatalf("unpublished relay accepted: %q", foreign)
++		}
++	}
++	manager.serverPicker.ServerURLs.Store([]string{})
++	if _, err := manager.PreferredRelay(local, local, true); err == nil {
++		t.Fatal("removed relay remained selectable")
++	}
++}
++
++func TestNetGoRelaySelectionUnmanagedAndInvalidRole(t *testing.T) {
++	t.Setenv(netGoRoutingPeerEnv, "false")
++	manager := NewManager(context.Background(), []string{"local", "remote"}, "plain", 1280)
++	for _, controller := range []bool{false, true} {
++		want := "remote"
++		if controller {
++			want = "local"
++		}
++		got, err := manager.PreferredRelay("local", "remote", controller)
++		if err != nil || got != want || manager.NetGoRelaySelection() {
++			t.Fatalf("unmanaged selection changed: %s %v", got, err)
++		}
++	}
++	t.Setenv(netGoRoutingPeerEnv, "invalid")
++	manager = NewManager(context.Background(), []string{"local"}, "bad", 1280)
++	if _, err := manager.PreferredRelay("local", "local", true); err == nil {
++		t.Fatal("invalid role failed open")
++	}
++}
