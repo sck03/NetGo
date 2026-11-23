@@ -137,7 +137,9 @@ def validate_tls(folder, relay_host, tunnel_host):
         cert = x509.load_pem_x509_certificate((folder / ('tls/' + name + '.crt')).read_bytes())
         key = serialization.load_pem_private_key((folder / ('tls/' + name + '.key')).read_bytes(), password=None)
         public = lambda k:k.public_bytes(serialization.Encoding.DER, serialization.PublicFormat.SubjectPublicKeyInfo)
-        if public(key.public_key()) != public(cert.public_key()) or not cert.not_valid_before_utc <= now < cert.not_valid_after_utc: raise ValueError('TLS key or validity mismatch: ' + name)
+        start = cert.not_valid_before_utc if hasattr(cert,'not_valid_before_utc') else cert.not_valid_before.replace(tzinfo=timezone.utc)
+        end = cert.not_valid_after_utc if hasattr(cert,'not_valid_after_utc') else cert.not_valid_after.replace(tzinfo=timezone.utc)
+        if public(key.public_key()) != public(cert.public_key()) or not start <= now < end: raise ValueError('TLS key or validity mismatch: ' + name)
         san = cert.extensions.get_extension_for_class(x509.SubjectAlternativeName).value
         try: matched = ipaddress.ip_address(host) in san.get_values_for_type(x509.IPAddress)
         except ValueError:
