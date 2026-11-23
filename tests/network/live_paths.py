@@ -59,15 +59,15 @@ def main():
     try:
         check('administrator_login', lambda: admin.login(args.alias, password))
         suffix = secrets.token_hex(4)
-        created = admin.call('/netgo/v1/admin/users', 'POST', {'Alias':'path'+suffix,'Email':'path'+suffix+'@netgo.invalid','Name':'Path acceptance user'})
+        created = admin.call('/netgo/v2/admin/users', 'POST', {'Alias':'path'+suffix,'Email':'path'+suffix+'@netgo.invalid','Name':'Path acceptance user'})
         user = created['user']
         for protocol, ports in (('tcp',[18080]),('udp',[18081])):
             resource = {'id':'path'+suffix+protocol,'name':'Path lab '+protocol,'cidr':'198.19.240.2/32','protocol':protocol,'ports':ports,'enabled':True}
-            admin.call('/netgo/v1/admin/resources/'+resource['id'], 'PUT', resource)
+            admin.call('/netgo/v2/admin/resources/'+resource['id'], 'PUT', resource)
             resources.append(resource['id'])
         count = 10 if args.mode == 'concurrency' else 1
         user.update(resources=resources, max_devices=count, max_sessions=count)
-        check('grant_bounded_lab_resources_and_session_limit', lambda: admin.call('/netgo/v1/admin/users/'+user['id'], 'PUT', user))
+        check('grant_bounded_lab_resources_and_session_limit', lambda: admin.call('/netgo/v2/admin/users/'+user['id'], 'PUT', user))
         for index in range(count):
             client = Client(chr(ord('a')+index), 241+index, args.output, profile)
             clients.append(client)
@@ -130,7 +130,7 @@ def main():
             states=check('ten_authorized_sessions_with_bounded_login_rate_retry',connect_all)
             check('ten_distinct_verified_peer_identities',lambda:require(len({state['lease']['peer_id'] for state in states})==count,'clients shared a peer identity'))
             def active():
-                leases=admin.call('/netgo/v1/admin/state')['leases']
+                leases=admin.call('/netgo/v2/admin/state')['leases']
                 require(sum(lease['user_id']==user['id'] for lease in leases.values())==count,'active lease count differs')
             check('ten_current_server_authorized_sessions',active)
             def all_payloads():
@@ -152,12 +152,12 @@ def main():
                 failed=True
         if user:
             try:
-                check('delete_path_test_user',lambda:admin.call('/netgo/v1/admin/users/'+user['id'],'DELETE'))
+                check('delete_path_test_user',lambda:admin.call('/netgo/v2/admin/users/'+user['id'],'DELETE'))
             except BaseException:
                 failed=True
         for rid in resources:
             try:
-                check('delete_resource_'+rid,lambda key=rid:admin.call('/netgo/v1/admin/resources/'+key,'DELETE'))
+                check('delete_resource_'+rid,lambda key=rid:admin.call('/netgo/v2/admin/resources/'+key,'DELETE'))
             except BaseException:
                 failed=True
         try:

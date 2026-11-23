@@ -57,7 +57,7 @@ func (s *Selector) probe(ctx context.Context, c site.Candidate) error {
 	tr := s.transport(c, s.ProbeTimeout)
 	defer tr.CloseIdleConnections()
 	cl := &http.Client{Transport: tr, CheckRedirect: func(*http.Request, []*http.Request) error { return http.ErrUseLastResponse }}
-	req, _ := http.NewRequestWithContext(ctx, "GET", s.Profile.Origin+"/netgo/v1/health", nil)
+	req, _ := http.NewRequestWithContext(ctx, "GET", s.Profile.Origin+"/netgo/v2/health", nil)
 	resp, e := cl.Do(req)
 	if e != nil {
 		return e

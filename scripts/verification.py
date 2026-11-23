@@ -11,7 +11,7 @@ from fingerprint import ROOT, fingerprint
 
 PRODUCTS = ('netgo-server', 'netgo-helper', 'netgoctl', 'netgo-client-service', 'netgo-ddns')
 UPSTREAM = ('netbird-server', 'netbird', 'netbird-relay', 'caddy', 'frpc', 'frps')
-WINDOWS = ('netgo-desktop.exe', 'netgo-agent.exe', 'netbird.exe', 'wintun.dll')
+WINDOWS = ('NetGo.exe', 'netbird.exe', 'wintun.dll')
 COMMON_CHECKS = frozenset(('tool-versions', 'source-inputs', 'tools-tests', 'go-race',
                            'go-vet', 'frontend', 'scripts', 'certificates', 'upstream',
                            'product-build', 'deploy-validators', 'release-manifest', 'artifact-inputs', 'remote-core'))

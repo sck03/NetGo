@@ -1,0 +1,35 @@
+name: Linux server
+on:
+  workflow_dispatch:
+  push:
+    paths: ['internal/**', 'cmd/**', 'apps/ui/**', 'packages/ui/**', 'deploy/linux/**', 'deploy/templates/**', 'scripts/build-linux-server.sh', 'scripts/build-upstream.sh', 'scripts/package-server.py', 'scripts/verify-linux.py', 'upstream/**', 'go.*', 'package*.json', '.github/workflows/build-linux-server.yml']
+permissions:
+  contents: read
+jobs:
+  build:
+    runs-on: ubuntu-24.04
+    container: debian:13
+    timeout-minutes: 120
+    steps:
+      - name: Prepare Debian build environment
+        run: apt-get update && apt-get install -y git ca-certificates curl python3 python3-cryptography build-essential cmake ninja-build pkg-config libssl-dev sqlite3 nftables haproxy openssl unzip xz-utils
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+      - uses: actions/setup-go@d8cbb8045d7f43706b9177cceb36c1f91a6644d5
+        with:
+          go-version: '1.27.4'
+          cache: false
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1
+        with:
+          node-version: '26.13.1'
+      - name: Build and verify Linux server
+        run: bash scripts/build-linux-server.sh
+      - name: Preserve server outputs and verification
+        if: always()
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9
+        with:
+          name: linux-server-${{ github.sha }}
+          path: |
+            dist/linux-server/
+            .cache/linux-server-*/verification.json
+            .cache/linux-server-*/*.txt
+          if-no-files-found: error

@@ -13,7 +13,7 @@ import (
 func TestRequestLogsExcludeCredentialsIdentifiersAndRequestBodies(t *testing.T) {
 	var logs bytes.Buffer
 	server := Server{Config: site.Config{Site: site.Profile{ID: "site"}}, Logger: slog.New(slog.NewJSONHandler(&logs, nil)), Monitor: diagnostics.NewMonitor()}
-	r := httptest.NewRequest("POST", "/netgo/v1/auth/private-user?token=secret-query", strings.NewReader(`{"password":"secret-body"}`))
+	r := httptest.NewRequest("POST", "/netgo/v2/auth/private-user?token=secret-query", strings.NewReader(`{"password":"secret-body"}`))
 	r.Header.Set("Authorization", "Bearer secret-header")
 	w := httptest.NewRecorder()
 	server.Handler().ServeHTTP(w, r)

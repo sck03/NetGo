@@ -5,14 +5,14 @@ import { AdminSession, validateHealth } from '../../packages/ui/auth.ts'
 const enc = new TextEncoder()
 const unb64 = s => Buffer.from(s, 'base64url')
 const sha = s => createHash('sha256').update(s).digest('hex')
-const health = { protocol: 1, site_id: 'site', capabilities: ['native-auth-v1','device-signature-v1','leases-v1','profile-revision-v1','admin-v1','diagnostics-v1'] }
+const health = { protocol: 2, site_id: 'site', capabilities: ['native-auth-v1','device-signature-v1','leases-v1','profile-revision-v1','admin-v1','diagnostics-v1'] }
 
 test('clock skew is diagnosed before sending credentials or creating a transaction', async t => {
   const original = globalThis.fetch, paths = []
   globalThis.fetch = async path => { paths.push(path); return new Response(JSON.stringify({ ...health, server_unix: Math.floor(Date.now() / 1000) + 60 })) }
   t.after(() => { globalThis.fetch = original })
   await assert.rejects(new AdminSession().login('site', 'admin', 'password'), /时间相差/)
-  assert.deepEqual(paths, ['/netgo/v1/health'])
+  assert.deepEqual(paths, ['/netgo/v2/health'])
 })
 
 function server(t, role = 'admin') {
@@ -23,7 +23,7 @@ function server(t, role = 'admin') {
     paths.push(path)
     assert.equal(options.redirect, 'error')
     assert.equal(options.cache, 'no-store')
-    assert.equal(options.headers['X-NetGo-Protocol'], '1')
+    assert.equal(options.headers['X-NetGo-Protocol'], '2')
     if (path.endsWith('/health')) return new Response(JSON.stringify(health))
     const body = options.body || '', data = body ? JSON.parse(body) : {}
     if (path.endsWith('/transactions')) {
@@ -56,9 +56,9 @@ test('management login proves PKCE/key ownership and refresh signs the old token
   const fixture = server(t)
   const session = new AdminSession()
   await session.login('site', 'admin', 'test-password')
-  await session.request('/netgo/v1/admin/state')
+  await session.request('/netgo/v2/admin/state')
   assert(fixture.refreshed())
-  assert(fixture.paths.includes('/netgo/v1/admin/state'))
+  assert(fixture.paths.includes('/netgo/v2/admin/state'))
 })
 
 test('ordinary users cannot retain an administrator session', async t => {
@@ -70,7 +70,7 @@ test('concurrent management requests share one refresh of the rotating credentia
   const fixture = server(t)
   const session = new AdminSession()
   await session.login('site', 'admin', 'test-password')
-  await Promise.all(Array.from({ length: 20 }, () => session.request('/netgo/v1/admin/state')))
+  await Promise.all(Array.from({ length: 20 }, () => session.request('/netgo/v2/admin/state')))
   assert.equal(fixture.paths.filter(path => path.endsWith('/refresh')).length, 1)
   assert.equal(fixture.paths.filter(path => path.endsWith('/admin/state')).length, 20)
   assert(session.active)
@@ -89,7 +89,7 @@ test('logout aborts a pending refresh and cannot revive the management session',
     entered()
     return new Promise(resolve => { release = resolve })
   }
-  const pending = session.request('/netgo/v1/admin/state')
+  const pending = session.request('/netgo/v2/admin/state')
   await started
   session.logout()
   assert(signal.aborted)
@@ -121,7 +121,7 @@ test('incompatible servers cannot receive administrator passwords', async t => {
   globalThis.fetch = async path => { paths.push(path); return new Response(JSON.stringify({ ...health, capabilities: ['native-auth-v1'] })) }
   t.after(() => { globalThis.fetch = original })
   await assert.rejects(new AdminSession().login('site','admin','secret'), /不兼容/)
-  assert.deepEqual(paths, ['/netgo/v1/health'])
-  assert.throws(() => validateHealth({ ...health, protocol: 2 }, 'site'), /不兼容/)
+  assert.deepEqual(paths, ['/netgo/v2/health'])
+  assert.throws(() => validateHealth({ ...health, protocol: 3 }, 'site'), /不兼容/)
   assert.throws(() => validateHealth(health, 'another'), /身份/)
 })

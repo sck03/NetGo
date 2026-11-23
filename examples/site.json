@@ -1,5 +1,5 @@
 {
- "Site":{"Protocol":1,"ConfigRevision":1,"ID":"lab","Name":"NetGo 实验站点","Origin":"https://control.site.example:10443","Candidates":[{"ID":"local","Address":"control.site.example:10443","Kind":"direct"}],"CA":"","GatewayPeerID":"replace-with-registered-routing-peer-id","GatewayIP":"100.96.0.1","LocalRelay":"relay.site.example","AuxiliaryRelay":""},
+ "Site":{"Protocol":2,"ConfigRevision":1,"ID":"lab","Name":"NetGo 实验站点","Origin":"https://control.site.example:10443","Candidates":[{"ID":"local","Address":"control.site.example:10443","Kind":"direct"}],"CA":"","GatewayPeerID":"replace-with-registered-routing-peer-id","GatewayIP":"100.96.0.1","LocalRelay":"relay.site.example","AuxiliaryRelay":""},
  "Listen":"127.0.0.1:8081","Database":"/var/lib/netgo/netgo.db","ManagementURL":"http://127.0.0.1:8080","ManagementTokenFile":"/etc/netgo/management.token","NativeSecretFile":"/etc/netgo/native.secret","HelperSocket":"/run/netgo-helper/helper.sock","Interface":"wt0","LANInterface":"eth0","OverlayCIDR":"100.96.0.0/16","LocalCIDRs":["192.168.50.0/24"],"LeaseSeconds":120,"Auxiliaries":[],
  "Deployment":{"Mode":"diagnostic","LocalRelayPort":18443,"LocalSTUNPort":3478}
 }

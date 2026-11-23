@@ -48,6 +48,16 @@ typedef struct ng_remote_ticket_binding {
 int32_t ng_remote_ticket_binding_digest(const ng_remote_ticket_binding* binding,
                                         uint8_t output[32]);
 
+/* Host proof verification MUST use its own fresh random challenge and the
+ * exporter from the negotiated TLS session, never values echoed by the peer.
+ * Ticket authentication, current authorization and atomic consumption are
+ * separate mandatory checks. All array arguments have exactly the stated size. */
+int32_t ng_remote_possession_verify(const uint8_t controller_key[32],
+                                   const uint8_t* ticket, size_t ticket_size,
+                                   const uint8_t challenge[32],
+                                   const uint8_t tls_exporter[32],
+                                   const uint8_t signature[64]);
+
 #ifdef __cplusplus
 }
 #endif

@@ -115,7 +115,7 @@ def prompt_config():
              for row in addresses for info in row.get('addr_info', []) if info['family']=='inet']
     network = input('LAN 网段 [' + ','.join(cidrs) + ']: ').strip() or ','.join(cidrs)
     site_id = input('站点 ID [site1]: ').strip() or 'site1'
-    return {'Site': {'Protocol':1, 'ConfigRevision':1, 'ID':site_id, 'Name':'NetGo '+site_id,
+    return {'Site': {'Protocol':2, 'ConfigRevision':1, 'ID':site_id, 'Name':'NetGo '+site_id,
         'Origin':'https://'+host+':10443', 'Candidates':[{'ID':'local','Address':host+':10443','Kind':'direct'}],
         'CA':'', 'GatewayPeerID':'', 'GatewayIP':'', 'LocalRelay':relay, 'AuxiliaryRelay':''},
         'Listen':'127.0.0.1:18081', 'Database':'/var/lib/netgo/netgo.db', 'ManagementURL':'http://127.0.0.1:18080',
@@ -258,7 +258,7 @@ def restore_forwarding():
 def health(config):
     roots=ssl.create_default_context(cafile=str(ETC/'tls/trust.pem'))
     opener=urllib.request.build_opener(urllib.request.ProxyHandler({}),NoRedirect(),urllib.request.HTTPSHandler(context=roots))
-    with opener.open(config['Site']['Origin']+'/netgo/v1/health',timeout=5) as response:
+    with opener.open(config['Site']['Origin']+'/netgo/v2/health',timeout=5) as response:
         data=json.load(response)
         return response.status==200 and data
 

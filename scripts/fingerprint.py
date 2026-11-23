@@ -5,17 +5,18 @@ import json
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
-SCOPES = ('apps', 'cmd', 'internal', 'packages', 'deploy', 'scripts', 'tests', 'examples', 'upstream')
-EXCLUDED = {'dist', '__pycache__', 'node_modules', '.git'}
+SCOPES = ('apps', 'assets', 'cmd', 'internal', 'packages', 'deploy', 'scripts', 'tests', 'examples', 'upstream', '.github')
+EXCLUDED = {'dist', '__pycache__', 'node_modules', '.git', 'build', '.gradle', '.cxx'}
 
 
 def fingerprint(root=ROOT):
     root = Path(root).resolve()
-    files = [root / name for name in ('go.mod', 'go.sum', 'package.json', 'package-lock.json', 'tsconfig.json', 'vite.config.ts', 'install-server.sh', 'install-client.ps1')]
+    files = [root / name for name in ('go.mod', 'go.sum', 'package.json', 'package-lock.json', 'tsconfig.json', 'vite.config.ts', 'install-server.sh', 'install-vps.sh', 'install-client.ps1')]
     for scope in SCOPES:
         files.extend(path for path in (root / scope).rglob('*') if path.is_file()
                      and not any(part in EXCLUDED for part in path.relative_to(root).parts)
-                     and path.suffix != '.pyc')
+                     and path.suffix not in ('.pyc', '.aar', '.apk', '.aab', '.jks', '.keystore')
+                     and path.name != 'local.properties' and not path.name.endswith('-sources.jar'))
     entries = []
     digest = hashlib.sha256()
     for path in sorted(files, key=lambda item: item.relative_to(root).as_posix()):

@@ -34,7 +34,7 @@ def run(binary):
             self.send_response(200);self.send_header("Content-Type","application/json");self.send_header("Content-Length",str(len(data)));self.end_headers();self.wfile.write(data)
         def do_GET(self):
             events.append(("health",self.headers["Host"]))
-            self.reply({"protocol":1,"site_id":"unavailable" if getattr(self.server,"wan",False) and not wan_ready.is_set() else "fixture",
+            self.reply({"protocol":2,"site_id":"unavailable" if getattr(self.server,"wan",False) and not wan_ready.is_set() else "fixture",
                         "capabilities":["native-auth-v1","device-signature-v1","leases-v1","profile-revision-v1","admin-v1","diagnostics-v1"]})
         def do_POST(self):
             body=self.rfile.read(int(self.headers["Content-Length"]))
@@ -42,7 +42,7 @@ def run(binary):
             message="\n".join(["POST",self.path,stamp,nonce,hashlib.sha256(body).hexdigest(),hashlib.sha256(token.encode()).hexdigest()])
             ed25519.Ed25519PrivateKey.from_private_bytes(b"a"*32).public_key().verify(unb64(self.headers["X-NetGo-Signature"]),message.encode())
             assert self.headers["Authorization"]=="Bearer "+token
-            assert self.headers["X-NetGo-Protocol"]=="1"
+            assert self.headers["X-NetGo-Protocol"]=="2"
             assert len(nonce)>=32 and abs(int(stamp)-now.timestamp())<60
             assert self.headers["Host"]==expected_host and self.path in ("/fixture","/enable-wan")
             if self.path=="/enable-wan": wan_ready.set()
@@ -58,7 +58,7 @@ def run(binary):
             context.set_servername_callback(lambda sock, host, ctx: events.append(("sni",host)))
             server.socket=context.wrap_socket(server.socket,server_side=True)
             thread=threading.Thread(target=server.serve_forever,daemon=True);thread.start()
-            p={"Protocol":1,"ID":"fixture","Name":"Loopback TLS","Origin":"https://netgo.test","Candidates":[
+            p={"Protocol":2,"ID":"fixture","Name":"Loopback TLS","Origin":"https://netgo.test","Candidates":[
                 {"ID":"direct","Address":"127.0.0.1:1","Kind":"direct"},
                 {"ID":"fallback","Address":f"127.0.0.1:{server.server_port}","Kind":"auxiliary"}],
                "CA":ca.public_bytes(serialization.Encoding.PEM).decode(),"GatewayIP":"100.96.0.1"}

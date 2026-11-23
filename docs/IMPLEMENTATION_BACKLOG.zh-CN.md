@@ -1,6 +1,6 @@
 # NetGo 实施任务清单
 
-修订：2026-11-23。当前执行方案 v2.2；代码基线 0.2.4-dev，下一目标 0.3.0-dev。远控与 Windows/Android/macOS/iOS/Linux 原生客户端已纳入本轮，详见 [REMOTE_NATIVE_PLAN](REMOTE_NATIVE_PLAN.zh-CN.md)。新 API/数据库不要求兼容旧开发格式，切换前须归档。统一体验、模块边界和 I01–I10 组合验收见 [集成契约](INTEGRATION_CONTRACT.zh-CN.md)。
+修订：2026-11-24。执行方案 v2.3；当前源码 0.3.0-dev / API v2 / schema 2。五平台目标不变，当前实现/构建/设备状态见 [PROGRESS](PROGRESS.zh-CN.md)。Windows 统一单 NetGo.exe，GTK 查看器已编译；移动/Apple 与完整主机功能继续按 [REMOTE_NATIVE_PLAN](REMOTE_NATIVE_PLAN.zh-CN.md) 推进。
 
 本轮已补齐两份独立安装脚本、完整 Linux 原生包路径和紧凑 Windows 客户端，并修复真实部署、身份刷新、状态隔离、内核撤销、升级权限及并发协调问题。最终安装版本通过生命周期 19、维护 34、公网中继 18、本地中继 15、十会话 32 项复验；历史 API 28、隔离隧道 48 与 Windows 23 项另行保留。最终构建、依赖错配修复和待验条件见 [接续报告](evidence/2026-11-23-continuation/REPORT.zh-CN.md)及 PROGRESS；未标记生产发行完成。
 
@@ -16,9 +16,9 @@
 | RD1a 会话核心 | 方案/契约 | 零第三方依赖的 C ABI；绑定、独立权限、同意、单调到期、续租/撤销及两平台测试 | 独立门禁库已实现；Windows/Debian 79 项与 C 调用通过；主机集成/持久防重放待 RD2 |
 | RD1b 媒体原型 | RD0/RD1a | 按集成契约比较窄系统适配与 MiniRTC 候选；实际媒体/输入/音频/overlay/撤销；体积与 ADR | Windows 系统 DXGI 1920×1080 采集/回读/重开通过；真实媒体链路未实现 |
 | RD2 v2 控制 | RD1a；拓扑/媒体待 RD1b | 新库、主机/授权/票据/租约、peer 策略、管理页；正反/竞态测试与归档切换 | 仅票据契约、Go 签发/C++ 验签及 423 项跨语言/门禁集成断言完成；API/新库/主机登记/持钥证明/持久防重放未实现 |
-| RD3 Windows | RD2 | 原生内置查看器/主机服务，Win10/11、多屏、锁屏/UAC、权限与安装 | 未实现 |
+| RD3 Windows | RD2 | 原生内置查看器/主机服务，Win10/11、多屏、锁屏/UAC、权限与安装 | 单 EXE、Setup/绿色版逻辑、交互主机/查看器与输入/音频已接入；完整退出条件未满足 |
 | RD4 Android | RD1/RD2 | Kotlin、VpnService、JNI、APK 与真机 VPN/远控/IME/恢复 | 未实现 |
-| RD5 Apple/Linux | RD2 | Swift/NE/ObjC++、GTK/X11/Wayland，独立构建/签名/设备证据 | 未实现 |
+| RD5 Apple/Linux | RD2 | Swift/NE/ObjC++、GTK/X11/Wayland，独立构建/签名/设备证据 | GTK 查看器已实现/编译；Linux 主机、系统安装及 Apple 仍待完成 |
 | RD6 全部交付 | RD0–RD5 | RD-A01–A14、原 A01–A33、许可、包、72h、清理与 main | 未完成 |
 
 详细文件落点、接口和退出条件以 REMOTE_NATIVE_PLAN §4–§8 为准。下面的“已实现”只描述旧 VPN 功能，不能用于关闭 RD 任务。

@@ -13,6 +13,7 @@ import (
 	"netgo/internal/identity"
 	"netgo/internal/model"
 	"netgo/internal/protocol"
+	"netgo/internal/remote"
 	"netgo/internal/session"
 	"netgo/internal/site"
 	"netgo/internal/store"
@@ -28,8 +29,8 @@ type Server struct {
 	Auth         *identity.Native
 	Sessions     *session.Manager
 	Management   *netbird.Management
+	Remote       *remote.Manager
 	mu           sync.Mutex
-	nonces       map[string]time.Time
 	publicCount  int
 	publicWindow time.Time
 	Web          http.Handler
@@ -77,10 +78,10 @@ func body(w http.ResponseWriter, r *http.Request, v any) error {
 }
 func (s *Server) Handler() http.Handler {
 	m := http.NewServeMux()
-	m.HandleFunc("GET /netgo/v1/health", func(w http.ResponseWriter, r *http.Request) {
+	m.HandleFunc("GET /netgo/v2/health", func(w http.ResponseWriter, r *http.Request) {
 		reply(w, 200, protocol.Health{Protocol: model.Protocol, SiteID: s.Config.Site.ID, Capabilities: protocol.Capabilities(), ServerUnix: time.Now().Unix()})
 	})
-	m.HandleFunc("POST /netgo/v1/auth/transactions", func(w http.ResponseWriter, r *http.Request) {
+	m.HandleFunc("POST /netgo/v2/auth/transactions", func(w http.ResponseWriter, r *http.Request) {
 		var b identity.Begin
 		if e := body(w, r, &b); e != nil {
 			failure(w, e)
@@ -93,7 +94,7 @@ func (s *Server) Handler() http.Handler {
 		}
 		reply(w, 201, t)
 	})
-	m.HandleFunc("POST /netgo/v1/auth/transactions/{id}/complete", func(w http.ResponseWriter, r *http.Request) {
+	m.HandleFunc("POST /netgo/v2/auth/transactions/{id}/complete", func(w http.ResponseWriter, r *http.Request) {
 		var b struct{ Alias, Password, Signature string }
 		if e := body(w, r, &b); e != nil {
 			failure(w, e)
@@ -105,7 +106,7 @@ func (s *Server) Handler() http.Handler {
 		}
 		reply(w, 200, map[string]bool{"authorized": true})
 	})
-	m.HandleFunc("POST /netgo/v1/auth/transactions/{id}/exchange", func(w http.ResponseWriter, r *http.Request) {
+	m.HandleFunc("POST /netgo/v2/auth/transactions/{id}/exchange", func(w http.ResponseWriter, r *http.Request) {
 		var b struct{ Verifier, Signature string }
 		if e := body(w, r, &b); e != nil {
 			failure(w, e)
@@ -119,8 +120,9 @@ func (s *Server) Handler() http.Handler {
 		reply(w, 200, v)
 	})
 	secured := func(pattern string, admin bool, h http.HandlerFunc) { m.Handle(pattern, s.authorize(admin, h)) }
-	secured("GET /netgo/v1/site", false, func(w http.ResponseWriter, r *http.Request) { reply(w, 200, s.Config.Site) })
-	secured("POST /netgo/v1/auth/refresh", false, func(w http.ResponseWriter, r *http.Request) {
+	s.remoteRoutes(secured)
+	secured("GET /netgo/v2/site", false, func(w http.ResponseWriter, r *http.Request) { reply(w, 200, s.Config.Site) })
+	secured("POST /netgo/v2/auth/refresh", false, func(w http.ResponseWriter, r *http.Request) {
 		var b struct {
 			RefreshToken string `json:"refresh_token"`
 		}
@@ -136,7 +138,7 @@ func (s *Server) Handler() http.Handler {
 		}
 		reply(w, 200, v)
 	})
-	secured("GET /netgo/v1/me", false, func(w http.ResponseWriter, r *http.Request) {
+	secured("GET /netgo/v2/me", false, func(w http.ResponseWriter, r *http.Request) {
 		st, e := s.Store.View()
 		if e != nil {
 			failure(w, e)
@@ -145,7 +147,7 @@ func (s *Server) Handler() http.Handler {
 		c := r.Context().Value(credKey).(model.Credential)
 		reply(w, 200, st.Users[c.UserID])
 	})
-	secured("GET /netgo/v1/peer", false, func(w http.ResponseWriter, r *http.Request) {
+	secured("GET /netgo/v2/peer", false, func(w http.ResponseWriter, r *http.Request) {
 		c := r.Context().Value(credKey).(model.Credential)
 		st, e := s.Store.View()
 		if e != nil {
@@ -159,7 +161,7 @@ func (s *Server) Handler() http.Handler {
 		}
 		reply(w, 200, p)
 	})
-	secured("POST /netgo/v1/sessions", false, func(w http.ResponseWriter, r *http.Request) {
+	secured("POST /netgo/v2/sessions", false, func(w http.ResponseWriter, r *http.Request) {
 		var b struct {
 			PeerID     string `json:"peer_id"`
 			Generation uint64 `json:"generation"`
@@ -184,7 +186,7 @@ func (s *Server) Handler() http.Handler {
 		}
 		reply(w, 201, l)
 	})
-	secured("POST /netgo/v1/sessions/{id}/renew", false, func(w http.ResponseWriter, r *http.Request) {
+	secured("POST /netgo/v2/sessions/{id}/renew", false, func(w http.ResponseWriter, r *http.Request) {
 		var b struct{ Generation uint64 }
 		if e := body(w, r, &b); e != nil {
 			failure(w, e)
@@ -197,7 +199,7 @@ func (s *Server) Handler() http.Handler {
 		}
 		reply(w, 200, l)
 	})
-	secured("DELETE /netgo/v1/sessions/{id}", false, func(w http.ResponseWriter, r *http.Request) {
+	secured("DELETE /netgo/v2/sessions/{id}", false, func(w http.ResponseWriter, r *http.Request) {
 		c := r.Context().Value(credKey).(model.Credential)
 		if e := s.Sessions.Revoke(r.Context(), c.UserID, r.PathValue("id")); e != nil {
 			failure(w, e)
@@ -205,7 +207,7 @@ func (s *Server) Handler() http.Handler {
 		}
 		reply(w, 200, map[string]bool{"revoked": true})
 	})
-	secured("POST /netgo/v1/admin/reconcile", true, func(w http.ResponseWriter, r *http.Request) {
+	secured("POST /netgo/v2/admin/reconcile", true, func(w http.ResponseWriter, r *http.Request) {
 		if s.Reconcile == nil {
 			failure(w, errors.New("coordinator unavailable"))
 			return
@@ -216,7 +218,7 @@ func (s *Server) Handler() http.Handler {
 		}
 		reply(w, 200, map[string]bool{"applied": true})
 	})
-	secured("GET /netgo/v1/admin/state", true, func(w http.ResponseWriter, r *http.Request) {
+	secured("GET /netgo/v2/admin/state", true, func(w http.ResponseWriter, r *http.Request) {
 		st, e := s.Store.View()
 		if e != nil {
 			failure(w, e)
@@ -228,7 +230,7 @@ func (s *Server) Handler() http.Handler {
 		}
 		reply(w, 200, map[string]any{"users": st.Users, "resources": st.Resources, "devices": st.Devices, "leases": st.Leases, "audit": st.Audit, "revision": st.Revision, "observed_revision": st.ObservedRevision, "last_error": st.LastError, "runtime": monitor.Snapshot(s.Config, st)})
 	})
-	secured("GET /netgo/v1/admin/diagnostics", true, func(w http.ResponseWriter, r *http.Request) {
+	secured("GET /netgo/v2/admin/diagnostics", true, func(w http.ResponseWriter, r *http.Request) {
 		state, err := s.Store.View()
 		if err != nil {
 			failure(w, err)
@@ -240,12 +242,12 @@ func (s *Server) Handler() http.Handler {
 		}
 		reply(w, 200, monitor.Snapshot(s.Config, state))
 	})
-	secured("PUT /netgo/v1/admin/users/{id}", true, s.putUser)
-	secured("POST /netgo/v1/admin/users", true, s.createUser)
-	secured("DELETE /netgo/v1/admin/users/{id}", true, s.deleteUser)
-	secured("DELETE /netgo/v1/admin/devices/{id}", true, s.deleteDevice)
-	secured("PUT /netgo/v1/admin/resources/{id}", true, s.putResource)
-	secured("DELETE /netgo/v1/admin/resources/{id}", true, func(w http.ResponseWriter, r *http.Request) {
+	secured("PUT /netgo/v2/admin/users/{id}", true, s.putUser)
+	secured("POST /netgo/v2/admin/users", true, s.createUser)
+	secured("DELETE /netgo/v2/admin/users/{id}", true, s.deleteUser)
+	secured("DELETE /netgo/v2/admin/devices/{id}", true, s.deleteDevice)
+	secured("PUT /netgo/v2/admin/resources/{id}", true, s.putResource)
+	secured("DELETE /netgo/v2/admin/resources/{id}", true, func(w http.ResponseWriter, r *http.Request) {
 		e := s.Sessions.MutateResource(r.Context(), r.PathValue("id"), func(st *model.State) error {
 			delete(st.Resources, r.PathValue("id"))
 			st.Record("admin", "resource.delete", r.PathValue("id"))
@@ -257,7 +259,7 @@ func (s *Server) Handler() http.Handler {
 		}
 		reply(w, 200, map[string]bool{"deleted": true})
 	})
-	secured("DELETE /netgo/v1/admin/sessions/{id}", true, func(w http.ResponseWriter, r *http.Request) {
+	secured("DELETE /netgo/v2/admin/sessions/{id}", true, func(w http.ResponseWriter, r *http.Request) {
 		if e := s.Sessions.Revoke(r.Context(), "admin", r.PathValue("id")); e != nil {
 			failure(w, e)
 			return
@@ -276,14 +278,14 @@ func (s *Server) Handler() http.Handler {
 			failure(w, model.ErrForbidden)
 			return
 		}
-		if strings.HasPrefix(r.URL.Path, "/netgo/") && r.URL.Path != "/netgo/v1/health" {
+		if strings.HasPrefix(r.URL.Path, "/netgo/") && r.URL.Path != "/netgo/v2/health" {
 			versions := r.Header.Values(protocol.Header)
-			if len(versions) != 1 || versions[0] != strconv.Itoa(model.Protocol) || !strings.HasPrefix(r.URL.Path, "/netgo/v1/") {
+			if len(versions) != 1 || versions[0] != strconv.Itoa(model.Protocol) || !strings.HasPrefix(r.URL.Path, "/netgo/v2/") {
 				reply(w, http.StatusUpgradeRequired, map[string]any{"error": "protocol_incompatible", "protocol": model.Protocol, "capabilities": protocol.Capabilities()})
 				return
 			}
 		}
-		if strings.HasPrefix(r.URL.Path, "/netgo/v1/auth/") {
+		if strings.HasPrefix(r.URL.Path, "/netgo/v2/auth/") {
 			s.mu.Lock()
 			if time.Since(s.publicWindow) > time.Minute {
 				s.publicWindow = time.Now()
@@ -311,7 +313,8 @@ func (s *Server) authorize(admin bool, next http.Handler) http.Handler {
 		c, ok := st.Credentials[model.Hash(token)]
 		c.TokenHash = model.Hash(token)
 		u := st.Users[c.UserID]
-		if !ok || !time.Now().Before(c.ExpiresAt) || !u.Active(time.Now()) {
+		d, deviceExists := st.Devices[c.DeviceID]
+		if !ok || !deviceExists || d.UserID != c.UserID || !time.Now().Before(c.ExpiresAt) || !u.Active(time.Now()) {
 			failure(w, model.ErrUnauthorized)
 			return
 		}
@@ -335,24 +338,9 @@ func (s *Server) authorize(admin bool, next http.Handler) http.Handler {
 			failure(w, model.ErrUnauthorized)
 			return
 		}
-		s.mu.Lock()
-		if s.nonces == nil {
-			s.nonces = map[string]time.Time{}
-		}
-		for k, t := range s.nonces {
-			if time.Since(t) > time.Minute {
-				delete(s.nonces, k)
-			}
-		}
-		key := model.Hash(token + nonce)
-		_, used := s.nonces[key]
-		if !used && len(s.nonces) < 65536 {
-			s.nonces[key] = time.Now()
-		} else {
-			used = true
-		}
-		s.mu.Unlock()
-		if used {
+		// Retain through the entire accepted timestamp window, including a stamp
+		// 30 seconds in the future. SQLite arbitrates concurrent server processes.
+		if e := s.Store.ConsumeNonce(model.Hash("api:"+c.DeviceID+":"+nonce), time.Now(), time.Now().Add(61*time.Second)); e != nil {
 			failure(w, model.ErrUnauthorized)
 			return
 		}

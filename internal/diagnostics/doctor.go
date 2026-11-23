@@ -117,7 +117,7 @@ func Doctor(ctx context.Context, c site.Config) DoctorReport {
 	}
 	add("trusted_control_entry", err, "health, protocol and site identity; not LAN/data-path acceptance")
 	// Inspect local health via the configured loopback address, never a default port.
-	request, e := http.NewRequestWithContext(ctx, "GET", "http://"+c.Listen+"/netgo/v1/health", nil)
+	request, e := http.NewRequestWithContext(ctx, "GET", "http://"+c.Listen+"/netgo/v2/health", nil)
 	if e == nil {
 		client := &http.Client{Timeout: 3 * time.Second, CheckRedirect: func(*http.Request, []*http.Request) error { return errors.New("redirect forbidden") }}
 		resp, e := client.Do(request)

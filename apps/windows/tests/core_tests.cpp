@@ -2,10 +2,11 @@
 #include <iostream>
 #include <openssl/evp.h>
 #include <sddl.h>
+#include <future>
 using namespace netgo;
 void require(bool b,const char* message){if(!b)throw Error(message);}
 template<class F>void rejects(F f,const char* message){bool failed=false;try{f();}catch(...){failed=true;}require(failed,message);}
-Json profile(){return {{"Protocol",1},{"ID","test"},{"Name","实验站点"},{"Origin","https://site.example"},{"Candidates",Json::array({{{"ID","direct"},{"Address","127.0.0.1:443"},{"Kind","direct"}}})},{"CA",""},{"GatewayIP","100.96.0.1"},{"GatewayPeerID","gateway"},{"LocalRelay","relay.example"},{"AuxiliaryRelay",""}};}
+Json profile(){return {{"Protocol",2},{"ID","test"},{"Name","实验站点"},{"Origin","https://site.example"},{"Candidates",Json::array({{{"ID","direct"},{"Address","127.0.0.1:443"},{"Kind","direct"}}})},{"CA",""},{"GatewayIP","100.96.0.1"},{"GatewayPeerID","gateway"},{"LocalRelay","relay.example"},{"AuxiliaryRelay",""}};}
 int main(int argc,char** argv){
  try{
   require(OpenSSL_version_num()==OPENSSL_VERSION_NUMBER,"OpenSSL header/library version mismatch");
@@ -40,12 +41,22 @@ int main(int argc,char** argv){
   if(argc==3&&std::string(argv[1])=="--ipc"){
    auto root=std::filesystem::temp_directory_path()/wide("netgo-ipc-"+randomID());secureDirectory(root);
    testPipe(root);
-   auto binary=wide(argv[2]);std::wstring command=L"\""+binary+L"\" --test-root \""+root.wstring()+L"\"";
+   auto binary=wide(argv[2]);std::wstring command=L"\""+binary+L"\" --agent --test-root \""+root.wstring()+L"\"";
    STARTUPINFOW si{};si.cb=sizeof(si);PROCESS_INFORMATION pi{};
    require(CreateProcessW(binary.c_str(),command.data(),nullptr,nullptr,FALSE,CREATE_NO_WINDOW,nullptr,nullptr,&si,&pi),"agent did not start");
    Handle process(pi.hProcess),thread(pi.hThread);bool available=false;
    for(int i=0;i<40;++i){try{auto s=pipeCall({{"action","status"}});require(s.at("state")=="disconnected","unexpected state");available=true;break;}catch(...){Sleep(100);}}
    require(available,"native IPC unavailable");
+   {
+    // A stalled local sender must not monopolize status and disconnect IPC.
+    require(WaitNamedPipeW(pipeName().c_str(),1000),"IPC stall test unavailable");
+    Handle stalled(CreateFileW(pipeName().c_str(),GENERIC_READ|GENERIC_WRITE,0,nullptr,OPEN_EXISTING,0,nullptr));
+    require(stalled.value!=INVALID_HANDLE_VALUE,"IPC stall test open");
+    DWORD count=1024,written=0;require(WriteFile(stalled,&count,4,&written,nullptr),"IPC stall header");
+    auto pending=std::async(std::launch::async,[]{return pipeCall({{"action","status"}});});
+    require(pending.wait_for(std::chrono::seconds(2))==std::future_status::ready,"stalled sender blocked status");
+    require(pending.get().at("state")=="disconnected","concurrent status failed");
+   }
    auto p=profile();pipeCall({{"action","import"},{"profile",p}});
    require(pipeCall({{"action","profiles"}}).size()==1,"profile IPC roundtrip");
    rejects([]{pipeCall({{"action","run"},{"command","cmd.exe"}});},"arbitrary command accepted");
@@ -73,13 +84,13 @@ int main(int argc,char** argv){
    std::filesystem::remove_all(root);std::cout<<"PASS native IPC actions, bounds, path rejection and shutdown\n";return 0;
   }
   auto p=profile();validateProfile(p);require(originHost("https://site.example:8443")=="site.example","origin host");
-  auto health=Json{{"protocol",1},{"site_id","test"},{"capabilities",{"native-auth-v1","device-signature-v1","leases-v1","profile-revision-v1"}}};
+  auto health=Json{{"protocol",2},{"site_id","test"},{"capabilities",{"native-auth-v1","device-signature-v1","leases-v1","profile-revision-v1"}}};
   validateHealth(health,"test");
   auto timed=health;timed["server_unix"]=int64_t(std::time(nullptr));validateHealth(timed,"test");
   timed["server_unix"]=int64_t(std::time(nullptr))+60;
   try{validateHealth(timed,"test");throw Error("clock skew accepted");}catch(const Error& e){require(std::string(e.what())=="clock_out_of_sync","clock skew not diagnosed");}
   auto incompatible=health;incompatible["capabilities"].erase(3);rejects([&]{validateHealth(incompatible,"test");},"missing capability accepted");
-  incompatible=health;incompatible["protocol"]=2;rejects([&]{validateHealth(incompatible,"test");},"future protocol accepted");
+  incompatible=health;incompatible["protocol"]=3;rejects([&]{validateHealth(incompatible,"test");},"future protocol accepted");
   rejects([&]{validateHealth(health,"other");},"wrong health identity accepted");
   require(address("[::1]:443").host=="::1","IPv6");
   for(const auto& value:{"site:0","site:65536","https://site:443","site:443\r\nInjected:1","../site:443"})rejects([&]{address(value);},"unsafe candidate");
@@ -103,8 +114,8 @@ int main(int argc,char** argv){
   const std::string sigHex="e5564300c360ac729086e2cc806e828a84877f1eb8e5d974d873e065224901555fb8821590a33bacc61e39701cf9b46bd25bf5f0595bbe24655141438e7a100b";
   std::string sigBytes;for(size_t i=0;i<sigHex.size();i+=2)sigBytes.push_back(char(std::stoi(sigHex.substr(i,2),nullptr,16)));
   require(actual==base64url(reinterpret_cast<const unsigned char*>(sigBytes.data()),sigBytes.size()),"Ed25519 RFC signature");
-  auto body=std::string("{}"),message=signedMessage("POST","/netgo/v1/sessions","123","nonce",body,"token");
-  require(message=="POST\n/netgo/v1/sessions\n123\nnonce\n"+sha256(body)+"\n"+sha256("token"),"request signing format");
+  auto body=std::string("{}"),message=signedMessage("POST","/netgo/v2/sessions","123","nonce",body,"token");
+  require(message=="POST\n/netgo/v2/sessions\n123\nnonce\n"+sha256(body)+"\n"+sha256("token"),"request signing format");
   require(decodeHttp("HTTP/1.1 200 OK\r\nContent-Length: 2\r\n\r\n{}").body=="{}","content length");
   require(decodeHttp("HTTP/1.1 200 OK\r\nTransfer-Encoding: chunked\r\n\r\n2\r\n{}\r\n0\r\n\r\n").body=="{}","chunked response");
   rejects([]{decodeHttp("HTTP/1.1 200 OK\r\nContent-Length: 3\r\n\r\n{}");},"truncated body");

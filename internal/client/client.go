@@ -20,7 +20,6 @@ import (
 	"netgo/internal/protocol"
 	"netgo/internal/securefile"
 	"netgo/internal/site"
-	"netgo/internal/vault"
 	"os"
 	"path/filepath"
 	"strconv"
@@ -38,6 +37,10 @@ type Engine interface {
 	Routes(context.Context, []model.Resource) error
 	WaitConnected(context.Context, site.Profile) error
 }
+type DeviceVault interface {
+	Read(string) ([]byte, error)
+	Write(string, []byte) error
+}
 type Status struct {
 	Generation       uint64             `json:"generation"`
 	State            string             `json:"state"`
@@ -52,12 +55,13 @@ type Controller struct {
 	mu            sync.Mutex
 	op            sync.Mutex
 	Root          string
-	Vault         vault.Vault
+	Vault         DeviceVault
 	Engine        Engine
 	status        Status
 	cancel        context.CancelFunc
 	done          chan struct{}
 	cleanupFailed bool
+	remote        *remoteConnection
 }
 type Remote struct {
 	HTTP          *http.Client
@@ -182,6 +186,7 @@ func (c *Controller) disconnect() error {
 	c.status.Error = ""
 	c.cancel = nil
 	c.done = nil
+	c.remote = nil
 	c.mu.Unlock()
 	if cancel != nil {
 		cancel()
@@ -304,18 +309,18 @@ func (c *Controller) run(ctx context.Context, gen uint64, p site.Profile, alias 
 	verifier := model.ID()
 	begin := identity.Begin{SiteID: p.ID, PublicKey: base64.RawURLEncoding.EncodeToString(pk.Public().(ed25519.PublicKey)), WireGuardKey: wg, Challenge: model.Challenge(verifier)}
 	var transaction identity.Transaction
-	if e = remote.Call(loginCtx, "POST", "/netgo/v1/auth/transactions", begin, &transaction, ""); e != nil {
+	if e = remote.Call(loginCtx, "POST", "/netgo/v2/auth/transactions", begin, &transaction, ""); e != nil {
 		return e
 	}
 	transaction.Begin = begin
 	proof := identity.Proof(transaction)
 	sign := func(s string) string { return base64.RawURLEncoding.EncodeToString(ed25519.Sign(pk, []byte(s))) }
-	if e = remote.Call(loginCtx, "POST", "/netgo/v1/auth/transactions/"+transaction.ID+"/complete", map[string]string{"Alias": alias, "Password": *password, "Signature": sign(proof)}, nil, ""); e != nil {
+	if e = remote.Call(loginCtx, "POST", "/netgo/v2/auth/transactions/"+transaction.ID+"/complete", map[string]string{"Alias": alias, "Password": *password, "Signature": sign(proof)}, nil, ""); e != nil {
 		return e
 	}
 	*password = ""
 	var auth identity.Result
-	if e = remote.Call(loginCtx, "POST", "/netgo/v1/auth/transactions/"+transaction.ID+"/exchange", map[string]string{"Verifier": verifier, "Signature": sign(proof + "\nexchange\n" + verifier)}, &auth, ""); e != nil {
+	if e = remote.Call(loginCtx, "POST", "/netgo/v2/auth/transactions/"+transaction.ID+"/exchange", map[string]string{"Verifier": verifier, "Signature": sign(proof + "\nexchange\n" + verifier)}, &auth, ""); e != nil {
 		return e
 	}
 	remote.Token = auth.Token
@@ -337,17 +342,17 @@ func (c *Controller) run(ctx context.Context, gen uint64, p site.Profile, alias 
 		return e
 	}
 	var peer struct{ ID string }
-	if e = remote.Call(loginCtx, "GET", "/netgo/v1/peer", nil, &peer, ""); e != nil {
+	if e = remote.Call(loginCtx, "GET", "/netgo/v2/peer", nil, &peer, ""); e != nil {
 		return e
 	}
 	var lease model.Lease
-	if e = remote.Call(loginCtx, "POST", "/netgo/v1/sessions", map[string]any{"peer_id": peer.ID, "generation": gen, "replace": replace}, &lease, model.ID()); e != nil {
+	if e = remote.Call(loginCtx, "POST", "/netgo/v2/sessions", map[string]any{"peer_id": peer.ID, "generation": gen, "replace": replace}, &lease, model.ID()); e != nil {
 		return e
 	}
 	defer func() {
 		cleanup, done := context.WithTimeout(context.Background(), 5*time.Second)
 		defer done()
-		_ = remote.Call(cleanup, "DELETE", "/netgo/v1/sessions/"+lease.ID, nil, nil, "")
+		_ = remote.Call(cleanup, "DELETE", "/netgo/v2/sessions/"+lease.ID, nil, nil, "")
 	}()
 	if e = CheckConflicts(lease.Resources); e != nil {
 		return e
@@ -356,6 +361,8 @@ func (c *Controller) run(ctx context.Context, gen uint64, p site.Profile, alias 
 		return e
 	}
 	c.set(gen, func(s *Status) { s.State = "negotiating"; s.Lease = lease })
+	remoteConnection := c.attachRemote(ctx, p.ID, auth, pk)
+	defer c.detachRemote(remoteConnection)
 	tick := time.NewTicker(5 * time.Second)
 	defer tick.Stop()
 	lastRenew := time.Now()
@@ -363,6 +370,8 @@ func (c *Controller) run(ctx context.Context, gen uint64, p site.Profile, alias 
 		select {
 		case <-ctx.Done():
 			return ctx.Err()
+		case job := <-remoteConnection.jobs:
+			remoteConnection.handle(job, remote)
 		case <-tick.C:
 			if !time.Now().Before(lease.ExpiresAt) {
 				return errors.New("lease_expired")
@@ -377,7 +386,7 @@ func (c *Controller) run(ctx context.Context, gen uint64, p site.Profile, alias 
 			}
 			if time.Until(auth.ExpiresAt) < 2*time.Minute && auth.RefreshToken != "" {
 				var renewed identity.Result
-				if e = remote.Call(ctx, "POST", "/netgo/v1/auth/refresh", map[string]string{"refresh_token": auth.RefreshToken}, &renewed, ""); e != nil {
+				if e = remote.Call(ctx, "POST", "/netgo/v2/auth/refresh", map[string]string{"refresh_token": auth.RefreshToken}, &renewed, ""); e != nil {
 					c.set(gen, func(s *Status) { s.State = "recovering"; s.Error = "authentication_refresh_failed" })
 					continue
 				}
@@ -394,7 +403,7 @@ func (c *Controller) run(ctx context.Context, gen uint64, p site.Profile, alias 
 				}
 			}
 			if time.Since(lastRenew) >= 30*time.Second || time.Until(lease.ExpiresAt) < 40*time.Second {
-				e = remote.Call(ctx, "POST", "/netgo/v1/sessions/"+lease.ID+"/renew", map[string]any{"Generation": gen}, &lease, "")
+				e = remote.Call(ctx, "POST", "/netgo/v2/sessions/"+lease.ID+"/renew", map[string]any{"Generation": gen}, &lease, "")
 				if e != nil {
 					c.set(gen, func(s *Status) { s.State = "recovering"; s.Error = e.Error() })
 					continue

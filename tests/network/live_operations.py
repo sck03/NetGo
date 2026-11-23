@@ -111,7 +111,7 @@ def main():
         deadline = time.monotonic() + 45
         while time.monotonic() < deadline:
             try:
-                if admin.call('/netgo/v1/health')['site_id'] == profile['ID']:
+                if admin.call('/netgo/v2/health')['site_id'] == profile['ID']:
                     return
             except (OSError, RuntimeError):
                 pass
@@ -143,7 +143,7 @@ def main():
         if broken:
             (folder / 'netgo-server').write_text('#!/bin/sh\nexit 19\n')
             (folder / 'netgo-server').chmod(0o755)
-        (folder / 'release.json').write_text(json.dumps({'version': version, 'protocol': 1, 'schema': 1, 'os': 'linux', 'arch': 'amd64'}) + '\n')
+        (folder / 'release.json').write_text(json.dumps({'version': version, 'protocol': 2, 'schema': 1, 'os': 'linux', 'arch': 'amd64'}) + '\n')
         (folder / 'SHA256SUMS').write_text(''.join(hashlib.sha256((folder / name).read_bytes()).hexdigest() + '  ' + name + '\n' for name in (*PRODUCTS, 'release.json')))
         releases.append(Path('/opt/netgo/releases') / version)
         return folder, hashlib.sha256((folder / 'SHA256SUMS').read_bytes()).hexdigest()
@@ -158,7 +158,7 @@ def main():
         proposal.write_text(json.dumps(changed) + '\n')
         check('configuration_plan', lambda: require(json.loads(run([CTL, 'config', 'plan', '--input', str(proposal)]))['requires_reconnect'], 'change was not planned'))
         check('configuration_apply_and_restart', lambda: run([CTL, 'config', 'apply', '--input', str(proposal)]))
-        check('published_new_configuration', lambda: require(admin.call('/netgo/v1/site')['Name'] == changed['Site']['Name'], 'configuration not published'))
+        check('published_new_configuration', lambda: require(admin.call('/netgo/v2/site')['Name'] == changed['Site']['Name'], 'configuration not published'))
         restored = copy.deepcopy(initial)
         restored['Site']['ConfigRevision'] = changed['Site']['ConfigRevision'] + 1
         proposal.write_text(json.dumps(restored) + '\n')
@@ -191,17 +191,17 @@ def main():
         check('trusted_health_after_backup', healthy)
         check('administrator_identity_survives_restart', lambda: admin.login(args.alias, password))
         suffix = secrets.token_hex(4)
-        created = admin.call('/netgo/v1/admin/users', 'POST', {'Alias': 'ops'+suffix, 'Email': 'ops'+suffix+'@netgo.invalid', 'Name': 'Maintenance acceptance user'})
+        created = admin.call('/netgo/v2/admin/users', 'POST', {'Alias': 'ops'+suffix, 'Email': 'ops'+suffix+'@netgo.invalid', 'Name': 'Maintenance acceptance user'})
         user = created['user']
         ordinary = Session(profile, '')
         check('password_test_user_can_login', lambda: ordinary.login(user['alias'], created['initial_password']))
         check('weak_password_refused_before_maintenance', lambda: run([CTL, 'reset-password', '--user-id', user['id'], '--password-stdin'], input=b'NoSpecial123\n', expect=1))
-        check('weak_password_preserves_health_and_credential', lambda: (healthy(), ordinary.call('/netgo/v1/me')))
+        check('weak_password_preserves_health_and_credential', lambda: (healthy(), ordinary.call('/netgo/v2/me')))
         replacement = secrets.token_urlsafe(24) + 'aA1!'
         (output / 'private-password-test.json').write_text(json.dumps({'user_id': user['id'], 'new_password': replacement})+'\n')
         check('native_idp_password_reset', lambda: run([CTL, 'reset-password', '--user-id', user['id'], '--password-stdin'], input=(replacement+'\n').encode()))
         check('password_reset_recovers_health', healthy)
-        check('password_reset_revokes_old_product_credential', lambda: rejected(lambda: ordinary.call('/netgo/v1/me'), 401))
+        check('password_reset_revokes_old_product_credential', lambda: rejected(lambda: ordinary.call('/netgo/v2/me'), 401))
         check('old_password_no_longer_authenticates', lambda: rejected(lambda: Session(profile, '').login(user['alias'], created['initial_password']), 401))
         check('replacement_password_authenticates', lambda: ordinary.login(user['alias'], replacement))
         good, digest = make_release('upgrade')
@@ -226,7 +226,7 @@ def main():
                 failure = True
         if user:
             try:
-                check('cleanup_maintenance_user', lambda: admin.call('/netgo/v1/admin/users/'+user['id'], 'DELETE'))
+                check('cleanup_maintenance_user', lambda: admin.call('/netgo/v2/admin/users/'+user['id'], 'DELETE'))
             except BaseException:
                 failure = True
         if Path('/opt/netgo/current').resolve() == original:

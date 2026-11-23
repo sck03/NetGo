@@ -1,6 +1,6 @@
 # 执行方案与源码追踪
 
-修订：2026-11-23（Asia/Shanghai）。对应执行方案 v2.2；当前代码 0.2.4-dev，远控/原生多平台目标 0.3.0-dev。当前 LAN/VPS 为 Debian 13，Windows 为 10 LTSC 1809；其他平台需新增实现与独立验收。跨模块融合必须逐项通过 [I01–I10](INTEGRATION_CONTRACT.zh-CN.md)，当前未完成。
+修订：2026-11-24（Asia/Shanghai）。当前源码 0.3.0-dev / API v2 / schema 2，Windows 为单 NetGo.exe，Linux GTK 查看器已编译。当前 LAN/VPS 为 Debian 13，Windows 为 10 LTSC 1809；移动/Apple 与物理桌面适配仍需实现/验收。跨模块融合按 [I01–I10](INTEGRATION_CONTRACT.zh-CN.md) 单独验证，未全部完成。
 
 ## 新增范围追踪
 
@@ -10,7 +10,7 @@
 | R13/R16 认证票据 | internal/remote/ticket；packages/remote-ticket；tests/contracts/remote/tickets.txt | Go race/vet/fuzz、C++ 423 项、C11；Windows/Debian 一致，Debian ASan/UBSan | 格式/签发/验签/绑定及门禁衔接已实现；主机登记/持钥证明/一次消费未实现 |
 | R14/R15 共享核心与原生 UI | packages/remote-core/include/netgo_remote.h；各平台适配待实现 | Windows/Debian C/C++ 与 ASan/UBSan 通过；RD1b/平台设备另验 | 核心基础已实现；原生远控 UI 尚未实现 |
 | R15/RD1b Windows 系统采集 | apps/windows/remote | DXGI/D3D11 实际 GPU 帧、CPU 探针回读与三次关闭重开；只输出元数据 | 当前 1920×1080 桌面通过；编码/网络/主机授权、锁屏/UAC/多屏仍待实现或测试 |
-| R17 新接口/新库 | model/store/api/client/协议契约与安装器 | v2 空库/拒绝旧版/归档恢复，RD-A12 | 未实现 |
+| R17 新接口/新库 | model/store/api/client/协议契约与安装器 | v2 空库/拒绝旧版/归档恢复，RD-A12 | schema 2/v2、持久 nonce、主机/会话已实现并经自动测试；实机切换/回退待验 |
 | R18/R19 交付与项目目录测试 | 构建/签名/安装、scripts/publish-artifact.ps1、tests/tools/windows_publish.ps1 | 锁定文件保留回归；RD-A13/A14、各平台包摘要和设备记录 | 构建锁问题已修复；全目标未完成 |
 
 ## 既有 VPN 基线追踪

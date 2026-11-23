@@ -1,13 +1,9 @@
 #include "connection.hpp"
 #include <shellapi.h>
 
-int WINAPI wWinMain(HINSTANCE,HINSTANCE,PWSTR,int) {
+int agentMain(const std::filesystem::path& root,bool test) {
  try {
   WSADATA data{};if(WSAStartup(MAKEWORD(2,2),&data)!=0)return 1;
-  auto root=netgo::dataRoot();int argc=0;auto argv=CommandLineToArgvW(GetCommandLineW(),&argc);
-  bool test=false;
-  if(argc==3&&std::wstring(argv[1])==L"--test-root"){root=argv[2];test=true;}
-  LocalFree(argv);
   if(test)netgo::testPipe(root);
   auto lockName="Local\\NetGoNativeAgent-"+netgo::sid()+(test?"-"+netgo::sha256(netgo::utf8(root.wstring())).substr(0,16):"");
   netgo::Handle mutex(CreateMutexW(nullptr,TRUE,netgo::wide(lockName).c_str()));

@@ -31,7 +31,7 @@ func (w *observedResponse) Write(b []byte) (int, error) {
 
 func requestClass(path string) string {
 	for _, name := range []string{"health", "auth", "sessions", "admin", "site", "me", "peer"} {
-		prefix := "/netgo/v1/" + name
+		prefix := "/netgo/v2/" + name
 		if path == prefix || strings.HasPrefix(path, prefix+"/") {
 			return name
 		}

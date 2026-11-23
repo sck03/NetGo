@@ -1,0 +1,8 @@
+[Desktop Entry]
+Type=Application
+Name=NetGo
+Comment=Private network and remote desktop
+Exec=/usr/lib/netgo/netgo-desktop
+Icon=netgo
+Terminal=false
+Categories=Network;RemoteAccess;

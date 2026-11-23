@@ -43,7 +43,7 @@ class Session:
 
     def raw(self,path,method='GET',data=None,headers=None):
         request=urllib.request.Request(self.profile['Origin']+path,data=data,method=method,
-                                      headers=headers or {'X-NetGo-Protocol':'1','Content-Type':'application/json'})
+                                      headers=headers or {'X-NetGo-Protocol':'2','Content-Type':'application/json'})
         try:
             with self.http.open(request,timeout=25) as response:
                 payload=response.read(4*1024*1024)
@@ -54,7 +54,7 @@ class Session:
             return error.code,body
 
     def headers(self,path,method,data):
-        headers={'X-NetGo-Protocol':'1','Content-Type':'application/json'}
+        headers={'X-NetGo-Protocol':'2','Content-Type':'application/json'}
         if self.token:
             stamp=str(int(time.time()));nonce=secrets.token_urlsafe(32)
             proof='\n'.join([method,path,stamp,nonce,sha(data or b''),sha(self.token.encode())])
@@ -72,22 +72,22 @@ class Session:
 
     def login(self,alias,password):
         self.token='';self.refresh_token=''
-        health=self.call('/netgo/v1/health')
-        if health['protocol']!=1 or health['site_id']!=self.profile['ID']:raise ValueError('site/protocol mismatch')
+        health=self.call('/netgo/v2/health')
+        if health['protocol']!=2 or health['site_id']!=self.profile['ID']:raise ValueError('site/protocol mismatch')
         verifier=secrets.token_urlsafe(32)
-        tx=self.call('/netgo/v1/auth/transactions','POST',{'client_type':self.client_type,'site_id':self.profile['ID'],
+        tx=self.call('/netgo/v2/auth/transactions','POST',{'client_type':self.client_type,'site_id':self.profile['ID'],
             'public_key':b64(self.key.public_key().public_bytes(Encoding.Raw,PublicFormat.Raw)),
             'wireguard_key':self.wireguard_key,'challenge':b64(hashlib.sha256(verifier.encode()).digest())})
         proof='\n'.join(['netgo-native-v1',self.profile['ID'],tx['id'],tx['nonce']])
-        self.call('/netgo/v1/auth/transactions/'+tx['id']+'/complete','POST',{'Alias':alias,'Password':password,
+        self.call('/netgo/v2/auth/transactions/'+tx['id']+'/complete','POST',{'Alias':alias,'Password':password,
             'Signature':b64(self.key.sign(proof.encode()))})
-        result=self.call('/netgo/v1/auth/transactions/'+tx['id']+'/exchange','POST',{'Verifier':verifier,
+        result=self.call('/netgo/v2/auth/transactions/'+tx['id']+'/exchange','POST',{'Verifier':verifier,
             'Signature':b64(self.key.sign((proof+'\nexchange\n'+verifier).encode()))})
         self.token=result['token'];self.refresh_token=result.get('refresh_token','');self.user=result['user'];self.device_id=result['device_id']
         return result
 
     def refresh(self):
-        result=self.call('/netgo/v1/auth/refresh','POST',{'refresh_token':self.refresh_token})
+        result=self.call('/netgo/v2/auth/refresh','POST',{'refresh_token':self.refresh_token})
         self.token=result['token'];self.refresh_token=result.get('refresh_token','')
         return result
 
@@ -116,20 +116,20 @@ def exercise(profile,alias,password,output):
             record['seconds']=round(time.monotonic()-started,3);records.append(record)
             print(record['status']+' '+name,flush=True)
     try:
-        check('trusted_https_health',lambda:require(admin.call('/netgo/v1/health')['site_id']==profile['ID'],'wrong site'))
+        check('trusted_https_health',lambda:require(admin.call('/netgo/v2/health')['site_id']==profile['ID'],'wrong site'))
         check('bootstrap_and_native_backend_not_public',lambda:require(all(admin.raw(path,'POST',b'{}')[0]==404 for path in ('/api/setup','/oauth2/netgo/native')),'private endpoint exposed'))
-        check('protocol_required',lambda:require(admin.raw('/netgo/v1/site',headers={'Content-Type':'application/json'})[0]==426,'missing protocol accepted'))
-        check('admin_requires_authentication',lambda:rejected(lambda:admin.call('/netgo/v1/admin/state'),401))
+        check('protocol_required',lambda:require(admin.raw('/netgo/v2/site',headers={'Content-Type':'application/json'})[0]==426,'missing protocol accepted'))
+        check('admin_requires_authentication',lambda:rejected(lambda:admin.call('/netgo/v2/admin/state'),401))
         check('wrong_password_rejected',lambda:rejected(lambda:Session(profile).login(alias,secrets.token_urlsafe(24)),401))
         check('real_dex_administrator_login',lambda:require(admin.login(alias,password)['user']['role']=='admin','wrong role'))
-        check('signed_administrator_state',lambda:require(admin.user['id'] in admin.call('/netgo/v1/admin/state')['users'],'administrator not registered'))
+        check('signed_administrator_state',lambda:require(admin.user['id'] in admin.call('/netgo/v2/admin/state')['users'],'administrator not registered'))
         def replay():
-            path='/netgo/v1/admin/state';headers=admin.headers(path,'GET',None)
+            path='/netgo/v2/admin/state';headers=admin.headers(path,'GET',None)
             require(admin.raw(path,headers=headers)[0]==200,'signed request failed')
             require(admin.raw(path,headers=headers)[0]==401,'replayed nonce accepted')
         check('request_replay_rejected',replay)
         def refresh():
-            path='/netgo/v1/admin/state';old=admin.headers(path,'GET',None)
+            path='/netgo/v2/admin/state';old=admin.headers(path,'GET',None)
             admin.refresh()
             require(admin.raw(path,headers=old)[0]==401,'old bearer credential retained')
             admin.call(path)
@@ -138,46 +138,46 @@ def exercise(profile,alias,password,output):
         created={}
         def create_user():
             nonlocal user
-            created.update(admin.call('/netgo/v1/admin/users','POST',{'Alias':test_alias,'Email':test_alias+'@netgo.invalid','Name':'NetGo acceptance user'}))
+            created.update(admin.call('/netgo/v2/admin/users','POST',{'Alias':test_alias,'Email':test_alias+'@netgo.invalid','Name':'NetGo acceptance user'}))
             user=created.get('user')
             require(bool(created.get('initial_password')),'local IdP did not return an initial password')
         check('create_real_local_user',create_user)
         user=created['user'];user_password=created['initial_password'];normal=Session(profile,'')
         check('new_user_has_no_resources',lambda:require(user['resources']==[],'new user has unexpected LAN permissions'))
         check('normal_user_login',lambda:normal.login(test_alias,user_password))
-        check('normal_user_admin_denied',lambda:rejected(lambda:normal.call('/netgo/v1/admin/state'),403))
+        check('normal_user_admin_denied',lambda:rejected(lambda:normal.call('/netgo/v2/admin/state'),403))
         rid='lab'+suffix
         resource={'id':rid,'name':'Isolated lab HTTP','cidr':'198.19.240.2/32','protocol':'tcp','ports':[18080],'enabled':True}
-        check('resource_create',lambda:admin.call('/netgo/v1/admin/resources/'+rid,'PUT',resource))
+        check('resource_create',lambda:admin.call('/netgo/v2/admin/resources/'+rid,'PUT',resource))
         user['resources']=[rid];user['max_devices']=1
-        check('grant_explicit_resource',lambda:admin.call('/netgo/v1/admin/users/'+user['id'],'PUT',user))
-        check('permission_edit_invalidates_old_credential',lambda:rejected(lambda:normal.call('/netgo/v1/me'),401))
+        check('grant_explicit_resource',lambda:admin.call('/netgo/v2/admin/users/'+user['id'],'PUT',user))
+        check('permission_edit_invalidates_old_credential',lambda:rejected(lambda:normal.call('/netgo/v2/me'),401))
         check('relogin_same_device_after_policy_change',lambda:normal.login(test_alias,user_password))
         check('device_quota_enforced',lambda:rejected(lambda:Session(profile,'').login(test_alias,user_password),error='device_limit'))
         def exported():
-            public=normal.call('/netgo/v1/site');raw=json.dumps(public)
+            public=normal.call('/netgo/v2/site');raw=json.dumps(public)
             require(public['ID']==profile['ID'] and public['CA']==profile['CA'],'profile identity/trust differs')
             require(all(value not in raw for value in (password,user_password,admin.token,normal.token)),'secret in public profile')
         check('authenticated_profile_contains_no_secrets',exported)
         user['disabled']=True
-        check('disable_account',lambda:admin.call('/netgo/v1/admin/users/'+user['id'],'PUT',user))
+        check('disable_account',lambda:admin.call('/netgo/v2/admin/users/'+user['id'],'PUT',user))
         check('disabled_account_cannot_refresh',lambda:rejected(normal.refresh,401))
         check('disabled_account_cannot_login',lambda:rejected(lambda:Session(profile,'').login(test_alias,user_password),401))
         user['disabled']=False;user['expires_at']='2020-01-01T00:00:00Z'
-        check('expired_account_policy',lambda:admin.call('/netgo/v1/admin/users/'+user['id'],'PUT',user))
+        check('expired_account_policy',lambda:admin.call('/netgo/v2/admin/users/'+user['id'],'PUT',user))
         check('expired_account_cannot_login',lambda:rejected(lambda:Session(profile,'').login(test_alias,user_password),401))
-        check('last_administrator_protected',lambda:rejected(lambda:admin.call('/netgo/v1/admin/users/'+admin.user['id'],'DELETE')))
+        check('last_administrator_protected',lambda:rejected(lambda:admin.call('/netgo/v2/admin/users/'+admin.user['id'],'DELETE')))
         def diagnostics():
-            raw=json.dumps(admin.call('/netgo/v1/admin/diagnostics'))
+            raw=json.dumps(admin.call('/netgo/v2/admin/diagnostics'))
             require(all(value not in raw for value in (password,user_password,admin.token,admin.refresh_token)),'secret in diagnostics')
         check('diagnostics_redacted',diagnostics)
     finally:
         cleanup_errors=[]
         if admin.token and user:
-            try:check('delete_test_user',lambda:admin.call('/netgo/v1/admin/users/'+user['id'],'DELETE'))
+            try:check('delete_test_user',lambda:admin.call('/netgo/v2/admin/users/'+user['id'],'DELETE'))
             except BaseException as error:cleanup_errors.append(str(error))
         if admin.token and resource:
-            try:check('delete_test_resource',lambda:admin.call('/netgo/v1/admin/resources/'+resource['id'],'DELETE'))
+            try:check('delete_test_resource',lambda:admin.call('/netgo/v2/admin/resources/'+resource['id'],'DELETE'))
             except BaseException as error:cleanup_errors.append(str(error))
         output.parent.mkdir(parents=True,exist_ok=True)
         output.write_text(json.dumps({'schema':1,'kind':'real TLS/IdP/API lab','generated_utc':datetime.now(timezone.utc).isoformat(),

@@ -1,6 +1,25 @@
 # MinGW's FindOpenSSL uses LIB_EAY/SSL_EAY internally. Setting only
 # OPENSSL_*_LIBRARY can silently combine our headers with MSYS libraries.
-if(MINGW)
+if(ANDROID)
+  # OpenSSL is built for the target. Some CMake distributions infer Windows
+  # static dependencies from the build host when cross compiling on Windows.
+  get_filename_component(_netgo_root "${CMAKE_CURRENT_LIST_DIR}/../.." ABSOLUTE)
+  set(NETGO_OPENSSL_ROOT "${_netgo_root}/.tools/openssl-android-arm64" CACHE PATH "Android OpenSSL installation")
+  foreach(_component Crypto SSL)
+    if(NOT TARGET OpenSSL::${_component})
+      string(TOLOWER "${_component}" _library)
+      set(_archive "${NETGO_OPENSSL_ROOT}/lib/lib${_library}.a")
+      if(NOT EXISTS "${_archive}")
+        message(FATAL_ERROR "Android OpenSSL archive missing: ${_archive}")
+      endif()
+      add_library(OpenSSL::${_component} STATIC IMPORTED GLOBAL)
+      set_target_properties(OpenSSL::${_component} PROPERTIES
+        IMPORTED_LOCATION "${_archive}"
+        INTERFACE_INCLUDE_DIRECTORIES "${NETGO_OPENSSL_ROOT}/include")
+    endif()
+  endforeach()
+  set_property(TARGET OpenSSL::SSL PROPERTY INTERFACE_LINK_LIBRARIES OpenSSL::Crypto)
+elseif(MINGW)
   get_filename_component(_netgo_root "${CMAKE_CURRENT_LIST_DIR}/../.." ABSOLUTE)
   set(NETGO_OPENSSL_ROOT "${_netgo_root}/.tools/openssl-native" CACHE PATH "Pinned NetGo OpenSSL installation")
   file(READ "${_netgo_root}/upstream/versions.lock.json" _netgo_inputs)

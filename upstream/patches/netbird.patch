@@ -1689,3 +1689,97 @@ index 0000000..98e5a34
 +		t.Fatal("invalid role failed open")
 +	}
 +}
+diff --git a/client/android/netgo.go b/client/android/netgo.go
+new file mode 100644
+--- /dev/null
++++ b/client/android/netgo.go
+@@ -0,0 +1,53 @@
++//go:build android
++
++package android
++
++import (
++	"context"
++	"errors"
++	netgogrpc "github.com/netbirdio/netbird/client/grpc"
++	"github.com/netbirdio/netbird/client/internal/auth"
++	"github.com/netbirdio/netbird/client/system"
++	"net/url"
++	"strings"
++	"golang.zx2c4.com/wireguard/wgctrl/wgtypes"
++)
++
++// NewNetGoAuth uses the authenticated site's existing canonical authority,
++// public trust material and candidate selector. It does not open an OAuth UI.
++func NewNetGoAuth(path, origin, ca, addresses, kinds string) (*Auth, error) {
++	target, err := url.Parse(origin)
++	if err != nil || target.Scheme != "https" || target.Host == "" {
++		return nil, errors.New("invalid_netgo_origin")
++	}
++	candidates := strings.Split(addresses, ";")
++	types := strings.Split(kinds, ";")
++	if len(candidates) != len(types) || len(candidates) > 16 {
++		return nil, errors.New("invalid_netgo_candidates")
++	}
++	if err = netgogrpc.ConfigureNetGoCA(target.Host, ca); err != nil {
++		return nil, err
++	}
++	if err = netgogrpc.ConfigureNetGoRoutes(target.Host, candidates, types...); err != nil {
++		return nil, err
++	}
++	return NewAuth(path, origin, nil)
++}
++func (a *Auth) NetGoPublicKey() (string,error) {
++	key,err:=wgtypes.ParseKey(a.config.PrivateKey)
++	if err!=nil{return "",err}
++	return key.PublicKey().String(),nil
++}
++func (a *Auth) NetGoLoginJWT(token, deviceName string) error {
++	if token == "" || len(token) > 65536 {
++		return errors.New("invalid_netgo_token")
++	}
++	connection, err := auth.NewAuth(a.ctx, a.config.PrivateKey, a.config.ManagementURL, a.config)
++	if err != nil {
++		return err
++	}
++	defer connection.Close()
++	ctx := context.WithValue(a.ctx, system.DeviceNameCtxKey, deviceName)
++	err, _ = connection.Login(ctx, "", token)
++	return err
++}
+diff --git a/client/android/exec.go b/client/android/exec.go
+--- a/client/android/exec.go
++++ b/client/android/exec.go
+@@ -2,25 +2,10 @@
+ 
+ package android
+ 
+-import (
+-	"fmt"
+-	_ "unsafe"
+-)
+-
+-// https://github.com/golang/go/pull/69543/commits/aad6b3b32c81795f86bc4a9e81aad94899daf520
+-// In Android version 11 and earlier, pidfd-related system calls
+-// are not allowed by the seccomp policy, which causes crashes due
+-// to SIGSYS signals.
+-
+-//go:linkname checkPidfdOnce os.checkPidfdOnce
+-var checkPidfdOnce func() error
+-
+-func execWorkaround(androidSDKVersion int) {
+-	if androidSDKVersion > 30 { // above Android 11
+-		return
+-	}
+-
+-	checkPidfdOnce = func() error {
+-		return fmt.Errorf("unsupported Android version")
+-	}
+-}
++// NetGo requires Android 12+. No pre-Android-12 pidfd override is needed.
++// Do not link to unexported Go runtime variables on supported versions.
++func execWorkaround(api int) {
++ if api<31 {
++  panic("NetGo Android requires Android 12 or newer")
++ }
++}

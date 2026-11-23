@@ -2,7 +2,8 @@ param([string]$Bash='D:\msys64\usr\bin\bash.exe',[string]$Python='python')
 $ErrorActionPreference='Stop'
 $root=Split-Path -Parent $PSScriptRoot
 Set-Location -LiteralPath $root
-$powershell=@('install-client.ps1','scripts/build.ps1','scripts/build-native.ps1','scripts/build-upstream-windows.ps1','scripts/prepare-native.ps1','scripts/verify.ps1','scripts/verify-scripts.ps1','deploy/windows/common.ps1','deploy/windows/install.ps1','deploy/windows/uninstall.ps1')
+. "$PSScriptRoot/project-environment.ps1"
+$powershell=@('install-client.ps1','scripts/build.ps1','scripts/build-windows-client.ps1','scripts/build-native.ps1','scripts/build-upstream-windows.ps1','scripts/prepare-native.ps1','scripts/verify.ps1','scripts/verify-scripts.ps1','deploy/windows/common.ps1','deploy/windows/install.ps1','deploy/windows/uninstall.ps1')
 foreach($file in $powershell){
  $tokens=$null;$errors=$null
  [void][System.Management.Automation.Language.Parser]::ParseFile((Join-Path $root $file),[ref]$tokens,[ref]$errors)
@@ -24,12 +25,13 @@ $serviceEnvironment=@(Get-NetGoServiceEnvironment -StateDirectory 'C:\ProgramDat
 if($serviceEnvironment.Count -ne 3 -or $serviceEnvironment[0] -ne 'KEEP=value' -or $serviceEnvironment[1] -ne 'NB_STATE_DIR=C:\ProgramData\NetGoNativeEngine' -or $serviceEnvironment[2] -ne 'NB_LAZY_CONN=false'){throw 'Service environment entries were merged or not replaced'}
 Write-Output 'PASS separate Windows service environment entries and legacy replacement'
 $env:PATH=(Split-Path -Parent $Bash)+';'+$env:PATH
-foreach($file in @('install-server.sh','scripts/bootstrap-linux.sh','scripts/build.sh','scripts/build-upstream.sh','deploy/linux/install.sh','deploy/linux/uninstall.sh','deploy/linux/switch-release.sh','deploy/linux/deploy-certificate.sh')){
+foreach($file in @('install-server.sh','install-vps.sh','scripts/bootstrap-linux.sh','scripts/bootstrap-vps.sh','scripts/build.sh','scripts/build-vps.sh','scripts/build-linux-client.sh','scripts/build-linux-native.sh','scripts/build-linux-server.sh','scripts/build-upstream.sh','deploy/linux/install.sh','deploy/linux/uninstall.sh','deploy/linux/switch-release.sh','deploy/linux/deploy-certificate.sh')){
  & $Bash -n $file;if($LASTEXITCODE -ne 0){throw "Bash syntax failed: $file"};Write-Output "PASS Bash syntax: $file"
 }
 & $Bash deploy/linux/install.sh --plan;if($LASTEXITCODE -ne 0){throw 'Linux install plan failed'}
 & $Bash deploy/linux/uninstall.sh --plan;if($LASTEXITCODE -ne 0){throw 'Linux uninstall plan failed'}
 & $Bash install-server.sh install --plan;if($LASTEXITCODE -ne 0){throw 'Server entry plan failed'}
+& $Bash install-vps.sh install --plan;if($LASTEXITCODE -ne 0){throw 'VPS entry plan failed'}
 & (Join-Path $root 'install-client.ps1') -Action Install -Plan | ConvertTo-Json
 & $Bash deploy/linux/deploy-certificate.sh --plan control control.site.example;if($LASTEXITCODE -ne 0){throw 'Certificate hook plan failed'}
 & $Python -B -c 'import ast,pathlib; files=[p for root in ("scripts","tests/network","tests/tools","apps/windows/tests") for p in pathlib.Path(root).glob("*.py")]; [(ast.parse(p.read_text(encoding="utf-8")), print("PASS Python syntax:",p)) for p in files]'

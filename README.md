@@ -1,23 +1,26 @@
 # NetGo
 
-当前实现提供 Linux 局域网远程接入与原生 Windows 客户端。账号、权限和控制服务保留在本地 Linux；公网入口可达时不需要 VPS，预先配置 VPS 后提供备用控制入口和 NetBird 中继。执行方案 v2.2 已将内置远程桌面和 Windows/Android/macOS/iOS/Linux 原生客户端纳入下一功能版本。
+当前源码提供 Linux 控制服务、原生 Windows 客户端、Linux GTK 查看器和 Android 客户端。账号、权限和控制服务保留在本地 Linux；公网入口可达时不需要 VPS，预先配置 VPS 后提供备用控制入口和 NetBird 中继。macOS/iOS 按当前要求暂缓，保留平台扩展接口，逐项状态见执行方案。
 
 可选 VPS 只需一台：同时运行 frps（备用登录/控制）和 NetBird Relay/STUN（直连失败时的 VPN 业务中继）。多个示例域名可指向同一 VPS IP；不要求两台 VPS。
 
 **Windows 界面与产品后台已改为 C++20 / Win32。** 旧 Wails 桌面代码、网页桌面模式、Go Windows IPC/凭据实现及旧运行产物已清理。Linux 管理服务使用 Go，管理网页使用 Vue，独立 NetBird 核心保留上游语言。
 
-当前开发版本：**0.2.4-dev**。服务端支持 Debian 12/13 amd64；Windows 客户端采用紧凑原生窗口，连接、VPN 信息、资源、日志分页。当前实机为 Debian 13 与 Windows 10 LTSC 1809 x64，Debian 12 结果作为历史证据保留。完整服务安装、真实认证、权限及公网 VPS 的最新结果见 [本轮报告](docs/evidence/2026-11-23-continuation/REPORT.zh-CN.md)。Windows 11、跨用户 Windows、休眠、真实多 WAN/DNS 与 72 小时验收分别登记。
+当前源码版本：**0.3.0-dev / API v2 / SQLite schema 2**，不兼容旧开发接口和数据库。Windows 普通使用入口统一为 **NetGo.exe**，主界面、连接后台与远控共用同一个程序文件，通过内部模式隔离运行；无需分别启动多个 EXE。安装版提供 Setup，绿色版解压后启动 NetGo.exe，网络服务准备由客户端调用。Windows 尚未完成全部设备验收。
 
-下一目标 **0.3.0-dev / API v2 / schema 2** 尚未实现。统一产品、按需启用远控；Windows 使用 C++/Win32，Android 使用 Kotlin，Apple 使用 Swift，Linux 桌面使用 C++/GTK，共享会话/协议核心通过 C ABI 衔接。允许重建开发数据库与接口，不维护旧接口兼容层。已有独立会话门禁、[Go/C++ 签名票据适配](docs/REMOTE_TICKET.zh-CN.md)和 Windows DXGI GPU 采集原型，主机协调器、真实媒体链路及其他原生客户端仍未完成。任务见 [远控与原生多平台方案](docs/REMOTE_NATIVE_PLAN.zh-CN.md)，融合约束和跨模块验收见 [统一集成契约](docs/INTEGRATION_CONTRACT.zh-CN.md)，不能把当前 VPN 包当成已含远控的版本。最新构建、实机复验和体积记录见 [接续报告](docs/evidence/2026-11-23-continuation/REPORT.zh-CN.md)。
+已实现主机登记、分权授权、绑定票据、持钥证明、持久一次消费、远控续租与最小 peer/端口策略。Windows 已接入 DXGI、系统 H.264 编解码、键鼠/文本输入和 WASAPI 音频；Windows 与 GTK 查看器复用 [共享 C 接口](packages/remote-client/README.md)。本地编解码、真实 TLS/持钥证明测试及编译只提供局部证据，跨设备 overlay 画面/输入/音频、锁屏/UAC、多屏、文件/剪贴板、移动/Apple 客户端与 72 小时验收仍未完成。任务见 [远控与五平台方案](docs/REMOTE_NATIVE_PLAN.zh-CN.md)和 [集成契约](docs/INTEGRATION_CONTRACT.zh-CN.md)。
 
 ## 独立安装入口
+
+Windows、Linux 桌面、Android 客户端与 Linux 服务端的 [独立构建脚本/GitHub 工作流](docs/BUILD_CLIENTS.zh-CN.md) 已分开。按用户最新要求，macOS/iOS 暂缓开发，保留共享 C ABI 和平台适配接口。
 
 | 安装对象 | 独立脚本 | 操作 |
 | --- | --- | --- |
 | Debian 服务端 | [install-server.sh](install-server.sh) | 安装、首次配置、状态、诊断、卸载与保留数据重装 |
-| Windows 客户端 | [install-client.ps1](install-client.ps1) | 安装、状态、卸载；普通用户运行桌面客户端 |
+| VPS 辅助节点 | [install-vps.sh](install-vps.sh) | 独立安装、导入 VPS 专用配置、状态、诊断、卸载与保留配置重装 |
+| Windows 客户端 | NetGo-Setup.exe；[维护脚本](install-client.ps1) | 图形安装/系统卸载；日常仅启动 NetGo.exe |
 
-脚本提供菜单、包摘要校验、离线安装及本机维护入口。先下载审阅，再执行；两端参数和首次配置见 [安装说明](docs/INSTALLERS.zh-CN.md)。默认下载对应版本的开发包。
+脚本提供菜单、包摘要校验、离线安装及本机维护入口。参数和首次配置见 [安装说明](docs/INSTALLERS.zh-CN.md)。Linux/VPS 默认查询最新正式 Release；尚无对应发布包时解析 main 为固定 commit，再构建安装。
 
 ```sh
 curl -fL https://raw.githubusercontent.com/sck03/NetGo/main/install-server.sh -o install-server.sh
@@ -71,6 +74,6 @@ Debian 12/13 amd64：可通过 `bash install-server.sh install --from-source` �
 
 核心源码位于 apps/windows、cmd、internal、apps/ui；补丁位于 upstream/patches。客户端包括服务器列表、账号密码认证、连接/断开、控制/数据路径状态、资源列表、托盘、密码保护、自动恢复和脱敏诊断。
 
-完成依赖准备后，Windows 使用 `scripts/verify.ps1 -Output 新目录`；Debian 使用 `python3 -B scripts/verify-linux.py --output 新目录`（可先加 --plan）。检查绑定源码、日志和产物摘要。Windows/源码打包使用 `python -B scripts/package.py --version 0.2.4-dev --verification 验证目录/verification.json`；完整 Linux 服务端使用 `python3 -B scripts/package-server.py --verification 验证目录/verification.json`。验收工具见 [验收工具说明](tests/network/README.zh-CN.md)。
+完成依赖准备后，Windows 使用 `scripts/verify.ps1 -Output 新目录`；Debian 使用 `python3 -B scripts/verify-linux.py --output 新目录`（可先加 --plan）。检查绑定源码、日志和产物摘要。Windows/源码打包使用 `python -B scripts/package.py --version 0.3.0-dev --verification 验证目录/verification.json`；完整 Linux 服务端使用 `python3 -B scripts/package-server.py --verification 验证目录/verification.json`。验收工具见 [验收工具说明](tests/network/README.zh-CN.md)。
 
 旧 ARCHITECTURE_PLAN 保留为历史参考；第一版不包括 OpenWrt 服务端、互联网出口代理或多个站点同时连接。

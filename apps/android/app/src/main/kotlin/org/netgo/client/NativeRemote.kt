@@ -1,0 +1,58 @@
+package org.netgo.client
+
+import android.media.*
+import android.view.Surface
+import androidx.annotation.Keep
+import org.json.JSONObject
+import org.netgo.runtime.mobile.Client
+
+@Keep
+class NativeRemote(private val site: String, private val host: String, private val surface: Surface, private val controlClient: Client) {
+    @Volatile private var active = true
+    @Volatile var capabilities = 0; private set
+    private var decoder: MediaCodec? = null
+    private var sound: AudioTrack? = null
+    private var handle = 0L
+    private external fun startNative(site: String, host: String): Long
+    private external fun cancelNative(handle: Long)
+    private external fun inputNative(handle: Long, json: ByteArray)
+    fun start() { handle = startNative(site, host); current = this }
+    fun send(value: JSONObject) { if (active && capabilities and 2 != 0 && handle != 0L) inputNative(handle, value.toString().toByteArray(Charsets.UTF_8)) }
+    fun stop() { active = false; if (handle != 0L) cancelNative(handle); if (current === this) current = null }
+    @Keep fun control(method: String, path: String, body: String, key: String): ByteArray =
+        (if (method == "CONTEXT") controlClient.remoteContext(site) else controlClient.remoteCall(site, method, path, body, key)).toByteArray(Charsets.UTF_8)
+    @Keep fun sign(message: ByteArray): ByteArray = controlClient.signPossession(site, message)
+    @Keep fun onFormat(width: Int, height: Int, fps: Int, caps: Int): Boolean = try {
+        if (!active || width !in 2..4096 || height !in 2..2160) false else {
+            val format = MediaFormat.createVideoFormat(MediaFormat.MIMETYPE_VIDEO_AVC, width, height).apply {
+                setInteger(MediaFormat.KEY_MAX_INPUT_SIZE, 4 * 1024 * 1024)
+                setInteger(MediaFormat.KEY_FRAME_RATE, fps)
+                if (android.os.Build.VERSION.SDK_INT >= 30) setInteger(MediaFormat.KEY_LOW_LATENCY, 1)
+            }
+            decoder = MediaCodec.createDecoderByType(MediaFormat.MIMETYPE_VIDEO_AVC).apply { configure(format, surface, null, 0); start() }
+            if (caps and 4 != 0) sound = AudioTrack.Builder()
+                .setAudioAttributes(AudioAttributes.Builder().setUsage(AudioAttributes.USAGE_MEDIA).setContentType(AudioAttributes.CONTENT_TYPE_MOVIE).build())
+                .setAudioFormat(AudioFormat.Builder().setSampleRate(48000).setChannelMask(AudioFormat.CHANNEL_OUT_STEREO).setEncoding(AudioFormat.ENCODING_PCM_16BIT).build())
+                .setBufferSizeInBytes(19200).setTransferMode(AudioTrack.MODE_STREAM).build().apply { play() }
+            capabilities = caps; true
+        }
+    } catch (_: Exception) { false }
+    @Keep fun onVideo(bytes: ByteArray, stamp: Long): Boolean = try {
+        if (!active) false else {
+            val codec = decoder ?: error("decoder_unavailable")
+            val index = codec.dequeueInputBuffer(10000)
+            if (index >= 0) { codec.getInputBuffer(index)!!.apply { clear(); put(bytes) }; codec.queueInputBuffer(index, 0, bytes.size, stamp / 10, 0) }
+            val info = MediaCodec.BufferInfo()
+            while (true) { val output = codec.dequeueOutputBuffer(info, 0); if (output < 0) break; codec.releaseOutputBuffer(output, true) }
+            true
+        }
+    } catch (_: Exception) { false }
+    @Keep fun onAudio(bytes: ByteArray): Boolean = try { active && bytes.size in 4..3840 && bytes.size % 4 == 0 && (sound?.write(bytes, 0, bytes.size, AudioTrack.WRITE_NON_BLOCKING) ?: -1) >= 0 } catch (_: Exception) { false }
+    @Keep fun onStatus(code: String) { if (active) NetGoRuntime.message.value = when (code) { "remote_connected" -> "远程桌面已连接"; "remote_waiting_consent" -> "等待主机确认…"; else -> code } }
+    @Keep fun onClosed() { active = false; runCatching { decoder?.stop() }; decoder?.release(); decoder = null; runCatching { sound?.stop() }; sound?.release(); sound = null; if (current === this) current = null }
+    companion object {
+        init { System.loadLibrary("netgo-remote-jni") }
+        @Volatile private var current: NativeRemote? = null
+        fun stopCurrent() { current?.stop() }
+    }
+}

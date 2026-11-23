@@ -3,6 +3,20 @@
 #include <regex>
 
 namespace netgo {
+void Controller::closeRemote(){
+ std::lock_guard lock(mutex_);remoteReady_=false;remoteContext_=Json::object();
+ for(auto& job:remoteJobs_)job->result.set_value({{"error","remote_site_disconnected"}});
+ remoteJobs_.clear();
+}
+Json Controller::remoteCall(const Json& request){
+ auto job=std::make_shared<RemoteJob>();job->request=request;auto future=job->result.get_future();
+ {std::lock_guard lock(mutex_);if(!remoteReady_||cancel_||request.value("site","")!=remoteContext_.value("site_id",""))throw Error("remote_site_disconnected");
+  if(request.at("action")=="remote-context")return remoteContext_;
+  if(remoteJobs_.size()>=8)throw Error("remote_busy");
+  remoteJobs_.push_back(job);}
+ if(future.wait_for(std::chrono::seconds(25))!=std::future_status::ready){job->abandoned=true;throw Error("remote_control_timeout");}
+ return future.get();
+}
 Controller::Controller(std::filesystem::path root,bool engineEnabled):root_(std::move(root)),engineEnabled_(engineEnabled) {
  secureDirectory(root_);
  auto file=root_/L".generation";
@@ -42,6 +56,7 @@ void Controller::importProfile(const Json& p) {
 }
 void Controller::disconnectLocked() {
  cancel_=true;
+ closeRemote();
  {std::lock_guard lock(mutex_);++generation_;status_={{"state","disconnecting"},{"generation",generation_}};}
  if(worker_.joinable())worker_.join();
  if(cleanupFailed_){
@@ -83,8 +98,9 @@ void Controller::run(uint64_t gen,Json p,std::string alias,std::string password,
   check();Json request={{"action",action},{"profile",p}};request.update(fields);return engineCall(request,cancel_);
  };
  auto cleanup=[&]{
+  closeRemote();
   std::atomic_bool cleanupCancel=false;
-  if(transport&&!token.empty()&&lease.contains("id"))try{transport->call("DELETE","/netgo/v1/sessions/"+lease["id"].get<std::string>(),nullptr,seed,token);}catch(...){}
+  if(transport&&!token.empty()&&lease.contains("id"))try{transport->call("DELETE","/netgo/v2/sessions/"+lease["id"].get<std::string>(),nullptr,seed,token);}catch(...){}
   if(prepared)try{engineCall({{"action","down"}},cleanupCancel);cleanupFailed_=false;}catch(...){cleanupFailed_=true;}
   wipe(password);wipe(seed);wipe(token);wipe(refresh);wipe(jwt);
  };
@@ -96,14 +112,16 @@ void Controller::run(uint64_t gen,Json p,std::string alias,std::string password,
   // Prepare disconnects old engine state before producing this profile's WireGuard key.
   prepared=true;auto wg=engine("prepare").at("wireguard_key");
   auto verifier=randomID();
-  auto tx=transport->call("POST","/netgo/v1/auth/transactions",{{"site_id",id},{"public_key",publicKey(seed)},{"wireguard_key",wg},{"challenge",sha256(verifier,true)}});
+  auto tx=transport->call("POST","/netgo/v2/auth/transactions",{{"site_id",id},{"public_key",publicKey(seed)},{"wireguard_key",wg},{"challenge",sha256(verifier,true)}});
   check();std::string proof="netgo-native-v1\n"+id+"\n"+tx.at("id").get<std::string>()+"\n"+tx.at("nonce").get<std::string>();
-  std::string base="/netgo/v1/auth/transactions/"+tx.at("id").get<std::string>();
+  std::string base="/netgo/v2/auth/transactions/"+tx.at("id").get<std::string>();
   transport->call("POST",base+"/complete",{{"Alias",alias},{"Password",password},{"Signature",signature(seed,proof)}});check();
   auto auth=transport->call("POST",base+"/exchange",{{"Verifier",verifier},{"Signature",signature(seed,proof+"\nexchange\n"+verifier)}});
   wipe(verifier);token=auth.at("token");refresh=auth.value("refresh_token","");
+  auto deviceID=auth.at("device_id").get<std::string>();
+  auto userID=auth.at("user").at("id").get<std::string>();
   auto authExpires=parseTime(auth.at("expires_at"));jwt=auth.at("id_token");auth=Json::object();
-  auto next=transport->call("GET","/netgo/v1/site",nullptr,seed,token);validateProfileUpdate(p,next);next["Name"]=p["Name"];check();
+  auto next=transport->call("GET","/netgo/v2/site",nullptr,seed,token);validateProfileUpdate(p,next);next["Name"]=p["Name"];check();
   if(next!=p){
    auto updated=std::make_unique<Transport>(next);updated->select();check();
    atomicFile(root_/wide(id+".json"),next.dump(2));p=std::move(next);transport=std::move(updated);
@@ -115,26 +133,42 @@ void Controller::run(uint64_t gen,Json p,std::string alias,std::string password,
   bool connected=false;
   while(Clock::now()<timeout){check();auto d=engine("status");if(d.value("state","")=="Connected"||d.value("state","")=="connected"){connected=true;break;}Sleep(200);}
   if(!connected)throw Error("engine_connect_timeout");
-  check();auto peer=transport->call("GET","/netgo/v1/peer",nullptr,seed,token);
-  lease=transport->call("POST","/netgo/v1/sessions",{{"peer_id",peer.at("ID")},{"generation",gen},{"replace",replace}},seed,token,randomID());
+  check();auto peer=transport->call("GET","/netgo/v2/peer",nullptr,seed,token);
+  lease=transport->call("POST","/netgo/v2/sessions",{{"peer_id",peer.at("ID")},{"generation",gen},{"replace",replace}},seed,token,randomID());
   auto resources=lease.at("resources");routeConflicts(resources);
   engine("routes",{{"resources",resources}});
   if(remember){auto saved=Json({{"alias",alias},{"password",password}}).dump();credentialWrite("password/"+id,saved);wipe(saved);}else credentialDelete("password/"+id);
   wipe(password);state(gen,"negotiating","",{{"lease",lease}});
+  {std::lock_guard lock(mutex_);remoteReady_=true;remoteContext_={{"site_id",id},{"user_id",userID},{"device_id",deviceID},{"generation",gen},{"lease",lease},{"public_key",publicKey(seed)}};}
+  auto remoteWork=[&]{
+   std::shared_ptr<RemoteJob> job;
+   {std::lock_guard lock(mutex_);if(!remoteJobs_.empty()){job=remoteJobs_.front();remoteJobs_.pop_front();}}
+   if(!job||job->abandoned)return;
+   try{
+    check();auto method=job->request.value("method",""),path=job->request.value("path","");
+    bool allowed=(method=="GET"&&(path=="/netgo/v2/remote"||path=="/netgo/v2/remote/key"))||(method=="PUT"&&path=="/netgo/v2/remote/host")||(method=="POST"&&(path=="/netgo/v2/remote/host/heartbeat"||path=="/netgo/v2/remote/sessions"));
+    allowed=allowed||((method=="POST"||method=="DELETE")&&std::regex_match(path,std::regex(method=="POST"?R"(^/netgo/v2/remote/sessions/[A-Za-z0-9_-]{22}/(consume|renew)$)":R"(^/netgo/v2/remote/sessions/[A-Za-z0-9_-]{22}$)")));
+    allowed=allowed||(method=="GET"&&std::regex_match(path,std::regex(R"(^/netgo/v2/remote/sessions/[A-Za-z0-9_-]{22}$)")));
+    if(!allowed)throw Error("remote_invalid_operation");
+    auto value=transport->call(method,path,job->request.value("body",Json()),seed,token,job->request.value("idempotency",""));
+    check();job->result.set_value(std::move(value));
+   }catch(const std::exception& e){job->result.set_value({{"error",e.what()}});}
+  };
   auto renewed=Clock::now();int failed=0;
   while(!cancel_) {
-   for(int i=0;i<25&&!cancel_;++i)Sleep(200);
+   for(int i=0;i<25&&!cancel_;++i){remoteWork();Sleep(200);}
    check();
    if(std::chrono::system_clock::now()>=parseTime(lease.at("expires_at")))throw Error("lease_expired");
    try{
     transport->recover();check();
     if(authExpires-std::chrono::system_clock::now()<std::chrono::minutes(2)&&!refresh.empty()){
-     auto authNew=transport->call("POST","/netgo/v1/auth/refresh",{{"refresh_token",refresh}},seed,token);
+     auto authNew=transport->call("POST","/netgo/v2/auth/refresh",{{"refresh_token",refresh}},seed,token);
      wipe(token);wipe(refresh);wipe(jwt);token=authNew.at("token");refresh=authNew.value("refresh_token","");jwt=authNew.at("id_token");authExpires=parseTime(authNew.at("expires_at"));
      engine("login",{{"id_token",jwt}});engine("up");engine("routes",{{"resources",lease.at("resources")}});
     }
     if(Clock::now()-renewed>=std::chrono::seconds(30)||parseTime(lease.at("expires_at"))-std::chrono::system_clock::now()<std::chrono::seconds(40)){
-     lease=transport->call("POST","/netgo/v1/sessions/"+lease.at("id").get<std::string>()+"/renew",{{"Generation",gen}},seed,token);renewed=Clock::now();
+     lease=transport->call("POST","/netgo/v2/sessions/"+lease.at("id").get<std::string>()+"/renew",{{"Generation",gen}},seed,token);renewed=Clock::now();
+     {std::lock_guard lock(mutex_);remoteContext_["lease"]=lease;}
     }
     auto data=engine("status");
     auto engineState=data.value("state","");
@@ -160,6 +194,7 @@ Json Controller::dispatch(const Json& r) {
   if(!r.is_object()||!r.contains("action")||!r["action"].is_string())throw Error("invalid_request");
   std::string action=r["action"];
   if(action=="status")return status();
+  if(action=="remote-context"||action=="remote-call")return remoteCall(r);
   if(action=="profiles")return profiles();
   if(action=="import"){importProfile(r.at("profile"));return {{"imported",true}};}
   if(action=="connect"){connect(r);return status();}

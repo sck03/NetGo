@@ -6,7 +6,7 @@ const hex = (b: Uint8Array) => Array.from(b, x => x.toString(16).padStart(2, '0'
 
 export function validateHealth(health: any, expectedSite = '') {
   const required = ['native-auth-v1', 'device-signature-v1', 'leases-v1', 'profile-revision-v1', 'admin-v1', 'diagnostics-v1']
-  if (!health || health.protocol !== 1 || !Array.isArray(health.capabilities) || !required.every(x => health.capabilities.includes(x))) throw Error('服务端协议不兼容，请使用匹配版本的客户端和服务端')
+  if (!health || health.protocol !== 2 || !Array.isArray(health.capabilities) || !required.every(x => health.capabilities.includes(x))) throw Error('服务端协议不兼容，请使用匹配版本的客户端和服务端')
   if (typeof health.site_id !== 'string' || !health.site_id || (expectedSite && health.site_id !== expectedSite)) throw Error('站点身份不一致')
   if (health.server_unix !== undefined) {
     if (!Number.isSafeInteger(health.server_unix) || health.server_unix <= 0) throw Error('服务端时间格式无效')
@@ -26,11 +26,11 @@ export class AdminSession {
   get active() { return !!this.token && !!this.key }
 
   private async send(path: string, method: string, input?: unknown) {
-    if (!path.startsWith('/netgo/v1/') || path.includes('#') || path.includes('\n')) throw Error('无效的管理请求')
+    if (!path.startsWith('/netgo/v2/') || path.includes('#') || path.includes('\n')) throw Error('无效的管理请求')
     const generation = this.generation
     const token = this.token, key = this.key
     const body = input === undefined ? '' : JSON.stringify(input)
-    const headers: Record<string, string> = { 'Content-Type': 'application/json', 'X-NetGo-Protocol': '1' }
+    const headers: Record<string, string> = { 'Content-Type': 'application/json', 'X-NetGo-Protocol': '2' }
     if (token && key) {
       const stamp = String(Math.floor(Date.now() / 1000)), nonce = random()
       const message = [method, path, stamp, nonce, hex(await digest(body)), hex(await digest(token))].join('\n')
@@ -64,7 +64,7 @@ export class AdminSession {
   private refresh() {
     if (this.refreshing) return this.refreshing
     const generation = this.generation, refreshToken = this.refreshToken
-    const pending = this.send('/netgo/v1/auth/refresh', 'POST', { refresh_token: refreshToken }).then(fresh => {
+    const pending = this.send('/netgo/v2/auth/refresh', 'POST', { refresh_token: refreshToken }).then(fresh => {
       if (generation !== this.generation) throw Error('管理登录已取消')
       this.token = fresh.token
       this.refreshToken = fresh.refresh_token || ''
@@ -86,7 +86,7 @@ export class AdminSession {
   async login(siteID: string, alias: string, password: string) {
     this.logout()
     const generation = this.generation
-    siteID = validateHealth(await this.send('/netgo/v1/health', 'GET'), siteID)
+    siteID = validateHealth(await this.send('/netgo/v2/health', 'GET'), siteID)
     if (generation !== this.generation) throw Error('管理登录已取消')
     const key = await crypto.subtle.generateKey({ name: 'Ed25519' }, false, ['sign', 'verify']) as CryptoKeyPair
     if (generation !== this.generation) throw Error('管理登录已取消')
@@ -95,12 +95,12 @@ export class AdminSession {
     const publicKey = b64(new Uint8Array(await crypto.subtle.exportKey('raw', key.publicKey)))
     const begin = { client_type:'admin',site_id: siteID, public_key: publicKey, wireguard_key: btoa(String.fromCharCode(...crypto.getRandomValues(new Uint8Array(32)))), challenge: b64(await digest(verifier)) }
     try {
-      const tx = await this.send('/netgo/v1/auth/transactions', 'POST', begin)
+      const tx = await this.send('/netgo/v2/auth/transactions', 'POST', begin)
       const proof = ['netgo-native-v1', siteID, tx.id, tx.nonce].join('\n')
       const sign = async (s: string) => b64(new Uint8Array(await crypto.subtle.sign('Ed25519', key.privateKey, enc.encode(s))))
-      await this.send('/netgo/v1/auth/transactions/' + tx.id + '/complete', 'POST', { Alias: alias, Password: password, Signature: await sign(proof) })
+      await this.send('/netgo/v2/auth/transactions/' + tx.id + '/complete', 'POST', { Alias: alias, Password: password, Signature: await sign(proof) })
       password = ''
-      const result = await this.send('/netgo/v1/auth/transactions/' + tx.id + '/exchange', 'POST', { Verifier: verifier, Signature: await sign(proof + '\nexchange\n' + verifier) })
+      const result = await this.send('/netgo/v2/auth/transactions/' + tx.id + '/exchange', 'POST', { Verifier: verifier, Signature: await sign(proof + '\nexchange\n' + verifier) })
       if (generation !== this.generation) throw Error('管理登录已取消')
       if (result.user.role !== 'admin') throw Error('此账号没有管理权限')
       this.token = result.token

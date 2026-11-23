@@ -1,5 +1,7 @@
 #pragma once
 #include "common.hpp"
+#include <deque>
+#include <future>
 
 struct ssl_ctx_st;
 namespace netgo {
@@ -39,6 +41,12 @@ class Controller {
  Json status_ = {{"state","disconnected"},{"generation",0}};
  Json logs_ = Json::array();
  std::thread worker_;
+ struct RemoteJob {Json request;std::promise<Json> result;std::atomic_bool abandoned{false};};
+ std::deque<std::shared_ptr<RemoteJob>> remoteJobs_;
+ bool remoteReady_=false;
+ Json remoteContext_;
+ Json remoteCall(const Json&);
+ void closeRemote();
  std::atomic_bool cancel_{false};
  std::atomic_bool cleanupFailed_{false};
  bool engineEnabled_ = true;

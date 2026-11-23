@@ -24,11 +24,11 @@ func TestAuthenticatedProfileSyncProbesBeforePersisting(t *testing.T) {
 	public, private, _ := ed25519.GenerateKey(rand.Reader)
 	var published atomic.Value
 	server := httptest.NewTLSServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		if r.URL.Path == "/netgo/v1/health" {
-			_ = json.NewEncoder(w).Encode(protocol.Health{Protocol: 1, SiteID: "site", Capabilities: protocol.Capabilities()})
+		if r.URL.Path == "/netgo/v2/health" {
+			_ = json.NewEncoder(w).Encode(protocol.Health{Protocol: 2, SiteID: "site", Capabilities: protocol.Capabilities()})
 			return
 		}
-		if r.URL.Path != "/netgo/v1/site" || r.Header.Get("Authorization") != "Bearer token" || r.Header.Get(protocol.Header) != "1" {
+		if r.URL.Path != "/netgo/v2/site" || r.Header.Get("Authorization") != "Bearer token" || r.Header.Get(protocol.Header) != "2" {
 			t.Error("unauthenticated profile retrieval")
 			http.Error(w, "unauthorized", 401)
 			return
@@ -41,7 +41,7 @@ func TestAuthenticatedProfileSyncProbesBeforePersisting(t *testing.T) {
 		_ = json.NewEncoder(w).Encode(published.Load())
 	}))
 	defer server.Close()
-	old := site.Profile{ID: "site", Name: "My name", Protocol: 1, ConfigRevision: 2, Origin: server.URL, CA: string(pem.EncodeToMemory(&pem.Block{Type: "CERTIFICATE", Bytes: server.Certificate().Raw})), Candidates: []site.Candidate{{ID: "old", Kind: "direct", Address: strings.TrimPrefix(server.URL, "https://")}}}
+	old := site.Profile{ID: "site", Name: "My name", Protocol: 2, ConfigRevision: 2, Origin: server.URL, CA: string(pem.EncodeToMemory(&pem.Block{Type: "CERTIFICATE", Bytes: server.Certificate().Raw})), Candidates: []site.Candidate{{ID: "old", Kind: "direct", Address: strings.TrimPrefix(server.URL, "https://")}}}
 	for _, scenario := range []string{"success", "stale", "bad-entry", "trust-change"} {
 		t.Run(scenario, func(t *testing.T) {
 			controller := &Controller{Root: t.TempDir()}

@@ -11,7 +11,7 @@ import (
 
 func (c *Controller) synchronizeProfile(ctx context.Context, remote *Remote, current site.Profile, selector *controlpath.Selector) (site.Profile, *controlpath.Selector, error) {
 	var next site.Profile
-	if err := remote.Call(ctx, "GET", "/netgo/v1/site", nil, &next, ""); err != nil {
+	if err := remote.Call(ctx, "GET", "/netgo/v2/site", nil, &next, ""); err != nil {
 		return current, selector, err
 	}
 	if err := site.CheckProfileUpdate(current, next); err != nil {

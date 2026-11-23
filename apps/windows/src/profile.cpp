@@ -23,7 +23,7 @@ void validateProfile(const Json& p) {
  std::string id=p.at("ID");
  if(p.contains("ConfigRevision")&&(!p["ConfigRevision"].is_number_unsigned()&&!p["ConfigRevision"].is_number_integer()))throw Error("invalid_profile_revision");
  if(p.contains("ConfigRevision")&&(p["ConfigRevision"]<0||p["ConfigRevision"]>9007199254740991ULL))throw Error("invalid_profile_revision");
- if(!std::regex_match(id,std::regex(R"(^[a-zA-Z0-9][a-zA-Z0-9_.-]{0,62}$)"))||p.at("Protocol")!=1)throw Error("unsupported_profile");
+ if(!std::regex_match(id,std::regex(R"(^[a-zA-Z0-9][a-zA-Z0-9_.-]{0,62}$)"))||p.at("Protocol")!=2)throw Error("unsupported_profile");
  auto name=p.at("Name").get<std::string>();if(name.empty()||name.size()>256)throw Error("invalid_profile_name");
  wide(name);originHost(p.at("Origin"));
  const auto& candidates=p.at("Candidates");if(!candidates.is_array()||candidates.empty()||candidates.size()>8)throw Error("invalid_candidates");

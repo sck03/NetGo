@@ -57,11 +57,18 @@ def verify(output):
     run([cxx, output / 'ticket.o', output / 'ticket-caller.o', *link, *crypto, '-o', output / ('ticket-c-abi' + suffix)])
     run([output / ('ticket-tests' + suffix), vectors, crypto_version])
     run([output / ('ticket-c-abi' + suffix)])
+    run([cxx,*ticket_flags,'-O2',ticket/'tests/possession_tests.cpp',output/'ticket.o',*link,*crypto,'-o',output/('possession-tests'+suffix)])
+    run([output/('possession-tests'+suffix),ROOT/'tests/contracts/remote/possession.txt'])
+    transport=output/'transport'
+    configure=['cmake','-S',ROOT/'packages/remote-transport','-B',transport,'-G','Ninja','-DCMAKE_BUILD_TYPE=Release','-DNETGO_TRANSPORT_TESTS=ON']
+    if os.name=='nt':configure.extend([f'-DOPENSSL_ROOT_DIR={ROOT / ".tools/openssl-native"}','-DOPENSSL_USE_STATIC_LIBS=TRUE'])
+    run(configure);run(['cmake','--build',transport]);run(['ctest','--test-dir',transport,'--output-on-failure','--timeout','20'])
     if os.name == 'nt':
         capture = output / 'capture'
         run(['cmake', '-S', ROOT / 'apps/windows/remote', '-B', capture, '-G', 'Ninja', '-DCMAKE_BUILD_TYPE=Release', '-DNETGO_CAPTURE_PROBE=ON'])
         run(['cmake', '--build', capture])
         run([capture / 'netgo-capture-probe.exe', '--check'])
+        run([capture / 'netgo-video-probe.exe', '--check'])
     elif sys.platform.startswith('linux'):
         run([cxx, *flags, '-g', '-O1', '-fsanitize=address,undefined', '-fno-omit-frame-pointer',
              core / 'src/session.cpp', core / 'tests/session_tests.cpp', '-o', output / 'session-sanitized'])
@@ -73,7 +80,7 @@ def verify(output):
              core / 'src/session.cpp', ticket / 'src/ticket.cpp', ticket / 'tests/ticket_tests.cpp',
              *crypto, '-o', output / 'ticket-sanitized'])
         run([output / 'ticket-sanitized', vectors, crypto_version], env=env)
-    print('PASS remote gate, signed tickets and C11 ABI; no host registry, proof of possession, media or remote network acceptance', flush=True)
+    print('PASS remote gate, signed tickets, channel-bound possession, C11 ABI and platform codec checks; no remote network/device acceptance', flush=True)
 
 
 if __name__ == '__main__':

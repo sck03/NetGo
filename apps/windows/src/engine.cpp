@@ -67,7 +67,7 @@ void routeConflicts(const Json& resources) {
  }
 }
 Json safeDiagnostic(const Json& status,const Json& logs) {
- Json safe={{"version","0.2.4-dev"},{"platform","Windows native C++"},{"state",status.value("state","disconnected")},{"error",status.value("error","")},{"control",status.value("control","")},{"generation",status.value("generation",uint64_t(0))}};
+ Json safe={{"version","0.3.0-dev"},{"platform","Windows native C++"},{"state",status.value("state","disconnected")},{"error",status.value("error","")},{"control",status.value("control","")},{"generation",status.value("generation",uint64_t(0))}};
  auto d=status.value("data",Json::object());safe["data"]={{"state",d.value("state","")},{"path",d.value("path","negotiating")},{"rx",d.value("rx",int64_t(0))},{"tx",d.value("tx",int64_t(0))}};
  safe["events"]=logs;return safe;
 }}

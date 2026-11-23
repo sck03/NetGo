@@ -29,11 +29,11 @@ def main():
     verified=validate_report(ROOT,args.verification,'linux')
     release=json.loads((ROOT/'dist/linux-amd64/release.json').read_text())
     version=release['version']
-    if release!=dict(version=version,protocol=1,schema=1,os='linux',arch='amd64'):
+    if release!=dict(version=version,protocol=2,schema=2,os='linux',arch='amd64'):
         raise ValueError('incompatible server release')
     args.output.mkdir(parents=True,exist_ok=True)
     source=Path(subprocess.check_output([sys.executable,'-B',str(ROOT/'scripts/prepare-upstream.py'),'--path-only'],text=True).strip())
-    with tempfile.TemporaryDirectory(prefix='netgo-server-package-') as temporary:
+    with tempfile.TemporaryDirectory(prefix='netgo-server-package-',dir=ROOT/'.cache') as temporary:
         stage=Path(temporary)
         for folder in ('scripts','deploy','upstream','examples'):
             shutil.copytree(ROOT/folder,stage/folder,ignore=shutil.ignore_patterns('__pycache__','*.pyc','*.pyo'))

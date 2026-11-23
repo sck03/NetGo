@@ -12,6 +12,7 @@ import (
 	"netgo/internal/identity"
 	"netgo/internal/privileged"
 	"netgo/internal/process"
+	"netgo/internal/remote"
 	"netgo/internal/session"
 	"netgo/internal/site"
 	"netgo/internal/store"
@@ -59,7 +60,12 @@ func run() error {
 	}
 	monitor := diagnostics.NewMonitor()
 	go monitor.Run(ctx, c)
-	srv := &api.Server{Config: c, Store: s, Auth: auth, Sessions: leases, Management: m, Web: webui.Handler("admin"), Reconcile: reconciler.Apply, Monitor: monitor, Logger: slog.Default()}
+	remoteKey, e := remote.LoadKey(c.Database + ".remote-key")
+	if e != nil {
+		return e
+	}
+	remotes := &remote.Manager{Store: s, SiteID: c.Site.ID, Key: remoteKey, Peers: m}
+	srv := &api.Server{Config: c, Store: s, Auth: auth, Sessions: leases, Remote: remotes, Management: m, Web: webui.Handler("admin"), Reconcile: reconciler.Apply, Monitor: monitor, Logger: slog.Default()}
 	httpServer := &http.Server{Addr: c.Listen, Handler: srv.Handler(), ReadHeaderTimeout: 5 * time.Second, ReadTimeout: 20 * time.Second, WriteTimeout: 30 * time.Second, IdleTimeout: 60 * time.Second}
 	errc := make(chan error, 1)
 	go func() { errc <- httpServer.ListenAndServe() }()
@@ -75,6 +81,9 @@ func run() error {
 		case e := <-errc:
 			return e
 		case <-ticker.C:
+			if e = remotes.Sweep(); e != nil {
+				slog.Error("remote sweep failed")
+			}
 			check, cancel := context.WithTimeout(ctx, 4*time.Second)
 			if e = leases.Sweep(check); e != nil {
 				slog.Error("lease sweep failed")

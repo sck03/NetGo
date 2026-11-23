@@ -1,6 +1,6 @@
 {
   "Site": {
-    "Protocol":1,"ConfigRevision":1,
+    "Protocol":2,"ConfigRevision":1,
     "ID":"lab",
     "Name":"NetGo 多宽带站点",
     "Origin":"https://control.site.example:10443",

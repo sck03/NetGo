@@ -1,3 +1,5 @@
+// Package store owns schema 2. There is intentionally no schema 1 migration or
+// dual-write path: a deployment must initialize a new database directory.
 package store
 
 import (
@@ -5,12 +7,19 @@ import (
 	"database/sql"
 	"encoding/json"
 	"errors"
-	_ "modernc.org/sqlite"
+	"fmt"
 	"netgo/internal/model"
 	"os"
 	"path/filepath"
 	"sync"
+	"time"
+
+	_ "modernc.org/sqlite"
 )
+
+const applicationID = 0x4e474f32
+
+var ErrSchema = errors.New("database_schema_incompatible: initialize a fresh schema-2 database")
 
 type Store struct {
 	mu sync.Mutex
@@ -28,40 +37,210 @@ func Open(path string) (*Store, error) {
 		return nil, e
 	}
 	db.SetMaxOpenConns(1)
-	for _, q := range []string{"PRAGMA journal_mode=WAL", "PRAGMA synchronous=FULL", "PRAGMA busy_timeout=5000", "CREATE TABLE IF NOT EXISTS netgo_state (id INTEGER PRIMARY KEY CHECK(id=1), data BLOB NOT NULL)"} {
-		if _, e = db.Exec(q); e != nil {
-			db.Close()
-			return nil, e
-		}
-	}
-	b, _ := json.Marshal(model.NewState())
-	if _, e = db.Exec("INSERT OR IGNORE INTO netgo_state(id,data) VALUES(1,?)", b); e != nil {
+	s := &Store{db: db}
+	if e = s.initialize(); e != nil {
 		db.Close()
 		return nil, e
 	}
 	if path != ":memory:" {
-		_ = os.Chmod(path, 0600)
-	}
-	s := &Store{db: db}
-	st, e := s.View()
-	if e != nil || st.Schema != 1 {
-		db.Close()
-		return nil, errors.New("invalid/unsupported database schema")
+		if e = os.Chmod(path, 0600); e != nil {
+			db.Close()
+			return nil, e
+		}
 	}
 	return s, nil
 }
-func (s *Store) Close() error               { return s.db.Close() }
-func (s *Store) View() (model.State, error) { s.mu.Lock(); defer s.mu.Unlock(); return s.read() }
-func (s *Store) read() (model.State, error) {
-	var b []byte
-	var st model.State
-	e := s.db.QueryRow("SELECT data FROM netgo_state WHERE id=1").Scan(&b)
+
+func (s *Store) initialize() error {
+	// Inspect BEFORE changing journal mode or creating tables in an old database.
+	var version, owner, count int
+	if e := s.db.QueryRow("PRAGMA user_version").Scan(&version); e != nil {
+		return e
+	}
+	if e := s.db.QueryRow("PRAGMA application_id").Scan(&owner); e != nil {
+		return e
+	}
+	if e := s.db.QueryRow("SELECT count(*) FROM sqlite_master WHERE name NOT LIKE 'sqlite_%'").Scan(&count); e != nil {
+		return e
+	}
+	if (count != 0 && (version != model.Schema || owner != applicationID)) || (count == 0 && (version != 0 || owner != 0)) {
+		return ErrSchema
+	}
+	for _, q := range []string{"PRAGMA busy_timeout=5000", "PRAGMA foreign_keys=ON", "PRAGMA journal_mode=WAL", "PRAGMA synchronous=FULL"} {
+		if _, e := s.db.Exec(q); e != nil {
+			return e
+		}
+	}
+	if count == 0 {
+		tx, e := s.db.Begin()
+		if e != nil {
+			return e
+		}
+		defer tx.Rollback()
+		for _, q := range schema {
+			if _, e = tx.Exec(q); e != nil {
+				return e
+			}
+		}
+		if e = tx.Commit(); e != nil {
+			return e
+		}
+	}
+	_, e := s.View()
+	return e
+}
+
+func (s *Store) Close() error { return s.db.Close() }
+
+func (s *Store) View() (model.State, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	tx, e := s.db.Begin()
+	if e != nil {
+		return model.State{}, e
+	}
+	defer tx.Rollback()
+	st, e := read(tx)
+	if e == nil {
+		e = tx.Commit()
+	}
+	return st, e
+}
+
+func readMap[T any](tx *sql.Tx, table string, target map[string]T) error {
+	rows, e := tx.Query("SELECT id,data FROM " + table)
+	if e != nil {
+		return e
+	}
+	defer rows.Close()
+	for rows.Next() {
+		var id string
+		var raw []byte
+		var item T
+		if e = rows.Scan(&id, &raw); e != nil {
+			return e
+		}
+		if e = json.Unmarshal(raw, &item); e != nil {
+			return e
+		}
+		target[id] = item
+	}
+	return rows.Err()
+}
+
+func read(tx *sql.Tx) (model.State, error) {
+	st := model.NewState()
+	e := tx.QueryRow("SELECT revision,observed_revision,last_error FROM metadata WHERE id=1").Scan(&st.Revision, &st.ObservedRevision, &st.LastError)
 	if e != nil {
 		return st, e
 	}
-	e = json.Unmarshal(b, &st)
-	return st, e
+	for _, load := range []func() error{
+		func() error { return readMap(tx, "users", st.Users) },
+		func() error { return readMap(tx, "resources", st.Resources) },
+		func() error { return readMap(tx, "devices", st.Devices) },
+		func() error { return readMap(tx, "vpn_leases", st.Leases) },
+		func() error { return readMap(tx, "credentials", st.Credentials) },
+		func() error { return readMap(tx, "operation_keys", st.Operations) },
+		func() error { return readMap(tx, "hosts", st.Hosts) },
+		func() error { return readMap(tx, "remote_grants", st.RemoteGrants) },
+		func() error { return readMap(tx, "remote_sessions", st.RemoteSessions) },
+		func() error { return readMap(tx, "remote_operations", st.RemoteOperations) },
+	} {
+		if e = load(); e != nil {
+			return st, e
+		}
+	}
+	rows, e := tx.Query("SELECT data FROM audit_events ORDER BY sequence")
+	if e != nil {
+		return st, e
+	}
+	defer rows.Close()
+	for rows.Next() {
+		var raw []byte
+		var event model.Event
+		if e = rows.Scan(&raw); e != nil {
+			return st, e
+		}
+		if e = json.Unmarshal(raw, &event); e != nil {
+			return st, e
+		}
+		st.Audit = append(st.Audit, event)
+	}
+	return st, rows.Err()
 }
+
+// Save only changed rows; heartbeat/lease writes do not rewrite unrelated users,
+// devices or the bounded audit log. Table names are compile-time constants.
+func saveMap[T any](tx *sql.Tx, table string, before, after map[string]T) error {
+	for id := range before {
+		if _, exists := after[id]; !exists {
+			if _, e := tx.Exec("DELETE FROM "+table+" WHERE id=?", id); e != nil {
+				return e
+			}
+		}
+	}
+	for id, item := range after {
+		raw, e := json.Marshal(item)
+		if e != nil {
+			return e
+		}
+		old, exists := before[id]
+		if exists {
+			prior, err := json.Marshal(old)
+			if err != nil {
+				return err
+			}
+			if bytes.Equal(prior, raw) {
+				continue
+			}
+		}
+		if _, e = tx.Exec("INSERT INTO "+table+"(id,data) VALUES(?,?) ON CONFLICT(id) DO UPDATE SET data=excluded.data", id, string(raw)); e != nil {
+			return fmt.Errorf("%s: %w", table, e)
+		}
+	}
+	return nil
+}
+
+func saveAudit(tx *sql.Tx, before, after []model.Event) error {
+	// Record only appends (and drops an old prefix). Arbitrary replacements remain
+	// possible for restore tools, but are not part of the normal write path.
+	common := 0
+	for drop := 0; drop <= len(before); drop++ {
+		n := len(before) - drop
+		if n > len(after) {
+			continue
+		}
+		match := true
+		for i := 0; i < n; i++ {
+			if before[drop+i] != after[i] {
+				match = false
+				break
+			}
+		}
+		if match {
+			common = n
+			break
+		}
+	}
+	var last int64
+	if e := tx.QueryRow("SELECT coalesce(max(sequence),0) FROM audit_events").Scan(&last); e != nil {
+		return e
+	}
+	if _, e := tx.Exec("DELETE FROM audit_events WHERE sequence<=?", last-int64(common)); e != nil {
+		return e
+	}
+	for _, event := range after[common:] {
+		raw, e := json.Marshal(event)
+		if e != nil {
+			return e
+		}
+		if _, e = tx.Exec("INSERT INTO audit_events(data) VALUES(?)", string(raw)); e != nil {
+			return e
+		}
+	}
+	return nil
+}
+
 func (s *Store) Update(fn func(*model.State) error) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
@@ -70,52 +249,156 @@ func (s *Store) Update(fn func(*model.State) error) error {
 		return e
 	}
 	defer tx.Rollback()
-	// Acquire SQLite's write lock before reading or changing the kernel gate.
-	if _, e = tx.Exec("UPDATE netgo_state SET id=id WHERE id=1"); e != nil {
+	// Acquire the write lock before reading. This fences separate processes too.
+	if _, e = tx.Exec("UPDATE metadata SET id=id WHERE id=1"); e != nil {
 		return e
 	}
-	var raw []byte
-	var st model.State
-	if e = tx.QueryRow("SELECT data FROM netgo_state WHERE id=1").Scan(&raw); e != nil {
+	before, e := read(tx)
+	if e != nil {
 		return e
 	}
-	if e = json.Unmarshal(raw, &st); e != nil {
+	// Copy by decoding ensures callbacks cannot mutate the comparison snapshot.
+	raw, e := json.Marshal(before)
+	if e != nil {
 		return e
 	}
-	// desired_revision tracks policy input, not lease/audit/credential churn.
-	policy := func(s model.State) ([]byte, error) {
-		return json.Marshal(struct {
+	var after model.State
+	if e = json.Unmarshal(raw, &after); e != nil {
+		return e
+	}
+	if e = fn(&after); e != nil {
+		return e
+	}
+	if after.Schema != model.Schema {
+		return ErrSchema
+	}
+	pruneRemote(&before, &after)
+	policy := func(st model.State) []byte {
+		p, _ := json.Marshal(struct {
 			Users     map[string]model.User
 			Resources map[string]model.Resource
-		}{s.Users, s.Resources})
+			Remote    []model.RemoteRoute
+		}{st.Users, st.Resources, model.RemoteRoutes(st)})
+		return p
 	}
-	previousPolicy, e := policy(st)
-	if e != nil {
-		return e
+	if !bytes.Equal(policy(before), policy(after)) {
+		after.Revision++
 	}
-	if e = fn(&st); e != nil {
-		return e
+	for _, save := range []func() error{
+		func() error { return saveMap(tx, "users", before.Users, after.Users) },
+		func() error { return saveMap(tx, "resources", before.Resources, after.Resources) },
+		func() error { return saveMap(tx, "devices", before.Devices, after.Devices) },
+		func() error { return saveMap(tx, "vpn_leases", before.Leases, after.Leases) },
+		func() error { return saveMap(tx, "credentials", before.Credentials, after.Credentials) },
+		func() error { return saveMap(tx, "operation_keys", before.Operations, after.Operations) },
+		func() error { return saveMap(tx, "hosts", before.Hosts, after.Hosts) },
+		func() error { return saveMap(tx, "remote_grants", before.RemoteGrants, after.RemoteGrants) },
+		func() error { return saveMap(tx, "remote_sessions", before.RemoteSessions, after.RemoteSessions) },
+		func() error { return saveMap(tx, "remote_operations", before.RemoteOperations, after.RemoteOperations) },
+		func() error { return saveAudit(tx, before.Audit, after.Audit) },
+	} {
+		if e = save(); e != nil {
+			return e
+		}
 	}
-	nextPolicy, e := policy(st)
-	if e != nil {
-		return e
-	}
-	if !bytes.Equal(previousPolicy, nextPolicy) {
-		st.Revision++
-	}
-	b, e := json.Marshal(st)
-	if e != nil {
-		return e
-	}
-	if _, e = tx.Exec("UPDATE netgo_state SET data=? WHERE id=1", b); e != nil {
+	if _, e = tx.Exec("UPDATE metadata SET revision=?,observed_revision=?,last_error=? WHERE id=1", after.Revision, after.ObservedRevision, after.LastError); e != nil {
 		return e
 	}
 	return tx.Commit()
 }
+
+func pruneRemote(before, st *model.State) {
+	// A device/user deletion revokes dependent credentials and leases in this
+	// transaction, even when a caller only removes the owning entity.
+	for id, d := range st.Devices {
+		_, existed := before.Users[d.UserID]
+		if _, ok := st.Users[d.UserID]; !ok && existed {
+			delete(st.Devices, id)
+		}
+	}
+	for key, c := range st.Credentials {
+		d, ok := st.Devices[c.DeviceID]
+		_, existed := before.Devices[c.DeviceID]
+		if !ok && existed || ok && d.UserID != c.UserID {
+			delete(st.Credentials, key)
+		}
+	}
+	for key, l := range st.Leases {
+		d, ok := st.Devices[l.DeviceID]
+		_, existed := before.Devices[l.DeviceID]
+		if !ok && existed || ok && d.UserID != l.UserID {
+			delete(st.Leases, key)
+		}
+	}
+	for id := range st.Hosts {
+		_, existed := before.Devices[id]
+		if _, ok := st.Devices[id]; !ok && existed {
+			delete(st.Hosts, id)
+		}
+	}
+	for id, g := range st.RemoteGrants {
+		_, u := st.Users[g.UserID]
+		_, h := st.Hosts[g.HostID]
+		_, oldUser := before.Users[g.UserID]
+		_, oldHost := before.Hosts[g.HostID]
+		if !u && oldUser || !h && oldHost {
+			delete(st.RemoteGrants, id)
+		}
+	}
+	for id, r := range st.RemoteSessions {
+		_, u := st.Users[r.UserID]
+		_, h := st.Hosts[r.HostID]
+		_, c := st.Devices[r.ControllerID]
+		_, oldUser := before.Users[r.UserID]
+		_, oldHost := before.Hosts[r.HostID]
+		_, oldController := before.Devices[r.ControllerID]
+		if !u && oldUser || !h && oldHost || !c && oldController {
+			delete(st.RemoteSessions, id)
+		}
+	}
+}
+
 func (s *Store) Snapshot() ([]byte, error) {
 	st, e := s.View()
 	if e != nil {
 		return nil, e
 	}
 	return json.MarshalIndent(st, "", "  ")
+}
+
+// ConsumeNonce atomically consumes a digest across callers and restarts. Expiry
+// includes the accepted request clock-skew window; full tables fail closed.
+func (s *Store) ConsumeNonce(key string, now, expires time.Time) error {
+	if len(key) != 64 || !expires.After(now) || expires.Sub(now) > 2*time.Minute {
+		return model.ErrUnauthorized
+	}
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	tx, e := s.db.Begin()
+	if e != nil {
+		return e
+	}
+	defer tx.Rollback()
+	if _, e = tx.Exec("DELETE FROM ticket_nonces WHERE expires_ms<=?", now.UnixMilli()); e != nil {
+		return e
+	}
+	var count int
+	if e = tx.QueryRow("SELECT count(*) FROM ticket_nonces").Scan(&count); e != nil {
+		return e
+	}
+	if count >= 65536 {
+		return model.ErrUnauthorized
+	}
+	result, e := tx.Exec("INSERT OR IGNORE INTO ticket_nonces(id,expires_ms) VALUES(?,?)", key, expires.UnixMilli())
+	if e != nil {
+		return e
+	}
+	n, e := result.RowsAffected()
+	if e != nil {
+		return e
+	}
+	if n != 1 {
+		return model.ErrUnauthorized
+	}
+	return tx.Commit()
 }

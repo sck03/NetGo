@@ -42,7 +42,8 @@ func TestOnlyPolicyChangesInvalidateObservedRevision(t *testing.T) {
 	if err = s.Update(func(st *model.State) error {
 		st.ObservedRevision = st.Revision
 		st.Record("u", "session.renew", "l")
-		st.Leases["l"] = model.Lease{ID: "l"}
+		st.Devices["d"] = model.Device{ID: "d", UserID: "u"}
+		st.Leases["l"] = model.Lease{ID: "l", UserID: "u", DeviceID: "d"}
 		return nil
 	}); err != nil {
 		t.Fatal(err)

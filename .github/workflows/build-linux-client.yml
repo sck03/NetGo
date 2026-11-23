@@ -1,0 +1,32 @@
+name: Linux desktop client
+on:
+  workflow_dispatch:
+  push:
+    paths: ['apps/linux/**', 'packages/remote-*/**', 'internal/client/**', 'cmd/netgo-client-service/**', 'scripts/build-linux-client.sh', 'scripts/build-linux-native.sh', 'upstream/**', '.github/workflows/build-linux-client.yml']
+permissions:
+  contents: read
+jobs:
+  build:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+      - uses: actions/setup-go@d8cbb8045d7f43706b9177cceb36c1f91a6644d5
+        with:
+          go-version: '1.27.4'
+          cache: false
+      - name: Install native client build dependencies
+        run: sudo apt-get update && sudo apt-get install -y cmake ninja-build pkg-config libgtk-4-dev libssl-dev libcurl4-openssl-dev libavcodec-dev libavutil-dev libswscale-dev xvfb xauth
+      - name: Build Linux client
+        run: bash scripts/build-linux-client.sh
+      - name: Check native window lifecycle
+        env:
+          GTK_A11Y: none
+        run: xvfb-run -a dist/linux-desktop-amd64/netgo-desktop --smoke
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9
+        with:
+          name: linux-client-${{ github.sha }}
+          path: |
+            dist/NetGo-*-linux-client-*.tar.gz
+            dist/linux-desktop-amd64/SHA256SUMS
+          if-no-files-found: error

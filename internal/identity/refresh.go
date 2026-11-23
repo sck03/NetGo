@@ -41,6 +41,14 @@ func (n *Native) Refresh(ctx context.Context, c model.Credential, oldToken, refr
 		}
 		delete(st.Credentials, model.Hash(oldToken))
 		st.Credentials[model.Hash(result.Token)] = model.Credential{UserID: u.ID, DeviceID: d.ID, ExpiresAt: result.ExpiresAt}
+		// A signed rotation keeps the same authenticated device. Rebind active
+		// authorizations atomically; logout and unrelated credentials cannot revive them.
+		for id, remote := range st.RemoteSessions {
+			if remote.State != "closed" && remote.ControllerAuth == model.Hash(oldToken) && remote.ControllerID == d.ID && remote.UserID == u.ID {
+				remote.ControllerAuth = model.Hash(result.Token)
+				st.RemoteSessions[id] = remote
+			}
+		}
 		result.User = u
 		st.Record(u.ID, "auth.refresh", d.ID)
 		return nil

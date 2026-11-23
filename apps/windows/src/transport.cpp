@@ -15,7 +15,7 @@ namespace netgo {
 static std::string lower(std::string s){for(char& c:s)c=char(std::tolower(static_cast<unsigned char>(c)));return s;}
 void validateHealth(const Json& h,const std::string& siteID) {
  if(h.value("site_id","")!=siteID)throw Error("site_identity_mismatch");
- if(h.value("protocol",0)!=1||!h.contains("capabilities")||!h["capabilities"].is_array())throw Error("protocol_incompatible");
+ if(h.value("protocol",0)!=2||!h.contains("capabilities")||!h["capabilities"].is_array())throw Error("protocol_incompatible");
  for(const auto& c:{"native-auth-v1","device-signature-v1","leases-v1","profile-revision-v1"}){
   if(std::find(h["capabilities"].begin(),h["capabilities"].end(),Json(c))==h["capabilities"].end())throw Error("protocol_incompatible");
  }
@@ -94,7 +94,7 @@ Transport::Transport(Json p,std::chrono::milliseconds cooldown):profile_(std::mo
  }
 }
 Json Transport::requestAt(size_t index,const std::string& method,const std::string& path,const std::string& body,const std::string& headers) {
- auto deadline=Clock::now()+std::chrono::seconds(path=="/netgo/v1/health"?3:20);
+ auto deadline=Clock::now()+std::chrono::seconds(path=="/netgo/v2/health"?3:20);
  auto target=address(profile_["Candidates"].at(index).at("Address"));
  ADDRINFOEXW hints{},*list=nullptr;hints.ai_family=AF_UNSPEC;hints.ai_socktype=SOCK_STREAM;hints.ai_protocol=IPPROTO_TCP;
  Handle completion(CreateEventW(nullptr,TRUE,FALSE,nullptr));if(!completion.value)throw Error("control_dns_failed");
@@ -170,7 +170,7 @@ Json Transport::requestAt(size_t index,const std::string& method,const std::stri
  return Json::parse(response.body);
 }
 bool Transport::probe(size_t i) {
- try{auto h=requestAt(i,"GET","/netgo/v1/health","","");validateHealth(h,profile_.at("ID"));return true;}
+ try{auto h=requestAt(i,"GET","/netgo/v2/health","","");validateHealth(h,profile_.at("ID"));return true;}
  catch(const std::exception& e){if(std::string(e.what())=="protocol_incompatible")incompatible_=true;if(std::string(e.what())=="clock_out_of_sync")clockSkew_=true;return false;}
 }
 void Transport::select() {
@@ -205,7 +205,7 @@ void Transport::recover() {
 std::string Transport::kind() const{return profile_["Candidates"][selected_]["Kind"];}
 std::string Transport::candidate() const{return profile_["Candidates"][selected_]["ID"];}
 Json Transport::call(const std::string& method,const std::string& path,const Json& value,const std::string& seed,const std::string& token,const std::string& idem) {
- std::string body=value.is_null()?"":value.dump(),headers="X-NetGo-Protocol: 1\r\n";
+ std::string body=value.is_null()?"":value.dump(),headers="X-NetGo-Protocol: 2\r\n";
  if(!idem.empty())headers+="Idempotency-Key: "+idem+"\r\n";
  if(!token.empty()){
   auto stamp=std::to_string(std::time(nullptr)),nonce=randomID();

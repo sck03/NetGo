@@ -1,9 +1,12 @@
 package client
 
 import (
+	"context"
+	"encoding/base64"
 	"encoding/json"
 	"net/http"
 	"netgo/internal/site"
+	"time"
 )
 
 func (c *Controller) Handler() http.Handler {
@@ -44,5 +47,36 @@ func (c *Controller) Handler() http.Handler {
 		write(w, c.Status(), e)
 	})
 	m.HandleFunc("POST /desktop/disconnect", func(w http.ResponseWriter, r *http.Request) { e := c.Disconnect(); write(w, c.Status(), e) })
+	m.HandleFunc("GET /desktop/remote/context", func(w http.ResponseWriter, r *http.Request) {
+		v, e := c.RemoteContext(r.URL.Query().Get("site"))
+		write(w, v, e)
+	})
+	m.HandleFunc("POST /desktop/remote/call", func(w http.ResponseWriter, r *http.Request) {
+		var request RemoteRequest
+		r.Body = http.MaxBytesReader(w, r.Body, 65536)
+		if e := site.Decode(r.Body, &request); e != nil {
+			write(w, nil, e)
+			return
+		}
+		ctx, cancel := context.WithTimeout(r.Context(), 20*time.Second)
+		defer cancel()
+		v, e := c.RemoteCommand(ctx, request)
+		write(w, v, e)
+	})
+	m.HandleFunc("POST /desktop/remote/sign", func(w http.ResponseWriter, r *http.Request) {
+		var request struct{ Site, Message string }
+		r.Body = http.MaxBytesReader(w, r.Body, 1024)
+		if e := site.Decode(r.Body, &request); e != nil {
+			write(w, nil, e)
+			return
+		}
+		message, e := base64.RawURLEncoding.Strict().DecodeString(request.Message)
+		if e != nil {
+			write(w, nil, e)
+			return
+		}
+		v, e := c.SignPossession(request.Site, string(message))
+		write(w, map[string]string{"signature": v}, e)
+	})
 	return m
 }

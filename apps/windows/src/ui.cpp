@@ -12,7 +12,7 @@
 using namespace netgo;
 namespace {
 constexpr UINT resultMessage=WM_APP+1,trayMessage=WM_APP+2;
-enum { Servers=100,Alias,Password,Remember,Replace,Connect,Import,Export,Edit,Remove,Info,Resources,StatusText,Detail,Log,Tabs,ShowPassword,LogText,StatusDetail,RefreshLog,MenuNew=200,MenuImport,MenuExport,MenuEdit,MenuDelete,MenuForget,MenuExit,MenuShow,MenuDisconnect,MenuAutoStart,MenuAutoConnect,MenuTray,MenuAbout,MenuAdvanced,MenuMain,MenuInfo,MenuResources,MenuMinimizeTray };
+enum { Servers=100,Alias,Password,Remember,Replace,Connect,Import,Export,Edit,Remove,Info,Resources,StatusText,Detail,Log,Tabs,ShowPassword,LogText,StatusDetail,RefreshLog,MenuNew=200,MenuImport,MenuExport,MenuEdit,MenuDelete,MenuForget,MenuExit,MenuShow,MenuDisconnect,MenuAutoStart,MenuAutoConnect,MenuTray,MenuAbout,MenuAdvanced,MenuMain,MenuInfo,MenuResources,MenuMinimizeTray,MenuNetworkSetup,MenuRemote };
 struct Result{std::string action,site;Json value;std::string error;};
 HWND window=nullptr;HFONT font=nullptr,titleFont=nullptr;HBRUSH background=nullptr,sidebar=nullptr;
 UINT dpi=96;
@@ -32,7 +32,8 @@ std::wstring text(HWND h){int n=GetWindowTextLengthW(h);std::wstring s(n+1,L'\0'
 std::wstring errorText(const std::string& e) {
  static const std::map<std::string,std::wstring> messages={
   {"agent_unavailable",L"连接后台未启动。请重新打开客户端，或重新安装程序。"},
-  {"engine_missing",L"缺少 NetBird 网络核心。请使用完整安装包。"},
+  {"engine_missing",L"网络服务尚未安装。绿色版请从“选项 → 准备网络服务”完成一次授权。"},
+  {"network_setup_missing",L"缺少网络服务安装程序。请重新解压完整绿色版，或使用安装版。"},
   {"engine_rpc_failed",L"无法操作网络服务。请确认已安装本套装的 NetBird 服务并授权当前 Windows 用户。"},
   {"engine_cleanup_failed",L"尚未确认网络服务已断开。请恢复 NetGoNetBird 服务后再次断开，暂时不要切换服务器。"},
   {"engine_connect_timeout",L"网络服务未在规定时间内连接。请检查服务端 Management、Signal 和网络核心日志后重试。"},
@@ -133,11 +134,11 @@ void logsDialog(const Json& events) {
 void persist(){secureDirectory(dataRoot());atomicFile(dataRoot()/L".preferences",preferences.dump(2));}
 void startup(bool enabled){
  HKEY key=nullptr;if(RegCreateKeyExW(HKEY_CURRENT_USER,L"Software\\Microsoft\\Windows\\CurrentVersion\\Run",0,nullptr,0,KEY_SET_VALUE,nullptr,&key,nullptr)!=ERROR_SUCCESS)throw Error("startup_setting_failed");
- if(enabled){std::wstring value=L"\""+(executableDir()/L"netgo-desktop.exe").wstring()+L"\" --tray";auto e=RegSetValueExW(key,L"NetGoNative",0,REG_SZ,reinterpret_cast<const BYTE*>(value.c_str()),DWORD((value.size()+1)*sizeof(wchar_t)));RegCloseKey(key);if(e!=ERROR_SUCCESS)throw Error("startup_setting_failed");}
+ if(enabled){std::wstring value=L"\""+(executableDir()/L"NetGo.exe").wstring()+L"\" --tray";auto e=RegSetValueExW(key,L"NetGoNative",0,REG_SZ,reinterpret_cast<const BYTE*>(value.c_str()),DWORD((value.size()+1)*sizeof(wchar_t)));RegCloseKey(key);if(e!=ERROR_SUCCESS)throw Error("startup_setting_failed");}
  else{RegDeleteValueW(key,L"NetGoNative");RegCloseKey(key);}
 }
 void tray(bool add) {
- NOTIFYICONDATAW n{};n.cbSize=sizeof(n);n.hWnd=window;n.uID=1;n.uFlags=NIF_ICON|NIF_MESSAGE|NIF_TIP;n.uCallbackMessage=trayMessage;n.hIcon=LoadIconW(nullptr,IDI_APPLICATION);
+ NOTIFYICONDATAW n{};n.cbSize=sizeof(n);n.hWnd=window;n.uID=1;n.uFlags=NIF_ICON|NIF_MESSAGE|NIF_TIP;n.uCallbackMessage=trayMessage;n.hIcon=LoadIconW(GetModuleHandleW(nullptr),MAKEINTRESOURCEW(101));
  std::wstring tip=L"NetGo · "+stateText(currentStatus.value("state","disconnected"));wcsncpy_s(n.szTip,tip.c_str(),_TRUNCATE);Shell_NotifyIconW(add?NIM_ADD:NIM_MODIFY,&n);
 }
 void refreshSelection() {
@@ -177,6 +178,7 @@ void command(int id) {
  switch(id) {
  case MenuShow:ShowWindow(window,SW_RESTORE);SetForegroundWindow(window);break;
  case IDOK:case Connect:{if(pending)break;if(active()){pending=true;submit({{"action","disconnect"}});drawStatus(currentStatus);break;}if(!selected())break;
+  if(std::filesystem::is_regular_file(executableDir()/L"netgo-portable.json")&&!WaitNamedPipeW(L"\\\\.\\pipe\\netgo-netbird",100)){command(MenuNetworkSetup);break;}
   if(text(controls[Alias]).empty()||(!saved&&text(controls[Password]).empty()))throw Error("credentials_required");
   std::string password=utf8(text(controls[Password]));submit({{"action","connect"},{"site",chosen},{"alias",utf8(text(controls[Alias]))},{"password",password},{"remember",SendMessageW(controls[Remember],BM_GETCHECK,0,0)==BST_CHECKED},{"replace",SendMessageW(controls[Replace],BM_GETCHECK,0,0)==BST_CHECKED}});
   pending=true;wipe(password);set(Password,L"");drawStatus(currentStatus);preferences["selected"]=chosen;persist();break;}
@@ -194,11 +196,22 @@ void command(int id) {
  case MenuMain:showTab(0);break;
  case MenuInfo:showTab(1);break;
  case MenuResources:showTab(2);break;
+ case MenuRemote:{
+  if(currentStatus.value("state","")!="connected"||chosen!=currentStatus.value("site_id",""))throw Error("remote_site_disconnected");
+  auto binary=executableDir()/L"NetGo.exe";auto parameters=L"--remote --site "+wide(chosen);
+  if(reinterpret_cast<INT_PTR>(ShellExecuteW(window,L"open",binary.c_str(),parameters.c_str(),executableDir().c_str(),SW_SHOWNORMAL))<=32)throw Error("remote_program_missing");
+  break;}
  case MenuAutoStart:{bool enabled=!preferences.value("startup",false);startup(enabled);preferences["startup"]=enabled;persist();CheckMenuItem(GetMenu(window),MenuAutoStart,MF_BYCOMMAND|(enabled?MF_CHECKED:MF_UNCHECKED));break;}
  case MenuAutoConnect:{bool enabled=!(preferences.value("auto_connect",false)&&preferences.value("auto_connect_site","")==chosen);if(enabled&&(!selected()||!saved))throw Error("auto_connect_requires_saved_password");preferences["auto_connect"]=enabled;preferences["auto_connect_site"]=enabled?chosen:"";persist();break;}
  case MenuTray:{bool enabled=!preferences.value("close_to_tray",true);preferences["close_to_tray"]=enabled;persist();CheckMenuItem(GetMenu(window),MenuTray,MF_BYCOMMAND|(enabled?MF_CHECKED:MF_UNCHECKED));break;}
  case MenuMinimizeTray:{preferences["minimize_to_tray"]=!preferences.value("minimize_to_tray",false);persist();break;}
- case MenuAbout:MessageBoxW(window,L"NetGo 0.2.4-dev\n原生 C++ / Win32 客户端\n网络核心：NetBird\n登录入口和数据路径分别显示。\n\n诊断导出不包含密码、令牌或密钥。",L"关于 NetGo",MB_OK);break;
+ case MenuAbout:MessageBoxW(window,L"NetGo 0.3.0-dev\n原生 C++ / Win32 客户端\n网络核心：NetBird\n登录入口和数据路径分别显示。\n\n诊断导出不包含密码、令牌或密钥。",L"关于 NetGo",MB_OK);break;
+ case MenuNetworkSetup:{
+  if(active())throw Error("disconnect_before_edit");
+  auto setup=executableDir()/L".netgo/NetGo-Network-Setup.exe";
+  if(!std::filesystem::is_regular_file(setup))throw Error("network_setup_missing");
+  if(reinterpret_cast<INT_PTR>(ShellExecuteW(window,L"open",setup.c_str(),nullptr,executableDir().c_str(),SW_SHOWNORMAL))<=32)throw Error("network_setup_missing");
+  break;}
  case MenuExit:exiting=true;EnableWindow(window,FALSE);submit({{"action","shutdown"}});break;
  default:if(id==300){submit({{"action","diagnostic"}});}else if(id==301)submit({{"action","clear-logs"}});break;
  }
@@ -227,10 +240,12 @@ void createUI(){
  HMENU menu=CreateMenu(),config=CreatePopupMenu(),view=CreatePopupMenu(),options=CreatePopupMenu();
  for(auto p:{std::pair{MenuNew,L"新建服务器…\tCtrl+N"},std::pair{MenuImport,L"导入站点…\tCtrl+O"},std::pair{MenuExport,L"导出配置…"},std::pair{MenuEdit,L"编辑服务器…\tCtrl+E"},std::pair{MenuAdvanced,L"高级配置…"},std::pair{MenuDelete,L"删除服务器"},std::pair{MenuForget,L"忘记保存的密码"},std::pair{MenuExit,L"退出\tCtrl+Q"}})AppendMenuW(config,MF_STRING,p.first,p.second);
  AppendMenuW(view,MF_STRING,MenuMain,L"连接");AppendMenuW(view,MF_STRING,MenuInfo,L"VPN 信息");AppendMenuW(view,MF_STRING,MenuResources,L"可访问资源");AppendMenuW(view,MF_STRING,Log,L"查看日志\tCtrl+L");AppendMenuW(view,MF_STRING,300,L"导出诊断…");
+ AppendMenuW(view,MF_STRING,MenuRemote,L"远程桌面…");
  AppendMenuW(options,MF_STRING|(preferences.value("startup",false)?MF_CHECKED:0),MenuAutoStart,L"登录 Windows 后启动");
  AppendMenuW(options,MF_STRING|(preferences.value("auto_connect",false)?MF_CHECKED:0),MenuAutoConnect,L"启动后使用已保存凭据连接");
  AppendMenuW(options,MF_STRING|(preferences.value("close_to_tray",true)?MF_CHECKED:0),MenuTray,L"关闭窗口时保留托盘");
  AppendMenuW(options,MF_STRING,MenuMinimizeTray,L"最小化到托盘");
+ if(std::filesystem::is_regular_file(executableDir()/L"netgo-portable.json"))AppendMenuW(options,MF_STRING,MenuNetworkSetup,L"准备网络服务…");
  AppendMenuW(menu,MF_POPUP,reinterpret_cast<UINT_PTR>(config),L"配置");AppendMenuW(menu,MF_POPUP,reinterpret_cast<UINT_PTR>(view),L"查看");AppendMenuW(menu,MF_POPUP,reinterpret_cast<UINT_PTR>(options),L"选项");AppendMenuW(menu,MF_STRING,MenuAbout,L"关于");SetMenu(window,menu);
  control(WC_TABCONTROLW,L"",Tabs,WS_TABSTOP|WS_CLIPSIBLINGS);
  int page=0;for(auto caption:{L"连接",L"VPN 信息",L"可访问资源",L"日志"}){TCITEMW item{};item.mask=TCIF_TEXT;item.pszText=const_cast<wchar_t*>(caption);TabCtrl_InsertItem(controls[Tabs],page++,&item);}
@@ -318,12 +333,12 @@ LRESULT CALLBACK proc(HWND h,UINT m,WPARAM w,LPARAM l) {
 }
 void launchAgent(){
  try{pipeCall({{"action","status"}});return;}catch(...){}
- auto file=executableDir()/L"netgo-agent.exe";std::wstring command=L"\""+file.wstring()+L"\"";STARTUPINFOW start{};start.cb=sizeof(start);PROCESS_INFORMATION p{};
+ auto file=executableDir()/L"NetGo.exe";std::wstring command=L"\""+file.wstring()+L"\" --agent";STARTUPINFOW start{};start.cb=sizeof(start);PROCESS_INFORMATION p{};
  if(!CreateProcessW(file.c_str(),command.data(),nullptr,nullptr,FALSE,CREATE_NO_WINDOW,nullptr,file.parent_path().c_str(),&start,&p))throw Error("agent_unavailable");
  CloseHandle(p.hThread);CloseHandle(p.hProcess);
 }
 }
-int WINAPI wWinMain(HINSTANCE instance,HINSTANCE,PWSTR args,int show) {
+int desktopMain(HINSTANCE instance,PWSTR args,int show) {
  try{
   Handle mutex(CreateMutexW(nullptr,TRUE,wide("Local\\NetGoNativeUI-"+sid()).c_str()));
   if(GetLastError()==ERROR_ALREADY_EXISTS){auto h=FindWindowW(L"NetGoNativeWindow",nullptr);if(h){ShowWindow(h,SW_RESTORE);SetForegroundWindow(h);}return 0;}
@@ -331,7 +346,7 @@ int WINAPI wWinMain(HINSTANCE instance,HINSTANCE,PWSTR args,int show) {
   WSADATA data{};WSAStartup(MAKEWORD(2,2),&data);
   try{preferences=Json::parse(readFile(dataRoot()/L".preferences",8192));}catch(...){preferences=Json::object();}
   chosen=preferences.value("selected","");if(preferences.value("auto_connect",false)){if(!preferences.contains("auto_connect_site"))preferences["auto_connect_site"]=chosen;chosen=preferences.value("auto_connect_site",chosen);}launchAgent();
-  WNDCLASSW c{};c.hInstance=instance;c.lpfnWndProc=proc;c.lpszClassName=L"NetGoNativeWindow";c.hCursor=LoadCursorW(nullptr,IDC_ARROW);c.hIcon=LoadIconW(nullptr,IDI_APPLICATION);RegisterClassW(&c);
+  WNDCLASSW c{};c.hInstance=instance;c.lpfnWndProc=proc;c.lpszClassName=L"NetGoNativeWindow";c.hCursor=LoadCursorW(nullptr,IDC_ARROW);c.hIcon=LoadIconW(instance,MAKEINTRESOURCEW(101));RegisterClassW(&c);
   dpi=GetDpiForSystem();
   RECT rect{0,0,scale(520),scale(370)},work{};AdjustWindowRectExForDpi(&rect,WS_OVERLAPPEDWINDOW,TRUE,0,dpi);SystemParametersInfoW(SPI_GETWORKAREA,0,&work,0);
   int width=rect.right-rect.left,height=rect.bottom-rect.top;

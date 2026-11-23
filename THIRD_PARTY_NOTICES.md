@@ -15,5 +15,10 @@ Windows product UI and controller are C++20 / Win32. Wails is no longer a produc
 | HAProxy | Optional Linux TCP 443 multiplexing | Upstream component licenses; installed package version must be recorded |
 | Go modules | Product server and upstream engine build | Individual module licenses; versions/checksums in Go lock files |
 | Python cryptography | Tests only | Apache-2.0 / BSD-3-Clause; not shipped in the runtime package |
+| GTK4/GLib | Linux native interface | Distribution shared libraries, LGPL; record the distribution package versions |
+| FFmpeg libavcodec/libavutil/libswscale | Linux H.264 decoding and pixel conversion | Distribution shared libraries; LGPL/GPL depends on the vendor build configuration. Preserve its package copyright and corresponding source information in Linux distribution materials |
+| libcurl | Owner-checked local Unix IPC for GTK | curl license; distribution shared library, no public HTTP endpoint |
+
+Windows capture, H.264 and loopback audio use DXGI/D3D11, Media Foundation and WASAPI supplied by Windows. No FFmpeg, CrossDesk or MiniRTC binary is bundled in the Windows product.
 
 ocserv-openwrt is GPL-3.0-or-later. Its public interaction patterns were inspected; its OpenConnect implementation was not copied. This notice does not relicense upstream source. Wintun source is GPL-licensed; its official signed prebuilt DLL has a separate license permitting distribution with software using the documented API, which is preserved alongside the DLL. A public server distribution must include matching source and dependency materials. Network release acceptance remains pending.

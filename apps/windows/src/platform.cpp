@@ -30,6 +30,7 @@ std::string sid(HANDLE process) {
  std::string result=utf8(value); LocalFree(value); return result;
 }
 std::filesystem::path dataRoot() {
+ if(std::filesystem::is_regular_file(executableDir()/L"netgo-portable.json"))return executableDir()/L"data";
  wchar_t p[32768]; DWORD n=GetEnvironmentVariableW(L"LOCALAPPDATA",p,32768);
  if(!n || n>=32768) throw Error("local_appdata_unavailable");
  return std::filesystem::path(p)/L"NetGoNative";
@@ -60,9 +61,15 @@ void atomicFile(const std::filesystem::path& p,const std::string& value) {
  if(!MoveFileExW(temp.c_str(),p.c_str(),MOVEFILE_REPLACE_EXISTING|MOVEFILE_WRITE_THROUGH)) {std::filesystem::remove(temp);throw Error("storage_commit_failed");}
 }
 void wipe(std::string& s) {if(!s.empty()) SecureZeroMemory(s.data(),s.size());s.clear();}
+static std::wstring credentialTarget(const std::string& target) {
+ // Portable folders have separate trust configuration; never reuse another
+ // installation's remembered password merely because a site ID is the same.
+ auto scope=sha256(utf8(dataRoot().wstring())).substr(0,32);
+ return wide("NetGo2/"+scope+"/"+target);
+}
 std::string credentialRead(const std::string& target) {
  PCREDENTIALW c=nullptr;
- if(!CredReadW(wide("NetGo2/"+target).c_str(),CRED_TYPE_GENERIC,0,&c)) {
+ if(!CredReadW(credentialTarget(target).c_str(),CRED_TYPE_GENERIC,0,&c)) {
   if(GetLastError()==ERROR_NOT_FOUND) return {};
   throw Error("credential_read_failed");
  }
@@ -70,13 +77,13 @@ std::string credentialRead(const std::string& target) {
 }
 void credentialWrite(const std::string& target,const std::string& value) {
  if(value.size()>CRED_MAX_CREDENTIAL_BLOB_SIZE) throw Error("credential_too_large");
- std::wstring name=wide("NetGo2/"+target); CREDENTIALW c{};
+ std::wstring name=credentialTarget(target); CREDENTIALW c{};
  c.Type=CRED_TYPE_GENERIC;c.TargetName=name.data();c.CredentialBlobSize=DWORD(value.size());
  c.CredentialBlob=reinterpret_cast<LPBYTE>(const_cast<char*>(value.data()));c.Persist=CRED_PERSIST_LOCAL_MACHINE;
  if(!CredWriteW(&c,0)) throw Error("credential_write_failed");
 }
 void credentialDelete(const std::string& target) {
- if(!CredDeleteW(wide("NetGo2/"+target).c_str(),CRED_TYPE_GENERIC,0)&&GetLastError()!=ERROR_NOT_FOUND) throw Error("credential_delete_failed");
+ if(!CredDeleteW(credentialTarget(target).c_str(),CRED_TYPE_GENERIC,0)&&GetLastError()!=ERROR_NOT_FOUND) throw Error("credential_delete_failed");
 }
 std::string base64url(const unsigned char* data,size_t size) {
  if(size==0)return {};

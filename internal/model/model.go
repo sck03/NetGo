@@ -9,8 +9,9 @@ import (
 	"time"
 )
 
-const Protocol = 1
-const Version = "0.2.4-dev"
+const Protocol = 2
+const Schema = 2
+const Version = "0.3.0-dev"
 
 var (
 	ErrUnauthorized = errors.New("unauthorized")
@@ -96,21 +97,25 @@ type Operation struct {
 	ExpiresAt   time.Time `json:"expires_at"`
 }
 type State struct {
-	Schema           int                   `json:"schema"`
-	Revision         uint64                `json:"revision"`
-	ObservedRevision uint64                `json:"observed_revision"`
-	LastError        string                `json:"last_error,omitempty"`
-	Users            map[string]User       `json:"users"`
-	Resources        map[string]Resource   `json:"resources"`
-	Devices          map[string]Device     `json:"devices"`
-	Leases           map[string]Lease      `json:"leases"`
-	Credentials      map[string]Credential `json:"credentials"`
-	Operations       map[string]Operation  `json:"operations"`
-	Audit            []Event               `json:"audit"`
+	Schema           int                        `json:"schema"`
+	Revision         uint64                     `json:"revision"`
+	ObservedRevision uint64                     `json:"observed_revision"`
+	LastError        string                     `json:"last_error,omitempty"`
+	Users            map[string]User            `json:"users"`
+	Resources        map[string]Resource        `json:"resources"`
+	Devices          map[string]Device          `json:"devices"`
+	Leases           map[string]Lease           `json:"leases"`
+	Credentials      map[string]Credential      `json:"credentials"`
+	Operations       map[string]Operation       `json:"operations"`
+	Audit            []Event                    `json:"audit"`
+	Hosts            map[string]Host            `json:"hosts"`
+	RemoteGrants     map[string]RemoteGrant     `json:"remote_grants"`
+	RemoteSessions   map[string]RemoteSession   `json:"remote_sessions"`
+	RemoteOperations map[string]RemoteOperation `json:"remote_operations"`
 }
 
 func NewState() State {
-	return State{Schema: 1, Users: map[string]User{}, Resources: map[string]Resource{}, Devices: map[string]Device{}, Leases: map[string]Lease{}, Credentials: map[string]Credential{}, Operations: map[string]Operation{}, Audit: []Event{}}
+	return State{Schema: Schema, Users: map[string]User{}, Resources: map[string]Resource{}, Devices: map[string]Device{}, Leases: map[string]Lease{}, Credentials: map[string]Credential{}, Operations: map[string]Operation{}, Audit: []Event{}, Hosts: map[string]Host{}, RemoteGrants: map[string]RemoteGrant{}, RemoteSessions: map[string]RemoteSession{}, RemoteOperations: map[string]RemoteOperation{}}
 }
 func (s *State) Record(actor, action, object string) {
 	s.Audit = append(s.Audit, Event{time.Now().UTC(), actor, action, object})

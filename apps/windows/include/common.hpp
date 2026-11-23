@@ -45,7 +45,7 @@ std::string sha256(const std::string& s, bool url = false);
 std::chrono::system_clock::time_point parseTime(const std::string& s);
 std::wstring pipeName();
 void testPipe(const std::filesystem::path& root);
-Json pipeCall(const Json& request);
+Json pipeCall(const Json& request,const std::function<bool()>& active={});
 void servePipe(std::atomic_bool& stop, const std::function<Json(const Json&)>& dispatch);
 
 struct Address { std::string host; unsigned short port; };

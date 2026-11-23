@@ -1,0 +1,11 @@
+//go:build android
+
+package android
+
+// NetGo requires Android 12+. No pre-Android-12 pidfd override is needed.
+// Do not link to unexported Go runtime variables on supported versions.
+func execWorkaround(api int) {
+ if api<31 {
+  panic("NetGo Android requires Android 12 or newer")
+ }
+}

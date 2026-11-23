@@ -229,7 +229,7 @@ def main():
         check('administrator_login',lambda:admin.login(args.alias,password))
         suffix=secrets.token_hex(4)
         def create_user(label):
-            result=admin.call('/netgo/v1/admin/users','POST',{'Alias':'vpn'+label+suffix,'Email':'vpn'+label+suffix+'@netgo.invalid','Name':'Isolated VPN client '+label})
+            result=admin.call('/netgo/v2/admin/users','POST',{'Alias':'vpn'+label+suffix,'Email':'vpn'+label+suffix+'@netgo.invalid','Name':'Isolated VPN client '+label})
             users.append(result)
             require(bool(result.get('initial_password')),'missing local account password')
             return result
@@ -238,9 +238,9 @@ def main():
         for protocol,ports in (('tcp',[18080,18083]),('udp',[18081])):
             resource={'id':'vpn'+suffix+protocol,'name':'Isolated '+protocol,'cidr':TARGET+'/32','protocol':protocol,'ports':ports,'enabled':True}
             resources.append(resource)
-            check('create_'+protocol+'_resource',lambda r=resource:admin.call('/netgo/v1/admin/resources/'+r['id'],'PUT',r))
+            check('create_'+protocol+'_resource',lambda r=resource:admin.call('/netgo/v2/admin/resources/'+r['id'],'PUT',r))
         owner['user']['resources']=[r['id'] for r in resources];owner['user']['max_devices']=10
-        check('assign_only_authorized_resources',lambda:admin.call('/netgo/v1/admin/users/'+owner['user']['id'],'PUT',owner['user']))
+        check('assign_only_authorized_resources',lambda:admin.call('/netgo/v2/admin/users/'+owner['user']['id'],'PUT',owner['user']))
         for label,number in (('a',241),('b',242),('c',243)):
             client=Client(label,number,args.output,profile);clients.append(client)
             check('start_isolated_client_'+label,client.start)
@@ -262,9 +262,9 @@ def main():
         check('unprivileged_user_cannot_reach_lan',lambda:b.probe(success=False))
         isolated={'id':'vpn'+suffix+'other','name':'Other user isolated TCP','cidr':TARGET+'/32','protocol':'tcp','ports':[18082],'enabled':True}
         resources.append(isolated)
-        check('create_distinct_second_user_resource',lambda:admin.call('/netgo/v1/admin/resources/'+isolated['id'],'PUT',isolated))
+        check('create_distinct_second_user_resource',lambda:admin.call('/netgo/v2/admin/resources/'+isolated['id'],'PUT',isolated))
         outsider['user']['resources']=[isolated['id']]
-        check('assign_only_second_user_resource',lambda:admin.call('/netgo/v1/admin/users/'+outsider['user']['id'],'PUT',outsider['user']))
+        check('assign_only_second_user_resource',lambda:admin.call('/netgo/v2/admin/users/'+outsider['user']['id'],'PUT',outsider['user']))
         check('second_user_authorized_connection',lambda:b.connect(outsider['user']['alias'],outsider['initial_password']))
         check('second_user_can_reach_own_port',lambda:b.probe(port=18082))
         check('second_user_cannot_reach_first_user_port',lambda:b.probe(success=False))
@@ -282,7 +282,7 @@ while True:
                 select=selectors.DefaultSelector();select.register(stream.stdout,selectors.EVENT_READ)
                 require(bool(select.select(5)) and stream.stdout.readline().strip()=='READY','established TCP flow not ready')
                 owner['user']['disabled']=True;started=time.monotonic()
-                admin.call('/netgo/v1/admin/users/'+owner['user']['id'],'PUT',owner['user'])
+                admin.call('/netgo/v2/admin/users/'+owner['user']['id'],'PUT',owner['user'])
                 require(bool(select.select(5)) and stream.stdout.readline().strip()=='BLOCKED','old TCP connection survived revocation')
                 require(time.monotonic()-started<=5,'revocation exceeded five seconds')
                 select.close()
@@ -292,7 +292,7 @@ while True:
         check('disable_revokes_established_tcp_within_five_seconds',revoke_existing_flow)
         check('disabled_peer_new_traffic_denied',lambda:a.probe(success=False))
         owner['user']['disabled']=False
-        check('reenable_account',lambda:admin.call('/netgo/v1/admin/users/'+owner['user']['id'],'PUT',owner['user']))
+        check('reenable_account',lambda:admin.call('/netgo/v2/admin/users/'+owner['user']['id'],'PUT',owner['user']))
         check('client_disconnect',a.disconnect)
         again=check('same_device_reconnect',lambda:a.connect(owner['user']['alias'],owner['initial_password']))
         check('reconnect_preserves_peer_and_increases_generation',lambda:require(again['lease']['peer_id']==first['lease']['peer_id'] and again['generation']>first['generation'],'reconnect changed identity or reused generation'))
@@ -306,7 +306,7 @@ while True:
             # Freeze both product processes, preserving the actual kernel timeout;
             # a graceful stop would revoke immediately and would not test expiry.
             c.product.kill();c.product.wait(timeout=5)
-            live=admin.call('/netgo/v1/admin/state')['leases'][replacement['lease']['id']]
+            live=admin.call('/netgo/v2/admin/state')['leases'][replacement['lease']['id']]
             expiry=datetime.fromisoformat(live['expires_at'].replace('Z','+00:00')).timestamp()
             frozen=True
             command(['systemctl','kill','--kill-whom=main','--signal=STOP','netgo-server','netgo-helper'])
@@ -324,7 +324,7 @@ while True:
             raise AssertionError('kernel allowed traffic beyond lease expiry')
         check('kernel_timeout_blocks_noncooperating_client_with_both_services_frozen',kernel_expiry)
         resumed()
-        check('control_service_recovers_after_resume',lambda:admin.call('/netgo/v1/admin/state'))
+        check('control_service_recovers_after_resume',lambda:admin.call('/netgo/v2/admin/state'))
         for client in (a,b):
             check('disconnect_'+client.name[-1],client.disconnect)
             check('route_cleanup_'+client.name[-1],lambda item=client:require('wt0' not in item.exec(['ip','route','show','table','all']),'tunnel route remained after disconnect'))
@@ -337,10 +337,10 @@ while True:
             try:check('cleanup_'+client.name,client.close)
             except BaseException:failed=True
         for item in users:
-            try:check('delete_'+item['user']['alias'],lambda user=item['user']:admin.call('/netgo/v1/admin/users/'+user['id'],'DELETE'))
+            try:check('delete_'+item['user']['alias'],lambda user=item['user']:admin.call('/netgo/v2/admin/users/'+user['id'],'DELETE'))
             except BaseException:failed=True
         for resource in resources:
-            try:check('delete_'+resource['id'],lambda r=resource:admin.call('/netgo/v1/admin/resources/'+r['id'],'DELETE'))
+            try:check('delete_'+resource['id'],lambda r=resource:admin.call('/netgo/v2/admin/resources/'+r['id'],'DELETE'))
             except BaseException:failed=True
         try:check('host_dns_preserved',lambda:require(hashlib.sha256(Path('/etc/resolv.conf').read_bytes()).hexdigest()==dns_before,'host DNS changed during namespace test'))
         except BaseException:failed=True

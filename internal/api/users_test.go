@@ -39,7 +39,7 @@ func TestConcurrentUserCreationPreservesUniqueAlias(t *testing.T) {
 			<-start
 			body := fmt.Sprintf(`{"Alias":"same","Email":"user%d@example.test","Name":"Example"}`, i)
 			w := httptest.NewRecorder()
-			s.createUser(w, httptest.NewRequest("POST", "/netgo/v1/admin/users", strings.NewReader(body)))
+			s.createUser(w, httptest.NewRequest("POST", "/netgo/v2/admin/users", strings.NewReader(body)))
 			if w.Code == 201 {
 				successes.Add(1)
 			} else if w.Code != 409 {

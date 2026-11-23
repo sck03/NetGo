@@ -15,3 +15,27 @@ function Get-NetGoServiceEnvironment([string]$StateDirectory,[string[]]$Previous
  $values.Add('NB_LAZY_CONN=false')
  return $values.ToArray()
 }
+
+# This key belongs to this product only; preserve its typed values for rollback.
+function Get-NetGoApplicationRegistration {
+ $path='HKLM:\Software\Microsoft\Windows\CurrentVersion\Uninstall\NetGoNative'
+ if(-not(Test-Path -LiteralPath $path)){return $null}
+ $key=Get-Item -LiteralPath $path
+ $values=@($key.GetValueNames()|ForEach-Object {[pscustomobject]@{Name=$_;Kind=[string]$key.GetValueKind($_);Value=$key.GetValue($_)}})
+ return [pscustomobject]@{Values=$values}
+}
+function Restore-NetGoApplicationRegistration($Snapshot) {
+ $path='HKLM:\Software\Microsoft\Windows\CurrentVersion\Uninstall\NetGoNative'
+ if(Test-Path -LiteralPath $path){Remove-Item -LiteralPath $path}
+ if($null -ne $Snapshot){
+  $key=New-Item -Path $path -Force
+  foreach($entry in $Snapshot.Values){$key.SetValue($entry.Name,$entry.Value,[Microsoft.Win32.RegistryValueKind]::$($entry.Kind))}
+ }
+}
+function Register-NetGoApplication([string]$Directory,[string]$OwnerSID,[bool]$NetworkOnly) {
+ $path='HKLM:\Software\Microsoft\Windows\CurrentVersion\Uninstall\NetGoNative'
+ $key=New-Item -Path $path -Force
+ $values=@{DisplayName=$(if($NetworkOnly){'NetGo Network Service'}else{'NetGo'});DisplayVersion='0.3.0-dev';Publisher='NetGo Project';InstallLocation=$Directory;DisplayIcon=(Join-Path $Directory 'Uninstall.exe')+',0';UninstallString='"'+(Join-Path $Directory 'Uninstall.exe')+'" --uninstall';NetGoOwnerSID=$OwnerSID;NetworkOnly=[string]$NetworkOnly}
+ foreach($name in $values.Keys){$key.SetValue($name,[string]$values[$name],[Microsoft.Win32.RegistryValueKind]::String)}
+ foreach($name in @('NoModify','NoRepair')){$key.SetValue($name,1,[Microsoft.Win32.RegistryValueKind]::DWord)}
+}

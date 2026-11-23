@@ -3,7 +3,7 @@ set -euo pipefail
 root=$(cd "$(dirname "$0")/../.." && pwd)
 plan=false
 if [[ ${1:-} == --plan ]]; then plan=true; shift; fi
-version=${1:-0.2.4-dev}
+version=${1:-0.3.0-dev}
 [[ $# -le 1 ]] || { echo 'Unexpected installer arguments' >&2; exit 2; }
 [[ $version =~ ^[a-zA-Z0-9][a-zA-Z0-9._-]{0,63}$ ]] || exit 2
 target="/opt/netgo/releases/$version"
@@ -27,7 +27,7 @@ done
 python3 - "$root/dist/linux-amd64/release.json" "$version" <<'PY'
 import json,sys
 m=json.load(open(sys.argv[1]))
-assert m == dict(version=sys.argv[2],protocol=1,schema=1,os="linux",arch="amd64"), "release compatibility mismatch"
+assert m == dict(version=sys.argv[2],protocol=2,schema=2,os="linux",arch="amd64"), "release compatibility mismatch"
 PY
 manifest=/opt/netgo/install.manifest
 maintenance=/opt/netgo/maintenance

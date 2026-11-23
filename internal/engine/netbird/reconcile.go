@@ -265,6 +265,25 @@ func (r *Reconciler) apply(ctx context.Context, st model.State) error {
 			desiredPolicies[name] = true
 		}
 	}
+	desiredRemoteGroups := map[string]bool{}
+	for _, route := range model.RemoteRoutes(st) {
+		name := prefix + "remote:" + model.Hash(route.ID)[:24]
+		desiredRemoteGroups[name+":controller"] = true
+		desiredRemoteGroups[name+":host"] = true
+		source, e := upsert("/groups", name+":controller", map[string]any{"peers": []string{route.ControllerPeer}}, groups)
+		if e != nil {
+			return e
+		}
+		destination, e := upsert("/groups", name+":host", map[string]any{"peers": []string{route.HostPeer}}, groups)
+		if e != nil {
+			return e
+		}
+		rule := map[string]any{"name": name, "enabled": true, "action": "accept", "bidirectional": false, "protocol": "tcp", "sources": []string{source}, "destinations": []string{destination}, "ports": []string{fmt.Sprint(route.Port)}}
+		if _, e = upsert("/policies", name, map[string]any{"description": "NetGo remote session: one controller, one host, one TLS port", "enabled": true, "rules": []any{rule}}, policies); e != nil {
+			return e
+		}
+		desiredPolicies[name] = true
+	}
 	for _, p := range policies {
 		if strings.HasPrefix(p.Name, prefix) && !desiredPolicies[p.Name] {
 			if _, e = m.Request(ctx, "DELETE", "/policies/"+p.ID, nil, nil); e != nil {
@@ -275,6 +294,13 @@ func (r *Reconciler) apply(ctx context.Context, st model.State) error {
 	for _, v := range existingResources {
 		if strings.HasPrefix(v.Name, prefix) && !desiredResources[v.Name] {
 			if _, e = m.Request(ctx, "DELETE", "/networks/"+networkID+"/resources/"+v.ID, nil, nil); e != nil {
+				return e
+			}
+		}
+	}
+	for _, g := range groups {
+		if strings.HasPrefix(g.Name, prefix+"remote:") && !desiredRemoteGroups[g.Name] {
+			if _, e = m.Request(ctx, "DELETE", "/groups/"+g.ID, nil, nil); e != nil {
 				return e
 			}
 		}

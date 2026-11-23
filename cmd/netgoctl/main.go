@@ -50,7 +50,7 @@ func run() error {
 		return errors.New("unknown command")
 	}
 	if cmd == "version" {
-		return output(map[string]any{"version": model.Version, "protocol": model.Protocol, "schema": 1, "go": runtime.Version()})
+		return output(map[string]any{"version": model.Version, "protocol": model.Protocol, "schema": model.Schema, "go": runtime.Version()})
 	}
 	sub := ""
 	start := 2
@@ -123,7 +123,7 @@ func run() error {
 		if *controlPort != 443 {
 			origin += ":" + fmt.Sprint(*controlPort)
 		}
-		c := site.Config{Site: site.Profile{Protocol: 1, ConfigRevision: 1, ID: *id, Name: "NetGo " + *id, Origin: origin, Candidates: []site.Candidate{{ID: "local", Address: net.JoinHostPort(*domain, fmt.Sprint(*controlPort)), Kind: "direct"}}, LocalRelay: "relay." + *domain}, Listen: "127.0.0.1:8081", Database: "/var/lib/netgo/netgo.db", ManagementURL: "http://127.0.0.1:8080", ManagementTokenFile: "/etc/netgo/management.token", NativeSecretFile: "/etc/netgo/native.secret", HelperSocket: "/run/netgo-helper/helper.sock", Interface: "wt0", LANInterface: "eth0", OverlayCIDR: "100.96.0.0/16", LeaseSeconds: 120,
+		c := site.Config{Site: site.Profile{Protocol: 2, ConfigRevision: 1, ID: *id, Name: "NetGo " + *id, Origin: origin, Candidates: []site.Candidate{{ID: "local", Address: net.JoinHostPort(*domain, fmt.Sprint(*controlPort)), Kind: "direct"}}, LocalRelay: "relay." + *domain}, Listen: "127.0.0.1:8081", Database: "/var/lib/netgo/netgo.db", ManagementURL: "http://127.0.0.1:8080", ManagementTokenFile: "/etc/netgo/management.token", NativeSecretFile: "/etc/netgo/native.secret", HelperSocket: "/run/netgo-helper/helper.sock", Interface: "wt0", LANInterface: "eth0", OverlayCIDR: "100.96.0.0/16", LeaseSeconds: 120,
 			Deployment: site.Deployment{Mode: *mode, LocalRelayPort: *relayPort, LocalSTUNPort: *stunPort}}
 		if e := c.Validate(); e != nil {
 			return e

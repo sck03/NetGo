@@ -20,14 +20,14 @@ func testSite(t *testing.T, siteID string) *httptest.Server {
 	t.Helper()
 	srv := httptest.NewTLSServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "application/json")
-		_ = json.NewEncoder(w).Encode(protocol.Health{Protocol: 1, SiteID: siteID, Capabilities: protocol.Capabilities()})
+		_ = json.NewEncoder(w).Encode(protocol.Health{Protocol: 2, SiteID: siteID, Capabilities: protocol.Capabilities()})
 	}))
 	t.Cleanup(srv.Close)
 	return srv
 }
 func TestFallbackKeepsCanonicalTLSIdentity(t *testing.T) {
 	srv := testSite(t, "site1")
-	p := site.Profile{ID: "site1", Protocol: 1, Origin: srv.URL, CA: string(pem.EncodeToMemory(&pem.Block{Type: "CERTIFICATE", Bytes: srv.Certificate().Raw})), Candidates: []site.Candidate{{ID: "local", Kind: "direct", Address: "127.0.0.1:1"}, {ID: "vps", Kind: "auxiliary", Address: strings.TrimPrefix(srv.URL, "https://")}}}
+	p := site.Profile{ID: "site1", Protocol: 2, Origin: srv.URL, CA: string(pem.EncodeToMemory(&pem.Block{Type: "CERTIFICATE", Bytes: srv.Certificate().Raw})), Candidates: []site.Candidate{{ID: "local", Kind: "direct", Address: "127.0.0.1:1"}, {ID: "vps", Kind: "auxiliary", Address: strings.TrimPrefix(srv.URL, "https://")}}}
 	s, e := New(p)
 	if e != nil {
 		t.Fatal(e)
@@ -37,19 +37,19 @@ func TestFallbackKeepsCanonicalTLSIdentity(t *testing.T) {
 	if e != nil || c.ID != "vps" {
 		t.Fatal(c, e)
 	}
-	res, e := s.Client().Get(p.Origin + "/netgo/v1/health")
+	res, e := s.Client().Get(p.Origin + "/netgo/v2/health")
 	if e != nil {
 		t.Fatal(e)
 	}
 	res.Body.Close()
-	req, _ := http.NewRequest("GET", "https://another-site.test/netgo/v1/site", nil)
+	req, _ := http.NewRequest("GET", "https://another-site.test/netgo/v2/site", nil)
 	if _, e = s.RoundTrip(req); e == nil {
 		t.Fatal("cross-origin request accepted")
 	}
 }
 func TestRejectWrongSiteAndUntrustedTLS(t *testing.T) {
 	srv := testSite(t, "wrong")
-	p := site.Profile{ID: "expected", Protocol: 1, Origin: srv.URL, Candidates: []site.Candidate{{ID: "local", Kind: "direct", Address: strings.TrimPrefix(srv.URL, "https://")}}}
+	p := site.Profile{ID: "expected", Protocol: 2, Origin: srv.URL, Candidates: []site.Candidate{{ID: "local", Kind: "direct", Address: strings.TrimPrefix(srv.URL, "https://")}}}
 	s, _ := New(p)
 	if _, e := s.Select(context.Background()); e == nil {
 		t.Fatal("untrusted TLS accepted")
@@ -64,7 +64,7 @@ func TestRejectWrongSiteAndUntrustedTLS(t *testing.T) {
 func TestMultiWANRecoveryChecksHealthySecondEntry(t *testing.T) {
 	srv := testSite(t, "site1")
 	address := strings.TrimPrefix(srv.URL, "https://")
-	profile := site.Profile{ID: "site1", Protocol: 1, Origin: srv.URL,
+	profile := site.Profile{ID: "site1", Protocol: 2, Origin: srv.URL,
 		CA: string(pem.EncodeToMemory(&pem.Block{Type: "CERTIFICATE", Bytes: srv.Certificate().Raw})),
 		Candidates: []site.Candidate{{ID: "wan1", Kind: "direct", Address: "127.0.0.1:1"},
 			{ID: "wan2", Kind: "direct", Address: address}, {ID: "wan3", Kind: "direct", Address: "127.0.0.1:1"},
@@ -101,7 +101,7 @@ func TestSlowAPIHandshakeDoesNotInheritProbeDeadline(t *testing.T) {
 	srv.StartTLS()
 	t.Cleanup(srv.Close)
 	candidate := site.Candidate{ID: "wan", Kind: "direct", Address: strings.TrimPrefix(srv.URL, "https://")}
-	profile := site.Profile{ID: "slow", Protocol: 1, Origin: srv.URL,
+	profile := site.Profile{ID: "slow", Protocol: 2, Origin: srv.URL,
 		CA:         string(pem.EncodeToMemory(&pem.Block{Type: "CERTIFICATE", Bytes: srv.Certificate().Raw})),
 		Candidates: []site.Candidate{candidate}}
 	selector, err := New(profile)
@@ -115,7 +115,7 @@ func TestSlowAPIHandshakeDoesNotInheritProbeDeadline(t *testing.T) {
 	}
 	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
 	defer cancel()
-	req, _ := http.NewRequestWithContext(ctx, http.MethodPost, srv.URL+"/netgo/v1/sessions", strings.NewReader("{}"))
+	req, _ := http.NewRequestWithContext(ctx, http.MethodPost, srv.URL+"/netgo/v2/sessions", strings.NewReader("{}"))
 	resp, err := selector.Client().Do(req)
 	if err != nil {
 		t.Fatal("API handshake was cut off by probe timeout:", err)
@@ -126,7 +126,7 @@ func TestSlowAPIHandshakeDoesNotInheritProbeDeadline(t *testing.T) {
 	}
 	short, stop := context.WithTimeout(context.Background(), 20*time.Millisecond)
 	defer stop()
-	req, _ = http.NewRequestWithContext(short, http.MethodPost, srv.URL+"/netgo/v1/sessions", strings.NewReader("{}"))
+	req, _ = http.NewRequestWithContext(short, http.MethodPost, srv.URL+"/netgo/v2/sessions", strings.NewReader("{}"))
 	if resp, err := selector.Client().Do(req); err == nil {
 		resp.Body.Close()
 		t.Fatal("caller cancellation was ignored")

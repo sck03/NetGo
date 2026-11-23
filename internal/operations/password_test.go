@@ -48,9 +48,11 @@ func passwordFixture(t *testing.T) (string, *store.Store) {
 	if err = db.Update(func(st *model.State) error {
 		st.Users["u"] = model.User{ID: "u", Email: "user@example.test"}
 		st.Users["other"] = model.User{ID: "other"}
-		st.Credentials["old-token-hash"] = model.Credential{UserID: "u", ExpiresAt: time.Now().Add(time.Hour)}
-		st.Credentials["other-token-hash"] = model.Credential{UserID: "other", ExpiresAt: time.Now().Add(time.Hour)}
-		st.Leases["lease"] = model.Lease{ID: "lease", UserID: "u"}
+		st.Devices["du"] = model.Device{ID: "du", UserID: "u"}
+		st.Devices["do"] = model.Device{ID: "do", UserID: "other"}
+		st.Credentials["old-token-hash"] = model.Credential{UserID: "u", DeviceID: "du", ExpiresAt: time.Now().Add(time.Hour)}
+		st.Credentials["other-token-hash"] = model.Credential{UserID: "other", DeviceID: "do", ExpiresAt: time.Now().Add(time.Hour)}
+		st.Leases["lease"] = model.Lease{ID: "lease", UserID: "u", DeviceID: "du"}
 		return nil
 	}); err != nil {
 		t.Fatal(err)

@@ -11,7 +11,7 @@ old=$(readlink -f /opt/netgo/current)
 "$next/netgoctl" config validate --config /etc/netgo/site.json
 ln -s "$next" /opt/netgo/next
 mv -T /opt/netgo/next /opt/netgo/current
-if systemctl restart netgo-helper netgo-server && curl --fail --retry 5 --retry-delay 1 http://127.0.0.1:8081/netgo/v1/health; then
+if systemctl restart netgo-helper netgo-server && curl --fail --retry 5 --retry-delay 1 http://127.0.0.1:8081/netgo/v2/health; then
  printf '%s\n' "$old" > /var/lib/netgo/previous-release
 else
  ln -s "$old" /opt/netgo/next

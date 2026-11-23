@@ -2,13 +2,15 @@
 
 版本：2.2。日期：2026-11-23（Asia/Shanghai）。与 EXECUTION_PLAN v2.2 同时生效。
 
+2026-11-24 范围修订：用户明确暂缓 macOS/iOS 实现及付费签名；当前交付为 Windows、Android、Linux 桌面客户端与 Linux 服务端，各自使用独立构建脚本/GitHub 工作流。Apple 保留平台能力标识、纯 C ABI、安全存储/媒体回调等扩展边界，不生成占位客户端。原五平台表中 Apple 行记录未来适配要求。
+
 v2.2 增加 [统一集成契约](INTEGRATION_CONTRACT.zh-CN.md)：单客户端体验、三套独立状态机、共享身份/传输、主机侧撤权和有界媒体工作者。I01–I10 必须覆盖跨模块组合，不能以每个模块各自通过推断整体融合。若候选媒体引擎无法复用 NetGo 身份/传输或不能移除重复依赖，替换媒体适配，不复制一套账号与信令系统。
 
 ## 1. 授权、基线与交付边界
 
 用户在会话 `01a2075c-f461-7531-b0ff-0d0de8d06a52` 最后明确要求：参考远控分析增加远程桌面和各原生客户端；目前未生产部署，可以用新数据库与新接口，不兼容旧开发数据；最后清理并推送 GitHub main。本文件据此覆盖旧方案中“其他客户端以后再做”的限制。
 
-当前可运行代码是 0.2.4-dev、API v1、SQLite schema 1，Windows Win32 + Linux Go 服务/CLI。远控媒体和 Android/Apple/Linux 桌面应用尚未实现。0.3.0-dev、API v2、schema 2 是本轮目标，不能出现在当前 health 的已实现能力里。只把 VPN 开发包发布成功，不构成本轮全部任务完成。
+2026-11-24 当前源码为 0.3.0-dev、API v2、SQLite schema 2；服务端主机/授权/票据/会话已实现，Windows 已接媒体与输入/音频，Linux GTK 查看器已编译。旧 0.2.4-dev 报告仅提供历史 VPN 证据。Android/Apple、完整跨设备媒体与各平台验收未完成，不能将源码实现或阶段包写成五平台全部交付。
 
 用户再次确认未正式部署，允许重构及新数据/接口。因此 v1 只作为可运行的开发基线与切换前实验对象；不开发 v1↔v2 桥接、不双写、不增加旧 DTO/接口兼容分支。新版本一次采用新库和契约；完成空库初始化/回退演练并经运行验证后，旧开发程序与数据库可按归属清理。归档用于恢复，不是数据迁移要求。
 
@@ -70,27 +72,29 @@ RD0 已定位并修复现有 VPS 失败机制：原 `WorkerRelay.preferredRelayS
 
 对于只安装在 LAN 内且不运行 overlay 的旧设备，可继续通过原网络资源使用其现有协议；这类访问不伪装成 NetGo 主机能力。需要内置远控的目标必须安装主机组件。
 
-### 4.2 v2 服务契约（待 RD2 实现）
+### 4.2 v2 服务契约
+
+当前实现的准确端点为 `/netgo/v2/remote`（主机/授权/会话列表）、`/remote/key`、`PUT /remote/host`、`POST /remote/host/heartbeat`、`/remote/sessions` 和会话的 `consume`/`renew`/删除；管理授权为 `/admin/remote/grants`。下表记录领域要求，消费同时记录主机本地同意后的接受行为；不额外提供一套尚未实现的 enroll/decision 路由。客户端使用相同已认证设备身份和 VPN 租约登记主机。
 
 沿用签名、防重放、站点身份与唯一 IdP 的原则，统一路径 `/netgo/v2`、`X-NetGo-Protocol: 2`。公共 health 提供真实版本及能力；受保护的 v1/缺失/错误版本明确拒绝。客户端先协商版本/时钟，再发送密码。不维护两套密码库。
 
 | 操作 | 端点 | 权限与事务要求 |
 | --- | --- | --- |
-| 主机登记 | `POST /hosts/enroll` | 管理员预授权、短期一次性登记凭证；消费凭证和绑定公钥同一事务 |
-| 状态/能力 | `POST /hosts/{id}/heartbeat` | 主机密钥签名、当前启动实例；发布已实现能力及运行状态，不上报未经验证的 arbitrary 地址 |
-| 主机列表 | `GET /hosts` | 只列调用者获准目标；在线状态独立于具备访问权 |
-| 创建远控 | `POST /remote-sessions` | 用户/设备/VPN 租约/主机授权同时有效；请求能力取交集；并发限制、generation、幂等键 |
-| 主机同意/拒绝 | `POST /remote-sessions/{id}/decision` | 指定主机实例签名；需本地同意时，服务端管理员身份不能代替本地操作 |
-| 连接兑换 | `POST /remote-sessions/{id}/redeem` | 一次性、短时、绑定控制端公钥/主机实例/权限；失败不可触发媒体 |
-| 续租 | `POST /remote-sessions/{id}/renew` | 每次重验账号、授权、双方设备、VPN 租约与策略代次；不得扩大原权限 |
-| 结束/撤销 | `DELETE /remote-sessions/{id}` | 本人、目标主机或管理员；主机立即关闭输入/媒体、释放按键，离线也受本地期限约束 |
-| 管理授权 | `PUT/DELETE /admin/remote-grants/{id}` | 最小能力列表；变更先撤销受影响会话，再开放新权限；有审计 |
+| 主机登记 | `PUT /remote/host` | 当前用户/设备签名与 VPN 租约；绑定本设备公钥/启动实例；管理员另行授予访问权 |
+| 状态/能力 | `POST /remote/host/heartbeat` | 主机密钥签名、当前启动实例；只发布已实现能力，地址取自已验证的 NetBird peer |
+| 主机列表 | `GET /remote` | 受权主机/授权/会话；在线状态独立于具备访问权 |
+| 创建远控 | `POST /remote/sessions` | 用户/设备/VPN 租约/主机授权同时有效；请求能力取交集；并发限制、generation、幂等键 |
+| 本机同意 | 本地窗口与 `ng_remote_gate_consent` | 默认拒绝，超时拒绝；服务端管理员身份不能代替本地操作 |
+| 连接兑换 | `POST /remote/sessions/{id}/consume` | 主机同意后提交持钥证明；一次性、短时、绑定控制端/实例/权限；失败不可启动媒体 |
+| 续租 | `POST /remote/sessions/{id}/renew` | 重验账号、授权、双方设备、VPN 租约与策略代次；不得扩大原权限 |
+| 结束/撤销 | `DELETE /remote/sessions/{id}` | 本人、目标主机或管理员；主机关闭输入/媒体、释放按键，离线也受本地期限约束 |
+| 管理授权 | `PUT /admin/remote/grants`、`DELETE /admin/remote/grants/{id}` | 最小能力列表；变更撤销受影响会话；有审计 |
 
-以上表内端点省略公共前缀。错误码至少包括 `protocol_incompatible`、`host_offline`、`consent_required`、`permission_denied`、`session_conflict`、`ticket_expired`、`ticket_replayed`、`lease_revoked`、`clock_out_of_sync`、`capability_unavailable`。不能靠 HTTP 200 的自由文本让不同平台猜测状态。
+以上端点省略 `/netgo/v2`。当前 HTTP 错误通过非 2xx 与 JSON `error` 返回，包括 `remote_host_unavailable`、`remote_ticket_replayed`、`remote_proof_invalid` 及统一身份/协议的 `unauthorized`、`forbidden`、`conflict` 等。客户端门禁另有明确的同意、过期、重放、时钟和能力结果；不能根据 HTTP 200 自由文本猜测成功。
 
 ### 4.3 主机侧门禁
 
-固定二进制授权格式见 [REMOTE_TICKET](REMOTE_TICKET.zh-CN.md)：168 字节、Ed25519、六项独立能力、最长 30 秒租约。`internal/remote/ticket` 用 Go 标准库签发，`packages/remote-ticket` 独立验证并衔接门禁 C ABI；`packages/remote-core` 不因此依赖 OpenSSL。该契约及实现是 RD2 的已完成子项，主机登记、持钥证明、跨实例防重放、新数据库与 HTTP 端点仍待实现，禁止提前公布远控能力。
+固定二进制授权格式见 [REMOTE_TICKET](REMOTE_TICKET.zh-CN.md)：168 字节、Ed25519、六项独立能力、最长 30 秒租约。`internal/remote/ticket` 用 Go 标准库签发，`packages/remote-ticket` 验签并衔接门禁；核心不依赖 OpenSSL。主机登记、TLS exporter 持钥证明、数据库原子消费/重启防重放、v2 API 与新存储已实现并有正反/并发测试。各主机只发布其实际适配的能力；Windows 当前不开放剪贴板/文件能力。
 
 服务端授权包含 site/user/controller-device/host-device/host-instance 的绑定摘要、随机 session ID、generation、policy revision、sequence、权限集合与过期。128 位 session ID 同时承担初次授权 nonce，续租由 sequence 区分；不得重复使用。客户端证明拥有指定设备私钥；主机校验签名、目标绑定、一次消费及期限。端到端加密也覆盖网关后的 LAN 一段，不能仅因穿过 WireGuard 就使用明文桌面连接。
 
@@ -110,7 +114,7 @@ schema 2 使用新的 NetGo SQLite 数据目录，规范化实体至少包括 us
 
 2026-11-23 增补约束：模块化、低依赖、体积和清理均为交付要求。基础 VPN 客户端不隐式携带远控媒体栈；远控经独立构建开关/包选择启用。Windows 使用系统 Win32/CNG/CryptoAPI；只有连接后台链接必需的 TLS/Ed25519 库。禁止为设置界面引入浏览器、Qt/Electron、Python 或重复加密库。新增媒体依赖必须列明用途、许可、锁定版本、传递依赖、各架构增量体积与移除方式；有系统采集/编解码 API 时优先使用。不得通过关闭证书验证、弱化授权或删除必要恢复路径换取体积。
 
-现有 Windows 已拆为 `netgo-platform`（系统、公共配置、IPC）与 `netgo-connection`（TLS、设备签名、连接状态、VPN 适配）；UI 只链接前者。`common.hpp` 不暴露 OpenSSL 类型，TLS 句柄只在后台私有实现中使用。Release 启用可用的 LTO、未引用段回收与符号剥离；构建门禁为基础 UI ≤2 MiB、后台 ≤8 MiB，并拒绝非系统 DLL 导入。远控有单独预算，不随意抬高基线门槛。
+用户于 2026-11-24 明确要求 Windows 单 EXE 普通使用入口。现将主界面、后台和远控链接为一个 NetGo.exe，以内部模式运行；不再交付三个需要辨认的产品程序。代码仍保留 `netgo-platform`、`netgo-connection`、共享会话/查看器、系统采集/编解码/音频等窄静态库，`common.hpp` 不暴露 OpenSSL 类型。统一文件采用 LTO/符号剥离，预算 10 MiB，当前约 6.70 MiB，仅导入系统 DLL。该产品入口要求替代旧独立 UI 2 MiB / 后台 8 MiB 的文件预算；受限 NetBird 网络服务和 Wintun 仍单独核算。
 
 未来模块通过窄接口注入时钟、授权、信令、传输与平台媒体适配，业务层不能直接引用窗口句柄或平台 SDK。每一阶段同时记录可执行文件/压缩包/依赖字节、空闲与连接内存、CPU、帧耗时和重连延迟；未测性能不写为改善。资源使用有上限，取消/销毁必须释放线程、句柄、帧队列与按键状态。
 
@@ -135,12 +139,12 @@ C ABI 使用 opaque handle、定宽整数、结构体 size/version 与明确的�
 | 阶段 | 前置 | 文件/工作 | 可验证退出条件 | 当前状态 |
 | --- | --- | --- | --- | --- |
 | RD0 | 已有工作区及历史记录 | 同步主方案/任务表/矩阵/进度；修复锁定构建；重新跑旧验证和失败的 VPS 场景 | 当前源码对应完整 Windows/Linux 验证；失败/未测不隐藏；原 SSH/Docker/网络保留 | 进行中 |
-| RD1a | 可构建基线 | 独立门禁、C ABI、双时钟、能力缩减、同意与撤销 | 跨平台门禁与 C 调用；验证器明确为注入契约 | 核心实现，Windows/Debian 79 断言与 C11 链接通过；真实签名及注册表未接入 |
-| RD1b | RD1a；对应 SDK | 固定候选/许可证；系统采集、真实编码/传输/解码、Win32/JNI | 两控制端实际看/控/音频；直连与中继；撤权停止；选型 ADR | Windows DXGI 采集/回读/重开原型通过，媒体链路仍未实现 |
-| RD2 | RD1a 后领域/契约可先行；媒体网络待 RD1b 冻结 | schema 2、v2 API、主机注册/ACL/票据/租约、peer 拓扑；管理 UI | 空库初始化，重放/跨设备/越权/过期/并发拒绝；非合作主机门禁；旧版拒绝/恢复 | 未实现 |
-| RD3 | RD2 | Windows 原生查看器与主机服务、会话代理、安装卸载 | Win10/11 桌面、锁屏/UAC、多屏/休眠；剪贴板文件边界；输入/媒体撤销 | 未实现 |
+| RD1a | 可构建基线 | 独立门禁、C ABI、双时钟、能力缩减、同意与撤销 | 跨平台门禁与 C 调用；验证器明确为注入契约 | 核心、真实签名、持久一次消费已实现；Windows/GTK 查看器复用 C ABI |
+| RD1b | RD1a；对应 SDK | 固定候选/许可证；系统采集、真实编码/传输/解码、Win32/JNI | 两控制端实际看/控/音频；直连与中继；撤权停止；选型 ADR | Windows DXGI/H.264 本地编解码及真实 TLS/持钥证明通过；音频已接入，跨设备媒体与 JNI 未验 |
+| RD2 | RD1a 后领域/契约可先行；媒体网络待 RD1b 冻结 | schema 2、v2 API、主机注册/ACL/票据/租约、peer 拓扑；管理 UI | 空库初始化，重放/跨设备/越权/过期/并发拒绝；非合作主机门禁；旧版拒绝/恢复 | 源码及正反/并发测试已实现；完整实机切换/恢复待验 |
+| RD3 | RD2 | Windows 原生查看器与主机服务、会话代理、安装卸载 | Win10/11 桌面、锁屏/UAC、多屏/休眠；剪贴板文件边界；输入/媒体撤销 | 单 NetGo.exe、图形安装与绿色版逻辑、交互主机/查看器已接入；完整平台退出条件未满足 |
 | RD4 | RD1/RD2，Android 工具链和设备 | Kotlin App、VpnService、JNI、凭据、触摸/IME/音频 | APK 构建与安装；真实 VPN/远控、后台/杀进程/换网/中文输入与取消 | 未实现 |
-| RD5 | RD2，Apple SDK/签名/设备，Linux 桌面 | Swift/NE/ObjC++；GTK/X11/Wayland；平台打包 | macOS/iOS 签名安装与 VPN/远控，Linux 两显示协议；权限拒绝及重授予 | 未实现 |
+| RD5 | RD2，Apple SDK/签名/设备，Linux 桌面 | Swift/NE/ObjC++；GTK/X11/Wayland；平台打包 | macOS/iOS 签名安装与 VPN/远控，Linux 两显示协议；权限拒绝及重授予 | GTK 查看器已实现/编译，物理桌面、Linux 主机和 Apple 适配/签名待完成 |
 | RD6 | RD0–RD5 满足各自退出条件 | 统一测试、性能、72h、许可、签名、开发/正式包、清理与 main | 对应源码/日志/产物指纹；逐平台验收表；下载可用；仓库无凭据；本地/远端提交一致 | 未完成 |
 
 持续记录到 PROGRESS；按 RD 依赖继续推进，不因阶段切换重复请示。RD1 未能编译时先缩到最小依赖复现；不把模板/占位方法标成客户端完成。签名/设备确实不可用时列具体缺项，继续能完成的代码与构建，不发布“全部平台完成”。

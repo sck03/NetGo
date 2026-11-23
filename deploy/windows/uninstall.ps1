@@ -15,7 +15,7 @@ if($service -and (-not(Test-Path -LiteralPath $ownerRecord) -or (Get-Content -Li
 $oldStateDir=[Environment]::GetEnvironmentVariable('NB_STATE_DIR','Process')
 $env:NB_STATE_DIR=Join-Path $env:ProgramData 'NetGoNativeEngine'
 try {
-foreach($name in @('netgo-desktop','netgo-agent')){Get-Process -Name $name -ErrorAction SilentlyContinue|Where-Object {$_.Path -like ($dest+'\*')}|Stop-Process}
+foreach($name in @('NetGo')){Get-Process -Name $name -ErrorAction SilentlyContinue|Where-Object {$_.Path -like ($dest+'\*')}|Stop-Process}
 if($service){
  & $engine '--daemon-addr' 'npipe://netgo-netbird' 'down'
  if($LASTEXITCODE -ne 0){throw 'Network cleanup failed; retained installed files'}
@@ -25,7 +25,20 @@ if($service){
 Remove-ItemProperty -LiteralPath 'HKCU:\Software\Microsoft\Windows\CurrentVersion\Run' -Name 'NetGoNative' -ErrorAction SilentlyContinue
 $link=Join-Path ([Environment]::GetFolderPath('Programs')) 'NetGo.lnk';if(Test-Path -LiteralPath $link){Remove-Item -LiteralPath $link}
 # Delete only exact known binaries. Profile/config directories are retained for recovery.
-foreach($file in @((Join-Path $dest 'netgo-desktop.exe'),(Join-Path $dest 'netgo-agent.exe'),$engine,(Join-Path $engineDir 'wintun.dll'))){if(Test-Path -LiteralPath $file){Remove-Item -LiteralPath $file}}
+foreach($file in @((Join-Path $dest 'NetGo.exe'),$engine,(Join-Path $engineDir 'wintun.dll'))){if(Test-Path -LiteralPath $file){Remove-Item -LiteralPath $file}}
+$applicationDir=Join-Path $env:ProgramFiles 'NetGoNative'
+$maintenance=Join-Path $applicationDir 'maintenance'
+# The native uninstaller runs from private staging so its installed image is free.
+foreach($name in @('Uninstall.exe','maintenance\install-client.ps1','maintenance\deploy\windows\install.ps1','maintenance\deploy\windows\uninstall.ps1','maintenance\deploy\windows\common.ps1')){
+ $file=Join-Path $applicationDir $name
+ if(Test-Path -LiteralPath $file){Remove-Item -LiteralPath $file}
+}
+$appKey='HKLM:\Software\Microsoft\Windows\CurrentVersion\Uninstall\NetGoNative'
+if(Test-Path -LiteralPath $appKey){Remove-Item -LiteralPath $appKey}
+# Empty directories only: never recursively remove unknown user files.
+foreach($directory in @((Join-Path $maintenance 'deploy\windows'),(Join-Path $maintenance 'deploy'),$maintenance,$engineDir,$applicationDir,$dest)){
+ if((Test-Path -LiteralPath $directory) -and -not(Get-ChildItem -LiteralPath $directory -Force|Select-Object -First 1)){Remove-Item -LiteralPath $directory}
+}
 Write-Host 'Protected profile data was retained. Use the client Forget/Delete commands before uninstalling to remove saved credentials.'
 Write-Host 'Removed native program and managed network service; retained configuration for recovery.'
 } finally {

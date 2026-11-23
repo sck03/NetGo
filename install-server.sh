@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # NetGo Linux server only. The Windows entry is install-client.ps1.
 set -euo pipefail
-VERSION=0.2.4-dev
+VERSION=latest
 REPOSITORY=https://github.com/sck03/NetGo
 action=menu
 source_root=''; package=''; digest=''; ref=main
@@ -11,7 +11,7 @@ usage() {
  cat <<'HELP'
 NetGo Linux 服务端安装与维护（Debian 12/13 amd64）
   bash install-server.sh                       交互菜单
-  bash install-server.sh install               下载校验开发包、安装并初始化
+  bash install-server.sh install               下载最新正式包；尚未发布时从固定 commit 构建
   bash install-server.sh install --source DIR  使用本地完整包/已构建源码
   bash install-server.sh install --from-source [--ref COMMIT]
   bash install-server.sh install --package FILE --sha256 DIGEST
@@ -49,9 +49,10 @@ while (($#)); do
   *) fail "未知参数: $1" ;;
  esac
 done
-[[ $VERSION =~ ^[0-9]+\.[0-9]+\.[0-9]+(-[a-zA-Z0-9.-]+)?$ ]] || fail '无效版本号'
+[[ $VERSION == latest || $VERSION =~ ^[0-9]+\.[0-9]+\.[0-9]+(-[a-zA-Z0-9.-]+)?$ ]] || fail '无效版本号'
 [[ $ref == main || $ref =~ ^[0-9a-f]{40}$ || $ref =~ ^v[0-9]+\.[0-9]+\.[0-9]+(-[a-zA-Z0-9.-]+)?$ ]] || fail 'ref 仅允许 main、完整 commit 或版本 tag'
 [[ -z $package || ( -z $source_root && $from_source == false ) ]] || fail '安装来源参数相互冲突'
+[[ -z $source_root || $from_source == false ]] || fail '安装来源参数相互冲突'
 [[ -z $digest || -n $package ]] || fail '--sha256 仅用于 --package'
 if [[ $action != install && ( -n $source_root || -n $package || $from_source == true || $install_only == true ) ]]; then fail '安装来源参数仅适用于 install'; fi
 if $plan; then
@@ -71,8 +72,11 @@ local_root=/opt/netgo/maintenance
 if [[ $action == status ]]; then
  if [[ ! -f /opt/netgo/install.manifest ]]; then echo 'NetGo 未安装（如曾卸载，身份与数据可能仍保留）'; exit 0; fi
  /opt/netgo/current/netgoctl version
- systemctl --no-pager --full status netgo-server netbird-server netbird-relay netgo-caddy netgo-router netgo-helper
- exit $?
+ healthy=true
+ for unit in netgo-server netbird-server netbird-relay netgo-caddy netgo-router netgo-helper; do
+  systemctl --no-pager --full status "$unit" || healthy=false
+ done
+ $healthy; exit $?
 fi
 [[ $EUID -eq 0 ]] || fail '请以 root 执行服务端安装/配置/卸载'
 if [[ $action == uninstall ]]; then
@@ -102,7 +106,24 @@ fetch() { curl --fail --location --silent --show-error --proto '=https' --proto-
 scratch=''
 cleanup() { if [[ -n $scratch && $scratch == /tmp/netgo-server.* && -d $scratch && ! -L $scratch ]]; then rm -rf -- "$scratch"; fi; }
 trap cleanup EXIT
+if [[ -z $source_root && -z $package && $from_source == false && $VERSION == latest ]]; then
+ scratch=$(mktemp -d /tmp/netgo-server.XXXXXXXX)
+ if fetch 'https://api.github.com/repos/sck03/NetGo/releases/latest' "$scratch/release.json"; then
+  VERSION=$(python3 - "$scratch/release.json" <<'PY'
+import json,re,sys
+r=json.load(open(sys.argv[1]));t=r['tag_name']
+if r.get('draft') or r.get('prerelease') or not re.fullmatch(r'v[0-9]+\.[0-9]+\.[0-9]+',t):raise SystemExit('Invalid stable Release')
+print(t[1:])
+PY
+)
+  name="NetGo-$VERSION-linux-amd64.zip"
+  if ! curl --fail --location --silent --show-error --head --proto '=https' --proto-redir '=https' --connect-timeout 20 --max-time 60 "$REPOSITORY/releases/download/v$VERSION/$name" >/dev/null; then from_source=true; VERSION=latest; fi
+ else from_source=true; fi
+ cleanup; scratch=''
+ if $from_source; then echo '尚无匹配正式发布包，将解析并构建 GitHub 源码 commit。'; fi
+fi
 if $from_source; then
+ command -v git >/dev/null || { apt-get update; apt-get install -y --no-upgrade --no-install-recommends git; }
  install -d -m 0700 /var/cache/netgo
  scratch=$(mktemp -d /tmp/netgo-server.XXXXXXXX)
  git -C "$scratch" init --quiet
@@ -110,10 +131,9 @@ if $from_source; then
  git -C "$scratch" fetch --depth=1 origin "$ref"
  commit=$(git -C "$scratch" rev-parse FETCH_HEAD)
  [[ $commit =~ ^[0-9a-f]{40}$ ]] || fail '无法确认源码 commit'
- source_root=/var/cache/netgo/source-$commit
- [[ ! -e $source_root ]] || fail "源码缓存已存在，请用 --source $source_root 复用或先审阅它"
+ source_root=$(mktemp -d "/var/cache/netgo/source-$commit.XXXXXXXX")
  git -C "$scratch" checkout --detach --quiet "$commit"
- mv -- "$scratch" "$source_root"; scratch=''
+ rmdir -- "$source_root"; mv -- "$scratch" "$source_root"; scratch=''
  printf 'Source commit: %s\n' "$commit"
 elif [[ -z $source_root ]]; then
  scratch=$(mktemp -d /tmp/netgo-server.XXXXXXXX)
@@ -165,6 +185,15 @@ if [[ ! -f "$source_root/dist/upstream-linux-amd64/SHA256SUMS" || ! -f "$source_
  bash "$source_root/scripts/build-upstream.sh"
 else
  bash "$source_root/scripts/bootstrap-linux.sh" --runtime
+fi
+if [[ $VERSION == latest ]]; then
+ VERSION=$(python3 - "$source_root/dist/linux-amd64/release.json" <<'PY'
+import json,re,sys
+v=json.load(open(sys.argv[1]))['version']
+if not re.fullmatch(r'[0-9]+\.[0-9]+\.[0-9]+(-[A-Za-z0-9.-]+)?',v):raise SystemExit('Invalid built version')
+print(v)
+PY
+)
 fi
 bash "$source_root/deploy/linux/install.sh" "$VERSION"
 if ! $install_only; then python3 -B "$local_root/scripts/server_setup.py" "${setup_args[@]}"; fi

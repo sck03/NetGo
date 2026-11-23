@@ -101,7 +101,7 @@ def configuration(config, selected_mode=None):
     revision = site.get("ConfigRevision", 0)
     if type(revision) is not int or not 0 <= revision <= 9007199254740991:
         raise ValueError("invalid configuration revision")
-    if site["Protocol"] != 1 or not re.fullmatch(r"[A-Za-z0-9][A-Za-z0-9_.-]{0,62}", site["ID"]):
+    if site["Protocol"] != 2 or not re.fullmatch(r"[A-Za-z0-9][A-Za-z0-9_.-]{0,62}", site["ID"]):
         raise ValueError("invalid site protocol or ID")
     origin = authority(site["Origin"], "https")
     control_host = hostname(origin.hostname)
@@ -214,7 +214,7 @@ def configuration(config, selected_mode=None):
                        "TUNNEL_BIND": "127.0.0.1" if aux_mode == "443" else "0.0.0.0",
                        "AUX_STUN": "    - uri: " + json.dumps(a["STUN"]),
                        "AUX_RELAY": "      - " + json.dumps(a["Relay"])})
-        auxiliary = {"mode": aux_mode, "host": aux_host, "control_port": public_control,
+        auxiliary = {"mode": aux_mode, "host": aux_host, "control_host": control_host, "tunnel_host": tunnel_host, "control_port": public_control,
                      "control_backend_port": remote_control, "tunnel_port": public_tunnel,
                      "tunnel_bind_port": tunnel_bind, "relay_endpoint": a["Relay"],
                      "relay_port": aux_relay_port, "relay_bind_port": aux_relay_bind, "stun_port": aux_stun_port}

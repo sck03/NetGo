@@ -4,6 +4,7 @@
 #include <cstring>
 #include <memory>
 #include <new>
+#include <array>
 
 namespace {
 using Key = std::unique_ptr<EVP_PKEY, decltype(&EVP_PKEY_free)>;
@@ -120,5 +121,27 @@ extern "C" int32_t ng_remote_ticket_binding_digest(const ng_remote_ticket_bindin
         if (EVP_DigestFinal_ex(digest.get(), result, &size) != 1 || size != 32) return NG_REMOTE_INTERNAL_ERROR;
         std::memcpy(output, result, 32);
         return NG_REMOTE_OK;
+    } catch (...) { return NG_REMOTE_INTERNAL_ERROR; }
+}
+
+extern "C" int32_t ng_remote_possession_verify(const uint8_t key[32], const uint8_t* wire, size_t size,
+                                                 const uint8_t challenge[32], const uint8_t channel[32],
+                                                 const uint8_t signature[64]) {
+    if (!key || !wire || !challenge || !channel || !signature || size != NG_REMOTE_TICKET_SIZE ||
+        !nonzero(key,32) || !nonzero(challenge,32) || !nonzero(channel,32)) return NG_REMOTE_INVALID_ARGUMENT;
+    try {
+        constexpr char domain[] = "NetGo remote possession v1";
+        std::array<uint8_t,sizeof(domain)+96> message{};
+        std::memcpy(message.data(),domain,sizeof(domain));
+        unsigned length=0;
+        if (EVP_Digest(wire,size,message.data()+sizeof(domain),&length,EVP_sha256(),nullptr)!=1 || length!=32)
+            return NG_REMOTE_INTERNAL_ERROR;
+        std::memcpy(message.data()+sizeof(domain)+32,challenge,32);
+        std::memcpy(message.data()+sizeof(domain)+64,channel,32);
+        Key public_key(EVP_PKEY_new_raw_public_key(EVP_PKEY_ED25519,nullptr,key,32),EVP_PKEY_free);
+        Digest digest(EVP_MD_CTX_new(),EVP_MD_CTX_free);
+        if (!public_key || !digest || EVP_DigestVerifyInit(digest.get(),nullptr,nullptr,nullptr,public_key.get())!=1)
+            return NG_REMOTE_INTERNAL_ERROR;
+        return EVP_DigestVerify(digest.get(),signature,64,message.data(),message.size())==1 ? NG_REMOTE_OK : NG_REMOTE_DENIED;
     } catch (...) { return NG_REMOTE_INTERNAL_ERROR; }
 }

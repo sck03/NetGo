@@ -5,7 +5,7 @@ param(
     [string]$PackageRoot,
     [string]$Package,
     [string]$Sha256,
-    [ValidatePattern('^[0-9]+\.[0-9]+\.[0-9]+(-[a-zA-Z0-9.-]+)?$')][string]$Version='0.2.4-dev',
+    [ValidatePattern('^[0-9]+\.[0-9]+\.[0-9]+(-[a-zA-Z0-9.-]+)?$')][string]$Version='0.3.0-dev',
     [switch]$Plan,
     [switch]$Yes
 )
@@ -30,7 +30,7 @@ if($Action -eq 'Menu'){
 }
 if($Action -eq 'Status'){
     Get-CimInstance Win32_Service -Filter "Name='NetGoNetBird'" | Select-Object Name,State,StartMode
-    $desktop=Join-Path $env:LOCALAPPDATA 'NetGoNative\bin\netgo-desktop.exe'
+    $desktop=Join-Path $env:LOCALAPPDATA 'NetGoNative\bin\NetGo.exe'
     [pscustomobject]@{Installed=(Test-Path -LiteralPath $desktop);Desktop=$desktop;Maintenance=$maintenance}
     return
 }
@@ -47,7 +47,7 @@ if($Action -eq 'Uninstall'){
     return
 }
 if($Plan -and -not $PackageRoot){
-    [pscustomobject]@{Action='Install';Platform='Windows x64';Version=$Version;Package="NetGo-$Version-windows-amd64.zip";Downloads=$false;Changes=$false;Requires='Elevation as intended desktop user for actual install'}
+    [pscustomobject]@{Action='Install';Platform='Windows x64';Version=$Version;Package="NetGo-$Version-windows-maintenance-amd64.zip";Downloads=$false;Changes=$false;Requires='Elevation as intended desktop user for actual install'}
     return
 }
 function Get-NetGoDigest([string]$Manifest,[string]$Name){
@@ -109,7 +109,7 @@ try{
     if(-not $PackageRoot){
         $scratch=Join-Path ([IO.Path]::GetTempPath()) ('NetGoClient.'+[guid]::NewGuid().ToString('N'))
         [IO.Directory]::CreateDirectory($scratch)|Out-Null
-        $name="NetGo-$Version-windows-amd64.zip"
+        $name="NetGo-$Version-windows-maintenance-amd64.zip"
         [Net.ServicePointManager]::SecurityProtocol=[Net.SecurityProtocolType]::Tls12
         if(-not $Package){
             $Package=Join-Path $scratch $name

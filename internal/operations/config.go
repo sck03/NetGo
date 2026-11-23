@@ -99,7 +99,7 @@ type ConfigTransaction struct {
 
 func Health(ctx context.Context, c site.Config) error {
 	cl := &http.Client{Timeout: 3 * time.Second, CheckRedirect: func(*http.Request, []*http.Request) error { return errors.New("redirect forbidden") }}
-	req, err := http.NewRequestWithContext(ctx, "GET", "http://"+c.Listen+"/netgo/v1/health", nil)
+	req, err := http.NewRequestWithContext(ctx, "GET", "http://"+c.Listen+"/netgo/v2/health", nil)
 	if err != nil {
 		return err
 	}
