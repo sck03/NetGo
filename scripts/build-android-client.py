@@ -9,11 +9,23 @@ import shutil
 import subprocess
 import sys
 import tempfile
+import urllib.request
 import zipfile
 
 ROOT = Path(__file__).resolve().parents[1]
 NDK = '30.0.16248370'
 MOBILE = 'v0.0.0-20260816165457-f98cc9b3c733'
+
+def prepare_json():
+    item = json.loads((ROOT / 'upstream/versions.lock.json').read_text())['json']
+    header = ROOT / '.tools/native-json/nlohmann/json.hpp'
+    if header.is_file():
+        if hashlib.sha256(header.read_bytes()).hexdigest() != item['sha256']: raise ValueError('JSON header checksum mismatch')
+        return
+    data = urllib.request.urlopen(item['url'], timeout=30).read()
+    if hashlib.sha256(data).hexdigest() != item['sha256']: raise ValueError('JSON download checksum mismatch')
+    header.parent.mkdir(parents=True, exist_ok=True)
+    header.write_bytes(data)
 
 def run(args, cwd=ROOT, env=None):
     print('Running:', ' '.join(map(str, args)), flush=True)
@@ -75,6 +87,7 @@ def main():
     parser.add_argument('--sdk', type=Path)
     parser.add_argument('--skip-bind', action='store_true', help='developer iteration with an already built AAR')
     args = parser.parse_args(); env = environment()
+    prepare_json()
     sdk = (args.sdk or Path(env.get('ANDROID_HOME', ROOT / '.tools/android'))).resolve()
     env['ANDROID_HOME'] = env['ANDROID_SDK_ROOT'] = str(sdk)
     env['ANDROID_NDK_HOME'] = str(sdk / 'ndk' / NDK)
