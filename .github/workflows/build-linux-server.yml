@@ -33,3 +33,4 @@ jobs:
             .cache/linux-server-*/verification.json
             .cache/linux-server-*/*.txt
           if-no-files-found: error
+          include-hidden-files: true
