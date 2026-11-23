@@ -20,6 +20,7 @@ import vps_setup as vps
 
 class VpsTests(unittest.TestCase):
     def setUp(self):
+        (ROOT / '.cache').mkdir(exist_ok=True)
         self.temporary = tempfile.TemporaryDirectory(dir=ROOT / '.cache')
         self.addCleanup(self.temporary.cleanup); self.root = Path(self.temporary.name)
         self.config = json.loads((ROOT / 'examples/site.json').read_text())

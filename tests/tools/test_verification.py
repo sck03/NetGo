@@ -13,6 +13,7 @@ import verification as verify
 
 class VerificationTests(unittest.TestCase):
     def setUp(self):
+        (ROOT / '.cache').mkdir(exist_ok=True)
         temp = tempfile.TemporaryDirectory(dir=ROOT / '.cache')
         self.addCleanup(temp.cleanup)
         self.root = Path(temp.name)
