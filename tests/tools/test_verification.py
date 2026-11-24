@@ -17,7 +17,7 @@ class VerificationTests(unittest.TestCase):
         temp = tempfile.TemporaryDirectory(dir=ROOT / '.cache')
         self.addCleanup(temp.cleanup)
         self.root = Path(temp.name)
-        for name in ('go.mod', 'go.sum', 'package.json', 'package-lock.json', 'tsconfig.json', 'vite.config.ts', 'install-server.sh', 'install-vps.sh', 'install-client.ps1'):
+        for name in ('VERSION', 'go.mod', 'go.sum', 'package.json', 'package-lock.json', 'tsconfig.json', 'vite.config.ts', 'install-server.sh', 'install-vps.sh', 'install-client.ps1'):
             (self.root / name).write_text('fixed input', encoding='utf-8')
         (self.root / 'internal').mkdir()
         (self.root / 'internal/source.go').write_text('package example\n', encoding='utf-8')

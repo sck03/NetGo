@@ -11,7 +11,9 @@ if(-not $SkipDependencies){& "$PSScriptRoot\prepare-native.ps1" -Toolchain $Tool
 $env:PATH=(Join-Path $Toolchain 'bin')+';'+$env:PATH
 function Check-Exit{if($LASTEXITCODE -ne 0){throw "Native build/check failed: $LASTEXITCODE"}}
 $ssl=Join-Path $root '.tools\openssl-native'
-cmake -S apps/windows -B .cache/native-build -G Ninja -DCMAKE_BUILD_TYPE=Release "-DCMAKE_CXX_FLAGS_RELEASE=-O2 -DNDEBUG" "-DJSON_INCLUDE=$root/.tools/native-json" "-DNETGO_OPENSSL_ROOT=$ssl"
+$nativeVersion=& $Python -B "$PSScriptRoot/build_config.py" --target windows --field version
+Check-Exit
+cmake -S apps/windows -B .cache/native-build -G Ninja -DCMAKE_BUILD_TYPE=Release "-DNETGO_VERSION=$nativeVersion" "-DCMAKE_CXX_FLAGS_RELEASE=-O2 -DNDEBUG" "-DJSON_INCLUDE=$root/.tools/native-json" "-DNETGO_OPENSSL_ROOT=$ssl"
 Check-Exit
 cmake --build .cache/native-build -j 4
 Check-Exit

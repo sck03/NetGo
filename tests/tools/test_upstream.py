@@ -13,7 +13,8 @@ spec.loader.exec_module(upstream)
 
 class UpstreamInputTests(unittest.TestCase):
     def setUp(self):
-        temp = tempfile.TemporaryDirectory()
+        (ROOT / '.cache').mkdir(exist_ok=True)
+        temp = tempfile.TemporaryDirectory(dir=ROOT / '.cache')
         self.addCleanup(temp.cleanup)
         self.root = Path(temp.name)
         self.checkout = self.root / 'source'
@@ -32,7 +33,10 @@ class UpstreamInputTests(unittest.TestCase):
         self.patch.write_text(self.git('diff', '--no-ext-diff'), encoding='utf-8', newline='\n')
 
     def git(self, *args):
-        return subprocess.run(['git', *args], cwd=self.checkout, check=True, capture_output=True, text=True).stdout
+        result = subprocess.run(['git', *args], cwd=self.checkout, capture_output=True, text=True)
+        if result.returncode:
+            raise RuntimeError('Git fixture command failed: ' + result.stderr.strip())
+        return result.stdout
 
     def test_exact_patch_is_reusable_without_changing_the_real_index(self):
         before = self.git('status', '--porcelain')

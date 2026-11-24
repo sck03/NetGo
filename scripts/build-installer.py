@@ -5,15 +5,16 @@ import hashlib
 from pathlib import Path
 import shutil
 import subprocess
+from build_config import version
 
 ROOT=Path(__file__).resolve().parents[1]
 def run(args): subprocess.run(list(map(str,args)),cwd=ROOT,check=True)
-def build(payload,output,work,network_only=False):
+def build(payload,output,work,network_only=False,selected_version=None):
     payload=payload.resolve();output=output.resolve();work=work.resolve()
     if not (payload/'bin/SHA256SUMS').is_file(): raise ValueError('verified Windows payload required')
     work.mkdir(parents=True,exist_ok=True)
     native=work/'native'
-    configure=['cmake','-S',ROOT/'apps/windows/installer','-B',native,'-G','Ninja','-DCMAKE_BUILD_TYPE=Release',f'-DNETGO_DEFAULT_NETWORK={"ON" if network_only else "OFF"}']
+    configure=['cmake','-S',ROOT/'apps/windows/installer','-B',native,'-G','Ninja','-DCMAKE_BUILD_TYPE=Release','-DNETGO_VERSION='+version(selected_version),f'-DNETGO_DEFAULT_NETWORK={"ON" if network_only else "OFF"}']
     run(configure)
     run(['cmake','--build',native,'--target','netgo-maintenance'])
     shutil.copy2(native/'netgo-maintenance.exe',payload/'bin/netgo-maintenance.exe')

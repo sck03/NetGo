@@ -6,7 +6,7 @@ remaining=("$@")
 while (("${#remaining[@]}")); do
  value=${remaining[0]}; remaining=("${remaining[@]:1}")
  case "$value" in
-  menu|install|configure|status|doctor|uninstall|render|network-apply|network-remove|redirect-remove)
+  menu|install|configure|status|doctor|version|uninstall|render|network-apply|network-remove|redirect-remove)
    $set_action && { echo '一次只能指定一个操作' >&2; exit 2; };set_action=true;;
   --plan) check_plan=true;;
   --yes|--install-only|--private-ca|--password-stdin) ;;
@@ -15,7 +15,7 @@ while (("${#remaining[@]}")); do
    case "$value" in
     --source) source_set=true;;
     --package) package_set=true;;
-    --version) [[ ${remaining[0]} == latest || ${remaining[0]} =~ ^[0-9]+\.[0-9]+\.[0-9]+(-[A-Za-z0-9.-]+)?$ ]] || { echo '无效版本' >&2;exit 2; };;
+    --version) [[ ${remaining[0]} == latest || ${remaining[0]} =~ ^[0-9]+\.[0-9]+\.[0-9]+(-[A-Za-z0-9.-]+)?(\+[A-Za-z0-9.-]+)?$ ]] || { echo '无效版本' >&2;exit 2; };;
    esac
    remaining=("${remaining[@]:1}");;
   --help|-h) ;;

@@ -140,7 +140,7 @@ bash install-vps.sh install --source /root/NetGo-vps --bundle /etc/netgo-vps/bun
 
 ## 正式 Release 发布后的在线入口
 
-仓库发布包含平台程序包、独立 Go 安装器、安装器摘要和根 SHA256SUMS 的正式 Release 后，root 可使用：
+工作流发布包含平台程序包、独立 Go 安装器及它们各自 `.sha256` 校验文件的正式 Release 后，root 可使用：
 
 ```sh
 # LAN
@@ -151,6 +151,8 @@ curl -fL https://raw.githubusercontent.com/sck03/NetGo/main/install-vps.sh -o in
 ```
 
 脚本从 Release 下载并校验安装器，再由 Go 下载、校验和安装平台包。当前没有 Release，以上在线下载会失败；仅发布 prerelease 也不会提供 `releases/latest` 的正式版本入口。
+
+在 Actions 的 Run workflow 中勾选 publish 并选择 stable 可发布正式版本，版本号不得含 dev/rc 等预发布后缀。若两类节点都需要在线安装，LAN 和 VPS 工作流使用同一个版本号、提交和 Release 类型分别发布；具体参数见 [构建与发布说明](BUILD_CLIENTS.zh-CN.md)。
 
 ## 验证范围
 

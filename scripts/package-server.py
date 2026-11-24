@@ -12,6 +12,7 @@ import zipfile
 
 from verification import validate_report, verify_archive, sha256
 from runtime_files import server_files,SERVER_BINARIES,SERVER_UPSTREAM
+from build_config import config
 
 ROOT=Path(__file__).resolve().parents[1]
 
@@ -25,11 +26,15 @@ def sums(root):
 def main():
     parser=argparse.ArgumentParser(description=__doc__)
     parser.add_argument('--verification',required=True,type=Path)
+    parser.add_argument('--version')
+    parser.add_argument('--arch',default='amd64')
     parser.add_argument('--output',type=Path,default=ROOT/'dist/packages')
     args=parser.parse_args()
     verified=validate_report(ROOT,args.verification,'linux')
     release=json.loads((ROOT/'dist/linux-amd64/release.json').read_text())
     version=release['version']
+    build=config('linux-server',args.version,args.arch)
+    if version!=build['version']:raise ValueError('Server executable version differs from requested package version')
     if release!=dict(version=version,protocol=2,schema=2,os='linux',arch='amd64'):
         raise ValueError('incompatible server release')
     args.output.mkdir(parents=True,exist_ok=True)

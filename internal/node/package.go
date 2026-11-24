@@ -126,7 +126,7 @@ func verifyPackage(root string) error {
 	})
 }
 func (m Manager) releasePackage(version string) (source string, cleanup func(), result error) {
-	if version != "latest" && !regexp.MustCompile(`^[0-9]+\.[0-9]+\.[0-9]+(-[A-Za-z0-9.-]+)?$`).MatchString(version) {
+	if version != "latest" && !regexp.MustCompile(`^[0-9]+\.[0-9]+\.[0-9]+(-[A-Za-z0-9.-]+)?(\+[A-Za-z0-9.-]+)?$`).MatchString(version) {
 		return "", nil, errors.New("无效版本号")
 	}
 	endpoint := "https://api.github.com/repos/sck03/NetGo/releases/latest"
@@ -160,7 +160,7 @@ func (m Manager) releasePackage(version string) (source string, cleanup func(), 
 	for _, asset := range release.Assets {
 		urls[asset.Name] = asset.URL
 	}
-	if urls[name] == "" || urls["SHA256SUMS"] == "" {
+	if urls[name] == "" || urls[name+".sha256"] == "" {
 		return "", nil, errors.New("该 Release 缺少此平台的校验包")
 	}
 	temp, err := os.MkdirTemp("", "netgo-release-")
@@ -169,7 +169,7 @@ func (m Manager) releasePackage(version string) (source string, cleanup func(), 
 	}
 	defer os.RemoveAll(temp)
 	sumFile := filepath.Join(temp, "SHA256SUMS")
-	if err = download(urls["SHA256SUMS"], sumFile, 1<<20); err != nil {
+	if err = download(urls[name+".sha256"], sumFile, 1<<20); err != nil {
 		return "", nil, err
 	}
 	b, err := os.ReadFile(sumFile)

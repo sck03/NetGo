@@ -14,13 +14,15 @@ NetGo 将账号、权限、管理网页和 VPN 网关部署在局域网 Debian �
 | --- | --- | --- |
 | 局域网 Debian 服务端 | [Linux server](https://github.com/sck03/NetGo/actions/workflows/build-linux-server.yml) | `NetGo-0.3.0-dev-linux-amd64.zip`，通常位于外层归档的 `dist/linux-server/` |
 | VPS 辅助节点 | [VPS auxiliary node](https://github.com/sck03/NetGo/actions/workflows/build-vps.yml) | `NetGo-0.3.0-dev-vps-linux-amd64.zip` |
-| Windows 客户端 | [Windows client](https://github.com/sck03/NetGo/actions/workflows/build-windows-client.yml) | `NetGo-0.3.0-dev-windows-Setup.exe` 或 `NetGo-0.3.0-dev-windows-portable.zip`，位于 `dist/windows-client/` |
+| Windows 客户端 | [Windows client](https://github.com/sck03/NetGo/actions/workflows/build-windows-client.yml) | `NetGo-0.3.0-dev-windows-amd64-Setup.exe` 或 `NetGo-0.3.0-dev-windows-amd64-portable.zip`，位于 `dist/windows-client/` |
 | Linux 桌面客户端 | [Linux desktop client](https://github.com/sck03/NetGo/actions/workflows/build-linux-client.yml) | `NetGo-0.3.0-dev-linux-client-amd64.tar.gz`，解压后打开 `netgo-desktop` |
 | Android 客户端 | [Android client](https://github.com/sck03/NetGo/actions/workflows/build-android-client.yml) | 调试 APK 用于测试；未签名 APK 需签名后安装 |
 | macOS 客户端 | [macOS client](https://github.com/sck03/NetGo/actions/workflows/build-macos-client.yml) | macOS ZIP 中的 `NetGo.app`，目标设备上的权限和功能仍待验收 |
 | iPhone/iPad 客户端 | [iOS client](https://github.com/sck03/NetGo/actions/workflows/build-ios-client.yml) | 设备 IPA 需有效签名；模拟器 ZIP 用于 Xcode 模拟器 |
 
 版本号以实际下载文件为准。各平台脚本和工作流独立维护，见 [构建说明](docs/BUILD_CLIENTS.zh-CN.md)。
+
+手动点击 Run workflow 后，可设置版本号、目标架构、是否发布到 Releases、草稿/预发布/正式类型；Android 还可设置 versionCode，Apple 可设置构建号，iOS 可选择设备/模拟器。自动 push 构建默认不发布。需要在线一键安装时，应将 LAN/VPS 两个工作流的运行包及校验文件发布到同一个正式 Release。
 
 ## 2. Debian 服务端一键安装与维护
 
@@ -66,7 +68,7 @@ bash install-server.sh
 
 **截至 2026-11-24，仓库没有 GitHub Release。** 当前可用的是上述 Actions 运行包内的一键安装。仅下载仓库根目录的脚本，会因找不到 Release 安装器而返回 404；下载源码也不包含这些已编译程序。
 
-发布包含安装器、平台包及摘要文件的正式 Release 后，以下在线入口才可使用。仅有预发布版本不会使 GitHub 的 `releases/latest` 入口生效：
+通过工作流发布包含安装器、平台包及各自 `.sha256` 文件的正式 Release 后，以下在线入口才可使用。仅有预发布版本不会使 GitHub 的 `releases/latest` 入口生效：
 
 ```sh
 # LAN 服务端：在 root 终端运行，正式 Release 发布后可用

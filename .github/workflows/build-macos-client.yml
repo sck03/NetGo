@@ -1,19 +1,101 @@
 name: macOS client
+run-name: ${{ github.workflow }} · ${{ inputs.version || 'VERSION默认' }} · ${{ inputs.architecture || 'arm64' }}
 on:
   workflow_dispatch:
+    inputs:
+      version:
+        description: '版本号（不带 v；留空使用仓库 VERSION）'
+        type: string
+        default: ''
+      architecture:
+        description: '当前支持的目标架构'
+        type: choice
+        default: arm64
+        options: [arm64, x86_64]
+      publish:
+        description: '构建通过后发布到 Releases'
+        type: boolean
+        default: false
+      release_type:
+        description: 'Release 类型（同版本各平台请保持一致）'
+        type: choice
+        default: prerelease
+        options: [draft, prerelease, stable]
+      build_number:
+        description: 'Apple Bundle 构建号'
+        type: number
+        default: 1
   push:
-    paths: ['apps/apple/**', 'internal/**', 'go.mod', 'go.sum', 'internal/vault/**', 'packages/remote-*/**', 'scripts/build-macos-client.py', 'scripts/apple_*.py', 'upstream/**', '.github/workflows/build-macos-client.yml']
+    paths: ['VERSION', 'scripts/build_config.py', 'scripts/ci_metadata.py', 'scripts/stage-release.py', 'scripts/publish-release.py', 'scripts/cmake/**', 'apps/apple/**', 'internal/**', 'go.mod', 'go.sum', 'internal/vault/**', 'packages/remote-*/**', 'scripts/build-macos-client.py', 'scripts/apple_*.py', 'upstream/**', '.github/workflows/build-macos-client.yml']
 permissions:
   contents: read
 jobs:
+  prepare:
+    runs-on: ubuntu-24.04
+    outputs:
+      version: ${{ steps.meta.outputs.version }}
+      arch: ${{ steps.meta.outputs.arch }}
+      publish: ${{ steps.meta.outputs.publish }}
+      release_type: ${{ steps.meta.outputs.release_type }}
+      sdk: ${{ steps.meta.outputs.sdk }}
+      version_code: ${{ steps.meta.outputs.version_code }}
+      build_number: ${{ steps.meta.outputs.build_number }}
+      artifact_name: ${{ steps.meta.outputs.artifact_name }}
+      release_artifact: ${{ steps.meta.outputs.release_artifact }}
+    env:
+      NETGO_REQUESTED_VERSION: ${{ inputs.version }}
+      NETGO_REQUESTED_ARCH: ${{ inputs.architecture }}
+      NETGO_PUBLISH: ${{ inputs.publish || false }}
+      NETGO_RELEASE_TYPE: ${{ inputs.release_type || 'prerelease' }}
+      NETGO_IOS_SDK: 'none'
+      NETGO_VERSION_CODE: '1'
+      NETGO_BUILD_NUMBER: ${{ inputs.build_number }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+      - id: meta
+        name: Validate version, architecture and publishing settings
+        run: python3 -B scripts/ci_metadata.py --target macos
   build:
-    runs-on: macos-latest
+    needs: prepare
+    env:
+      NETGO_PUBLISH: ${{ needs.prepare.outputs.publish }}
+      NETGO_RELEASE_TYPE: ${{ needs.prepare.outputs.release_type }}
+      NETGO_VERSION: ${{ needs.prepare.outputs.version }}
+      NETGO_ARCH: ${{ needs.prepare.outputs.arch }}
+      NETGO_IOS_SDK: ${{ needs.prepare.outputs.sdk }}
+      NETGO_VERSION_CODE: ${{ needs.prepare.outputs.version_code }}
+      NETGO_BUILD_NUMBER: ${{ needs.prepare.outputs.build_number }}
+    runs-on: ${{ needs.prepare.outputs.arch == 'x86_64' && 'macos-26-intel' || 'macos-latest' }}
     timeout-minutes: 90
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
       - uses: actions/setup-go@d8cbb8045d7f43706b9177cceb36c1f91a6644d5
         with: {go-version: '1.27.4', cache: false}
       - name: Build native macOS client
-        run: python3 -B scripts/build-macos-client.py
+        run: python3 -B scripts/build-macos-client.py --arch "$NETGO_ARCH" --build-number "$NETGO_BUILD_NUMBER"
       - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9
-        with: {name: 'macos-client-${{ github.sha }}', path: dist/macos-client/, if-no-files-found: error}
+        with: {name: '${{ needs.prepare.outputs.artifact_name }}', path: dist/macos-client/, if-no-files-found: error}
+
+      - name: Stage verified runtime assets for optional release
+        run: python3 -B scripts/stage-release.py --target macos
+      - name: Preserve release payload
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9
+        with:
+          name: ${{ needs.prepare.outputs.release_artifact }}
+          path: dist/release-payload/
+          if-no-files-found: error
+  publish:
+    needs: [prepare, build]
+    if: ${{ github.event_name == 'workflow_dispatch' && needs.prepare.outputs.publish == 'true' }}
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: write
+    env:
+      NETGO_PUBLISH: 'true'
+      NETGO_RELEASE_TYPE: ${{ needs.prepare.outputs.release_type }}
+      NETGO_RELEASE_ARTIFACT: ${{ needs.prepare.outputs.release_artifact }}
+      GITHUB_TOKEN: ${{ github.token }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+      - name: Publish this platform to the selected Release
+        run: python3 -B scripts/publish-release.py

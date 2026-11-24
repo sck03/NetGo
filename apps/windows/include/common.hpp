@@ -15,6 +15,10 @@
 #include <vector>
 
 namespace netgo {
+#ifndef NETGO_BUILD_VERSION
+#error NetGo version must be supplied by the build configuration
+#endif
+inline constexpr char appVersion[] = NETGO_BUILD_VERSION;
 using Json = nlohmann::json;
 using Clock = std::chrono::steady_clock;
 inline constexpr size_t maxJson = 1024 * 1024;

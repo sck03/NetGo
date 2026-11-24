@@ -2,11 +2,13 @@ package node
 
 import (
 	"bufio"
+	"encoding/json"
 	"errors"
 	"flag"
 	"fmt"
 	"io"
 	"netgo/internal/deployment"
+	"netgo/internal/model"
 	"netgo/internal/site"
 	"os"
 	"path/filepath"
@@ -46,6 +48,9 @@ func Main(role string, args []string) error {
 	if *plan {
 		fmt.Printf("Plan: role=%s action=%s; Go maintenance, no Python runtime; owned files and services only; no changes made.\n", role, action)
 		return nil
+	}
+	if action == "version" {
+		return json.NewEncoder(os.Stdout).Encode(map[string]any{"version": model.Version, "protocol": model.Protocol, "schema": model.Schema, "os": runtime.GOOS, "arch": runtime.GOARCH, "role": role})
 	}
 	m := Manager{Role: role, In: os.Stdin, Out: os.Stdout}
 	if action == "render" {

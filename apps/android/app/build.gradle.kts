@@ -11,8 +11,8 @@ android {
     applicationId = "org.netgo.client"
     minSdk = 31
     targetSdk = 37
-    versionCode = 1
-    versionName = "0.3.0-dev"
+    versionCode = providers.gradleProperty("netgoVersionCode").orElse("1").get().toInt()
+    versionName = providers.gradleProperty("netgoVersion").orElse(rootProject.file("../../VERSION").readText().trim()).get()
     ndk { abiFilters += "arm64-v8a" }
     externalNativeBuild { cmake { arguments += "-DANDROID_STL=c++_shared" } }
   }

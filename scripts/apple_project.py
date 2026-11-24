@@ -3,6 +3,7 @@ import hashlib
 import json
 from pathlib import Path
 import plistlib
+from build_config import version
 
 ROOT=Path(__file__).resolve().parents[1]
 def ident(name):return hashlib.sha256(name.encode()).hexdigest()[:24].upper()
@@ -12,7 +13,9 @@ def value(obj):
     if isinstance(obj,list):return '('+','.join(value(v) for v in obj)+')'
     return quote(obj)
 
-def create(platform,output,native,framework=None,resources=()):
+def create(platform,output,native,framework=None,resources=(),selected_version=None,build_number='1'):
+    app_version=version(selected_version);marketing=app_version.split('-',1)[0].split('+',1)[0]
+    if not str(build_number).isdigit() or int(build_number)<1:raise ValueError('Apple build number must be positive')
     output=Path(output);project=output/'NetGo.xcodeproj';project.mkdir(parents=True,exist_ok=True)
     objects={};project_id=ident('project');group=ident('group');products=ident('products')
     refs=[];product_refs=[];targets=[]
@@ -48,11 +51,16 @@ def create(platform,output,native,framework=None,resources=()):
                   'GENERATE_INFOPLIST_FILE':'YES','CODE_SIGN_STYLE':'Automatic','CODE_SIGNING_ALLOWED':'NO','SWIFT_VERSION':'5.0',
                   'SWIFT_INCLUDE_PATHS':str(ROOT/'apps/apple/Bridge'),'LIBRARY_SEARCH_PATHS':str(Path(native).parent),'HEADER_SEARCH_PATHS':[str(ROOT/'apps/apple/Bridge'),str(ROOT/'packages/remote-client/include')],
                   'OTHER_LDFLAGS':['-lc++','-lresolv','-framework','Security','-framework','CoreFoundation'], 'ENABLE_HARDENED_RUNTIME':'YES'}
+        settings.update(MARKETING_VERSION=marketing,CURRENT_PROJECT_VERSION=str(build_number),INFOPLIST_KEY_CFBundleShortVersionString=marketing,INFOPLIST_KEY_CFBundleVersion=str(build_number),INFOPLIST_KEY_NetGoBuildVersion=app_version)
         if platform=='macOS':settings.update(SDKROOT='macosx',MACOSX_DEPLOYMENT_TARGET='14.0',OTHER_LDFLAGS=['-lc++','-lcurl','-framework','Security','-framework','CoreFoundation'],INFOPLIST_KEY_NSPrincipalClass='NSApplication')
         else:
             settings.update(SDKROOT='iphoneos',IPHONEOS_DEPLOYMENT_TARGET='17.0',TARGETED_DEVICE_FAMILY='1,2',CODE_SIGN_ENTITLEMENTS=str(ROOT/'apps/apple/iOS/NetGo.entitlements'))
             if extension=='appex':
+                tunnel_info=plistlib.loads((ROOT/'apps/apple/iOS/TunnelInfo.plist').read_bytes())
+                tunnel_info.update(CFBundleShortVersionString=marketing,CFBundleVersion=str(build_number),NetGoBuildVersion=app_version)
+                tunnel_path=output/'TunnelInfo.plist';tunnel_path.write_bytes(plistlib.dumps(tunnel_info))
                 settings.update(INFOPLIST_FILE=str(ROOT/'apps/apple/iOS/TunnelInfo.plist'),GENERATE_INFOPLIST_FILE='NO',SWIFT_OBJC_BRIDGING_HEADER=str(ROOT/'apps/apple/iOS/TunnelBridge.h'),APPLICATION_EXTENSION_API_ONLY='YES',SKIP_INSTALL='YES',FRAMEWORK_SEARCH_PATHS=str(Path(framework).parent))
+                settings['INFOPLIST_FILE']=str(tunnel_path)
             else:
                 settings.update(INFOPLIST_KEY_UILaunchScreen_Generation='YES',INFOPLIST_KEY_UIApplicationSceneManifest_Generation='YES')
                 extension_product=ident('NetGoTunnelproduct')

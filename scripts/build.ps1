@@ -9,10 +9,11 @@ function Check-Exit{if($LASTEXITCODE -ne 0){throw "Build command failed ($LASTEX
 if(-not $SkipFrontend){npm ci --no-fund;Check-Exit;npm run build;Check-Exit;npm test;Check-Exit}
 $env:CGO_ENABLED='0'
 if(-not $SkipChecks){go test ./internal/... ./cmd/...;Check-Exit;go vet ./internal/... ./cmd/...;Check-Exit}
-$releaseVersion=go run ./cmd/netgoctl version | ConvertFrom-Json;Check-Exit
+$projectLdflags=python -B scripts/build_config.py --target linux-server --field ldflags;Check-Exit
+$releaseVersion=go run -ldflags $projectLdflags ./cmd/netgoctl version | ConvertFrom-Json;Check-Exit
 New-Item -ItemType Directory -Path "$root\dist\linux-amd64" -Force|Out-Null
 $env:GOOS='linux';$env:GOARCH='amd64'
-foreach($name in @('netgoctl','netgo-server','netgo-helper','netgo-ddns')){go build -trimpath -ldflags '-s -w' -o "dist/linux-amd64/$name" "./cmd/$name";Check-Exit}
+foreach($name in @('netgoctl','netgo-server','netgo-helper','netgo-ddns')){go build -trimpath -ldflags $projectLdflags -o "dist/linux-amd64/$name" "./cmd/$name";Check-Exit}
 Remove-Item Env:GOOS -ErrorAction SilentlyContinue
 [ordered]@{version=$releaseVersion.version;protocol=$releaseVersion.protocol;schema=$releaseVersion.schema;os='linux';arch='amd64'} | ConvertTo-Json | Set-Content -LiteralPath "$root\dist\linux-amd64\release.json" -Encoding utf8NoBOM
 $serverArtifacts=@('netgoctl','netgo-server','netgo-helper','netgo-ddns','release.json')|ForEach-Object{Get-Item -LiteralPath "$root\dist\linux-amd64\$_"}

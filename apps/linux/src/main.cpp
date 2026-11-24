@@ -157,6 +157,7 @@ void activate(GtkApplication* app,void*){
 }
 }
 int main(int argc,char** argv){
+ if(argc==2&&std::string(argv[1])=="--version"){g_print("{\"version\":\"%s\",\"platform\":\"linux\",\"arch\":\"amd64\"}\n",NETGO_BUILD_VERSION);return 0;}
  State storage;state=&storage;auto config=g_get_user_config_dir();state->root=std::string(config)+"/NetGo";state->socket=state->root+"/client.sock";
  for(int i=1;i<argc;++i){if(std::string(argv[i])=="--smoke")state->smoke=true;else if(std::string(argv[i])=="--socket"&&i+1<argc)state->socket=argv[++i];else return 2;}
  curl_global_init(CURL_GLOBAL_DEFAULT);auto app=gtk_application_new("org.netgo.desktop",G_APPLICATION_DEFAULT_FLAGS);g_signal_connect(app,"activate",callback(activate),nullptr);int result=g_application_run(G_APPLICATION(app),1,argv);state->alive=false;stopRemote();if(state->timer)g_source_remove(state->timer);if(state->job.joinable())state->job.join();if(state->remote.joinable())state->remote.join();while(g_main_context_pending(nullptr))g_main_context_iteration(nullptr,FALSE);g_object_unref(app);curl_global_cleanup();return result;

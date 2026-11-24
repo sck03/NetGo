@@ -11,6 +11,7 @@ import sys
 import tempfile
 import urllib.request
 import zipfile
+from build_config import config, project_ldflags, write_buildinfo
 
 ROOT = Path(__file__).resolve().parents[1]
 NDK = '30.0.16248370'
@@ -85,8 +86,15 @@ def openssl(sdk, env):
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument('--sdk', type=Path)
+    parser.add_argument('--version')
+    parser.add_argument('--arch', choices=('arm64',), default='arm64')
+    parser.add_argument('--version-code',type=int,default=int(os.environ.get('NETGO_VERSION_CODE','1')))
+    parser.add_argument('--plan',action='store_true')
     parser.add_argument('--skip-bind', action='store_true', help='developer iteration with an already built AAR')
-    args = parser.parse_args(); env = environment()
+    args = parser.parse_args();build=config('android',args.version,args.arch)
+    if not 1<=args.version_code<=2100000000:parser.error('Android versionCode 必须是 1 到 2100000000 的整数')
+    if args.plan:print(json.dumps(dict(build,version_code=args.version_code)));return
+    env = environment();env['NETGO_VERSION']=build['version'];env['NETGO_ARCH']=build['arch']
     prepare_json()
     sdk = (args.sdk or Path(env.get('ANDROID_HOME', ROOT / '.tools/android'))).resolve()
     env['ANDROID_HOME'] = env['ANDROID_SDK_ROOT'] = str(sdk)
@@ -108,19 +116,20 @@ def main():
             gomobile = Path(env['GOBIN']) / ('gomobile.exe' if os.name == 'nt' else 'gomobile')
             # anet v0.0.5 documents this flag for Go 1.23+; its zone-cache ABI
             # matches the pinned Go 1.27.4 source. It does not alter TLS checks.
-            run([gomobile,'bind','-target=android/arm64','-androidapi=31','-ldflags=-checklinkname=0','-javapkg=org.netgo.runtime','-o',libs / 'netgo-mobile.aar','./mobile'],cwd=source,env=env)
+            run([gomobile,'bind','-target=android/arm64','-androidapi=31','-ldflags='+project_ldflags(build['version'],'-checklinkname=0'),'-javapkg=org.netgo.runtime','-o',libs / 'netgo-mobile.aar','./mobile'],cwd=source,env=env)
     wrapper = project / ('gradlew.bat' if os.name == 'nt' else 'gradlew')
     if os.name != 'nt': wrapper.chmod(wrapper.stat().st_mode | 0o111)
-    run([wrapper,'--no-daemon','assembleDebug','assembleRelease','lintDebug'],cwd=project,env=env)
+    run([wrapper,'--no-daemon','-PnetgoVersion='+build['version'],'-PnetgoVersionCode='+str(args.version_code),'assembleDebug','assembleRelease','lintDebug'],cwd=project,env=env)
     output = ROOT / 'dist/android-client'; output.mkdir(parents=True, exist_ok=True)
-    for source, name in [('app/build/outputs/apk/debug/app-debug.apk','NetGo-0.3.0-dev-android-arm64-debug.apk'), ('app/build/outputs/apk/release/app-release-unsigned.apk','NetGo-0.3.0-dev-android-arm64-unsigned.apk')]:
+    for source, name in [('app/build/outputs/apk/debug/app-debug.apk',f"NetGo-{build['version']}-android-{build['arch']}-debug.apk"), ('app/build/outputs/apk/release/app-release-unsigned.apk',f"NetGo-{build['version']}-android-{build['arch']}-unsigned.apk")]:
         source = project / source
         with zipfile.ZipFile(source) as archive:
             names = archive.namelist()
             if not any(n.endswith('/libgojni.so') for n in names) or not any(n.endswith('/libnetgo-remote-jni.so') for n in names): raise ValueError('APK is missing VPN or remote libraries')
             if archive.testzip() is not None: raise ValueError('APK CRC failed')
         shutil.copy2(source, output / name)
-    files = sorted(output.glob('*.apk'))
+    write_buildinfo(output,'android',build['version'],build['arch'],version_code=args.version_code)
+    files = sorted(output.glob('*.apk'))+[output/'BUILDINFO.json']
     (output / 'SHA256SUMS').write_text(''.join(hashlib.sha256(p.read_bytes()).hexdigest() + '  ' + p.name + '\n' for p in files),encoding='utf-8')
     print('Android client:', output)
 

@@ -1,0 +1,22 @@
+#include <windows.h>
+1 VERSIONINFO
+FILEVERSION @NETGO_VERSION_RC@
+PRODUCTVERSION @NETGO_VERSION_RC@
+FILEOS VOS_NT_WINDOWS32
+FILETYPE VFT_APP
+BEGIN
+  BLOCK "StringFileInfo"
+  BEGIN
+    BLOCK "040904B0"
+    BEGIN
+      VALUE "FileDescription", "NetGo\0"
+      VALUE "FileVersion", "@NETGO_VERSION@\0"
+      VALUE "ProductName", "NetGo\0"
+      VALUE "ProductVersion", "@NETGO_VERSION@\0"
+    END
+  END
+  BLOCK "VarFileInfo"
+  BEGIN
+    VALUE "Translation", 0x0409, 1200
+  END
+END

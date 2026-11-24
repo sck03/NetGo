@@ -214,7 +214,7 @@ void command(int id) {
  case MenuAutoConnect:{bool enabled=!(preferences.value("auto_connect",false)&&preferences.value("auto_connect_site","")==chosen);if(enabled&&(!selected()||!saved))throw Error("auto_connect_requires_saved_password");preferences["auto_connect"]=enabled;preferences["auto_connect_site"]=enabled?chosen:"";persist();break;}
  case MenuTray:{bool enabled=!preferences.value("close_to_tray",true);preferences["close_to_tray"]=enabled;persist();CheckMenuItem(GetMenu(window),MenuTray,MF_BYCOMMAND|(enabled?MF_CHECKED:MF_UNCHECKED));break;}
  case MenuMinimizeTray:{preferences["minimize_to_tray"]=!preferences.value("minimize_to_tray",false);persist();break;}
- case MenuAbout:MessageBoxW(window,L"NetGo 0.3.0-dev\n原生 C++ / Win32 客户端\n网络核心：NetBird\n登录入口和数据路径分别显示。\n\n诊断导出不包含密码、令牌或密钥。",L"关于 NetGo",MB_OK);break;
+ case MenuAbout:MessageBoxW(window,(L"NetGo "+wide(appVersion)+L"\n原生 C++ / Win32 客户端\n网络核心：NetBird\n登录入口和数据路径分别显示。\n\n诊断导出不包含密码、令牌或密钥。").c_str(),L"关于 NetGo",MB_OK);break;
  case MenuNetworkSetup:{
   if(active())throw Error("disconnect_before_edit");
   auto setup=executableDir()/L".netgo/NetGo-Network-Setup.exe";

@@ -11,7 +11,10 @@ import (
 
 const Protocol = 2
 const Schema = 2
-const Version = "0.3.0-dev"
+
+// Version is set by the build scripts through the Go linker; protocol/schema
+// remain fixed independently of the selected release version.
+var Version = "0.3.0-dev"
 
 var (
 	ErrUnauthorized = errors.New("unauthorized")
