@@ -12,7 +12,8 @@ anchors only to server_unix_ms in the authenticated authorization response and
 charges the entire control-request duration. It never derives trusted time
 from the media peer, ticket claims, or the local wall clock. next_generation in
 the inventory supplies the next controller generation, including closed sessions.
-The LAN server and clients must be updated together for these response fields.
+Fresh authenticated renewals recalibrate server time without resetting an expired
+monotonic deadline. The LAN server and clients must be updated together for these response fields.
 The monitor
 rechecks authorization every three seconds; failed control IO stops the
 connection. Queues and wire messages are bounded. Cancel, join the caller's

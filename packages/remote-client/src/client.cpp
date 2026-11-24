@@ -82,7 +82,9 @@ struct Monitor {
    auto a=client.call("GET",std::string(base)+"/sessions/"+session);
    require(a.at("session").value("state","")!="closed","remote_revoked");
    if(a.at("session").value("state","")=="active"){
+    auto requested=netgo::remote::monotonic_time_ms();
     auto fresh=client.call("POST",std::string(base)+"/sessions/"+session+"/renew",{{"sequence",a.at("session").at("sequence")}});
+    fresh["netgo_requested_mono_ms"]=requested;
     std::lock_guard lock(mutex);renewal=std::move(fresh);
    }
    deadline=ticks()+6000;for(int i=0;i<30&&!stop&&client.active();++i)std::this_thread::sleep_for(std::chrono::milliseconds(100));
@@ -116,7 +118,7 @@ void run(ng_remote_client& c){
   require(width>=2&&width<=8192&&height>=2&&height<=8192&&fps>=1&&fps<=120&&format.value("capabilities",caps)==caps,"remote_format_unsupported");
   require(c.options.format(c.options.context,width,height,fps,caps)==0,"remote_decoder_unavailable");c.status("remote_connected");int64_t stamp=0;
   while(monitor.live()&&gate.check()){
-   auto renewal=monitor.take();if(!renewal.is_null()){auto bytes=decode(renewal.at("ticket"),NG_REMOTE_TICKET_SIZE);require(ng_remote_gate_renew(gate.handle,bytes.data(),bytes.size())==NG_REMOTE_OK,"remote_renewal_invalid");connection.send(message(Kind::renew,{{"ticket",renewal.at("ticket")}}));}
+   auto renewal=monitor.take();if(!renewal.is_null()){auto bytes=decode(renewal.at("ticket"),NG_REMOTE_TICKET_SIZE);gate.clock.observe(renewal.value("server_unix_ms",uint64_t(0)),renewal.at("netgo_requested_mono_ms").get<uint64_t>());require(ng_remote_gate_renew(gate.handle,bytes.data(),bytes.size())==NG_REMOTE_OK,"remote_renewal_invalid");connection.send(message(Kind::renew,{{"ticket",renewal.at("ticket")}}));}
    if(c.options.input&&gate.check(NG_REMOTE_INPUT)){std::vector<char> input(65536);size_t size=0;require(c.options.input(c.options.context,input.data(),input.size(),&size)==0&&size<=input.size(),"remote_invalid_input");if(size){auto events=Json::parse(input.data(),input.data()+size);require(events.is_array()&&events.size()<=128,"remote_invalid_input");for(const auto& e:events)connection.send(message(Kind::input,e));}}
    Message m;if(!connection.receive(m,20))continue;if(m.kind==Kind::close)break;
    if(m.kind==Kind::video){require(c.options.video(c.options.context,m.body.data(),m.body.size(),stamp)==0,"remote_decoder_failed");stamp+=10000000/fps;}

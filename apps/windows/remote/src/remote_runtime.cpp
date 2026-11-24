@@ -182,7 +182,13 @@ void host(const std::string& site,Callbacks cb){
     while(monitor.live()&&gate.check()){
      Message m;if(connection->receive(m,0)){
       if(m.kind==Kind::close)break;
-      if(m.kind==Kind::renew){auto update=json(m);auto fresh=call(site,"GET",std::string(base)+"/sessions/"+id);auto bytes=decode(update.at("ticket"),NG_REMOTE_TICKET_SIZE);ng_remote_claims claims{};claims.struct_size=sizeof(claims);claims.abi_version=NG_REMOTE_ABI;if(ng_remote_ticket_verify(gate.verifier,bytes.data(),bytes.size(),&claims)!=NG_REMOTE_OK||claims.sequence>fresh.at("session").at("sequence").get<uint64_t>()||ng_remote_gate_renew(gate.value,bytes.data(),bytes.size())!=NG_REMOTE_OK)throw Error("remote_renewal_invalid");}
+      if(m.kind==Kind::renew){
+       auto update=json(m);auto bytes=decode(update.at("ticket"),NG_REMOTE_TICKET_SIZE);ng_remote_claims claims{};claims.struct_size=sizeof(claims);claims.abi_version=NG_REMOTE_ABI;
+       if(ng_remote_ticket_verify(gate.verifier,bytes.data(),bytes.size(),&claims)!=NG_REMOTE_OK)throw Error("remote_renewal_invalid");
+       auto requested=remote::monotonic_time_ms();auto fresh=call(site,"GET",std::string(base)+"/sessions/"+id,nullptr,{},cb.running);
+       gate.clock.observe(fresh.value("server_unix_ms",uint64_t(0)),requested);
+       if(claims.sequence>fresh.at("session").at("sequence").get<uint64_t>()||ng_remote_gate_renew(gate.value,bytes.data(),bytes.size())!=NG_REMOTE_OK)throw Error("remote_renewal_invalid");
+      }
       else if(m.kind==Kind::input){if(!gate.check(NG_REMOTE_INPUT))throw Error("remote_input_forbidden");input.apply(json(m));}
       else throw Error("remote_unexpected_message");
      }
