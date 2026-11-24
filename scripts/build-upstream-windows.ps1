@@ -1,6 +1,8 @@
 param([string]$Toolchain='D:\msys64\ucrt64',[switch]$UsePreparedCache)
 $ErrorActionPreference='Stop'
 $root=Split-Path -Parent $PSScriptRoot
+if(-not [IO.Path]::IsPathRooted($Toolchain)){$Toolchain=Join-Path $root $Toolchain}
+$Toolchain=[IO.Path]::GetFullPath($Toolchain)
 . (Join-Path $PSScriptRoot 'project-environment.ps1')
 . (Join-Path $PSScriptRoot 'publish-artifact.ps1')
 if(Test-Path -LiteralPath "$root\.tools\go\bin\go.exe"){$env:PATH="$root\.tools\go\bin;"+$env:PATH}

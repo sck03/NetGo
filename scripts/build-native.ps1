@@ -2,6 +2,7 @@ param([string]$Toolchain='D:\msys64\ucrt64',[switch]$SkipDependencies,[string]$P
 $ErrorActionPreference='Stop'
 $root=Split-Path -Parent $PSScriptRoot
 Set-Location -LiteralPath $root
+$Toolchain=[IO.Path]::GetFullPath($Toolchain)
 . (Join-Path $PSScriptRoot 'project-environment.ps1')
 . (Join-Path $PSScriptRoot 'publish-artifact.ps1')
 if(-not $Python){$Python='python'}

@@ -2,6 +2,7 @@ param([string]$Toolchain='D:\msys64\ucrt64',[string]$Python='python',[switch]$Sk
 $ErrorActionPreference='Stop'
 $root=Split-Path -Parent $PSScriptRoot
 Set-Location -LiteralPath $root
+$Toolchain=[IO.Path]::GetFullPath($Toolchain)
 . "$PSScriptRoot/project-environment.ps1"
 if(-not(Test-Path -LiteralPath $Python)){$Python=(Get-Command $Python -ErrorAction Stop).Source}
 if(Test-Path -LiteralPath "$root/.tools/go/bin/go.exe"){$env:PATH="$root/.tools/go/bin;"+$env:PATH}
