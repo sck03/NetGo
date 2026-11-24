@@ -28,7 +28,21 @@
 
 ## 仓库与交付边界
 
-七个平台工作流使用已查询的稳定版及固定SHA。GitHub最终运行结果单独记录；本机构建和旧CI不能代替新提交的云端检查。
+七个平台工作流使用已查询的稳定版及固定SHA。本轮七个平台的GitHub构建已全部通过。实现提交为d5299df；Linux依赖下载缓慢的首次运行已取消，加入非交互/IPv4/网络重试和超时后，3a30659的Linux客户端构建通过。两个提交之间仅工作流和文档变化，程序源码相同。
+
+| 工作流 | 本轮通过记录 |
+| --- | --- |
+| Windows client | [45333101462](https://github.com/sck03/NetGo/actions/runs/45333101462) |
+| Linux desktop client | [45334529838](https://github.com/sck03/NetGo/actions/runs/45334529838) |
+| Android client | [45333101392](https://github.com/sck03/NetGo/actions/runs/45333101392) |
+| macOS client | [45333101389](https://github.com/sck03/NetGo/actions/runs/45333101389) |
+| iOS client | [45333101337](https://github.com/sck03/NetGo/actions/runs/45333101337) |
+| Linux server | [45333101320](https://github.com/sck03/NetGo/actions/runs/45333101320) |
+| VPS auxiliary node | [45333101403](https://github.com/sck03/NetGo/actions/runs/45333101403) |
+
+Go连接/控制/节点竞态检查及隔离网络namespace内的内核路由归属/恢复测试通过。Linux首次网络服务启动后故障注入，保留动态生成的配置和归属记录，随后重试安装及重复卸载通过。撤销凭据后客户端以unauthorized结束连接，避免持续显示重连。
+
+七份Actions产物均已下载并核对API提供的SHA-256、归档完整性和运行文件清单，包内SHA256SUMS逐项匹配。Windows绿色包根目录仅一个NetGo.exe，内部网络准备器位于.netgo；Linux桌面包8个文件，LAN包24个文件，VPS包10个文件，macOS包12个文件，iOS两份运行包各9个文件。Android APK仅保留arm64所需原生库，开发报告位于APK之外。运行包未发现Python脚本、私钥、数据库、源码对象或缓存。构建提交、运行链接与产物摘要见 [CI回执](CI.json)。
 
 当前Git跟踪/待提交路径检查未发现缓存、工具链、node_modules、运行数据库、EXE/APK/AAR/IPA、ZIP或私钥；必要Gradle wrapper JAR保留。运行包只包含角色所需程序和许可证；LAN使用frpc，不携带VPS专用frps。开发构建/测试可用Python，终端用户维护使用Go。
 

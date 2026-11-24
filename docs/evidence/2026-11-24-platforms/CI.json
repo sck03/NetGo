@@ -1,0 +1,97 @@
+{
+  "date": "2026-11-24",
+  "codeCommit": "d5299dff9b76c76ecdb156b14bccd99d94d8016b",
+  "workflowCommit": "3a30659bcd4a842f913c30c3b5e68fa4761d4347",
+  "note": "Program sources are unchanged between these commits. These are build checks, not complete device acceptance.",
+  "runs": [
+    {
+      "name": "Windows client",
+      "id": 45333101462,
+      "headSha": "d5299dff9b76c76ecdb156b14bccd99d94d8016b",
+      "conclusion": "success",
+      "url": "https://github.com/sck03/NetGo/actions/runs/45333101462",
+      "artifact": {
+        "id": 14894275238,
+        "sha256": "e24ba5a9dd793d1d894b005079dbcba38da4512f9c9fec707c5a52653b26e87a",
+        "bytes": 29948817
+      }
+    },
+    {
+      "name": "Linux desktop client",
+      "id": 45334529838,
+      "headSha": "3a30659bcd4a842f913c30c3b5e68fa4761d4347",
+      "conclusion": "success",
+      "url": "https://github.com/sck03/NetGo/actions/runs/45334529838",
+      "artifact": {
+        "id": 14893042368,
+        "sha256": "e515d6d621322e4860f99d5adce1b7d6ef99863a431513ca473cd1d59802a077",
+        "bytes": 23330760
+      }
+    },
+    {
+      "name": "Android client",
+      "id": 45333101392,
+      "headSha": "d5299dff9b76c76ecdb156b14bccd99d94d8016b",
+      "conclusion": "success",
+      "url": "https://github.com/sck03/NetGo/actions/runs/45333101392",
+      "artifact": {
+        "id": 14892778884,
+        "sha256": "288f7f0b5378f88c8aeea5d929df9ad2ec83765d3df6190f6e27cfab08f6af47",
+        "bytes": 56290635
+      }
+    },
+    {
+      "name": "macOS client",
+      "id": 45333101389,
+      "headSha": "d5299dff9b76c76ecdb156b14bccd99d94d8016b",
+      "conclusion": "success",
+      "url": "https://github.com/sck03/NetGo/actions/runs/45333101389",
+      "artifact": {
+        "id": 14893350264,
+        "sha256": "ef194e85cda73d3cfd864d45b135cfd8a0aa79ddcf7b8d077956a706fa3fc6d9",
+        "bytes": 43728579
+      }
+    },
+    {
+      "name": "iOS client",
+      "id": 45333101337,
+      "headSha": "d5299dff9b76c76ecdb156b14bccd99d94d8016b",
+      "conclusion": "success",
+      "url": "https://github.com/sck03/NetGo/actions/runs/45333101337",
+      "artifact": {
+        "id": 14893920601,
+        "sha256": "8f08fdb771d72ba0537af83d0f176a7a4032c7745b68e6a9f1847afc104ba495",
+        "bytes": 32299124
+      }
+    },
+    {
+      "name": "Linux server",
+      "id": 45333101320,
+      "headSha": "d5299dff9b76c76ecdb156b14bccd99d94d8016b",
+      "conclusion": "success",
+      "url": "https://github.com/sck03/NetGo/actions/runs/45333101320",
+      "artifact": {
+        "id": 14893566062,
+        "sha256": "774231fe510168b83a68a81b441c914b27939572337ef5c52b26cc8e98c311b6",
+        "bytes": 104948916
+      }
+    },
+    {
+      "name": "VPS auxiliary node",
+      "id": 45333101403,
+      "headSha": "d5299dff9b76c76ecdb156b14bccd99d94d8016b",
+      "conclusion": "success",
+      "url": "https://github.com/sck03/NetGo/actions/runs/45333101403",
+      "artifact": {
+        "id": 14892523537,
+        "sha256": "a80b6967d32c73a04006e5c05a56e43d0514346a8d3701e2462ecb7d9396ee4c",
+        "bytes": 23634975
+      }
+    }
+  ],
+  "superseded": {
+    "run": 45333101356,
+    "conclusion": "cancelled",
+    "reason": "Dependency downloads were still running; replaced with bounded, noninteractive setup."
+  }
+}
