@@ -14,7 +14,7 @@ def run(args, cwd=ROOT, env=None):
     subprocess.run(list(map(str,args)),cwd=cwd,env=env,check=True)
 
 def environment():
-    if os.uname().sysname != 'Darwin': raise ValueError('Apple builds require macOS with stable Xcode')
+    if not hasattr(os, 'uname') or os.uname().sysname != 'Darwin': raise ValueError('Apple builds require macOS with stable Xcode')
     env=dict(os.environ);cache=ROOT/'.cache/toolchain'
     env.update(GOCACHE=str(cache/'go-build'),GOPATH=str(cache/'go'),GOMODCACHE=str(cache/'go/pkg/mod'),GOTMPDIR=str(cache/'tmp'),GOBIN=str(ROOT/'.tools/bin'),GOMAXPROCS='2',GOMEMLIMIT='2GiB',GOFLAGS='-mod=mod -p=1')
     for key in ('GOCACHE','GOPATH','GOMODCACHE','GOTMPDIR','GOBIN'):Path(env[key]).mkdir(parents=True,exist_ok=True)

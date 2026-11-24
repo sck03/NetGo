@@ -21,7 +21,7 @@ def main():
     run(['go','install','golang.org/x/mobile/cmd/gomobile@'+version],env=env)
     run(['go','install','golang.org/x/mobile/cmd/gobind@'+version],env=env)
     output=ROOT/'dist/ios-client';output.mkdir(parents=True,exist_ok=True)
-    framework=ROOT/'.cache/NetGoMobile.xcframework'
+    framework=ROOT/'.cache'/('NetGoMobile-'+args.sdk+'.xcframework')
     with tempfile.TemporaryDirectory(prefix='ios-go-',dir=ROOT/'.cache') as temporary:
         source=Path(temporary)/'source'
         run(['python3','-B',ROOT/'scripts/prepare-mobile-inputs.py','--output',source,'--go',shutil.which('go')],env=env)
@@ -39,7 +39,7 @@ def main():
         run(['ditto','-c','-k','--keepParent',app,output/'NetGo-0.3.0-dev-ios-simulator.zip'],env=env)
     else:
         payload=ROOT/'.cache/ios-payload';payload.mkdir(exist_ok=True)
-        shutil.copytree(app,payload/'Payload/NetGo.app')
+        shutil.copytree(app,payload/'Payload/NetGo.app',dirs_exist_ok=True)
         suffix='signed' if args.team else 'unsigned'
         run(['ditto','-c','-k',payload,output/('NetGo-0.3.0-dev-ios-'+suffix+'.ipa')],env=env)
     sums(output)

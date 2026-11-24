@@ -21,7 +21,7 @@ def create(platform,output,native,framework=None):
         configs=[]
         for kind in ('Debug','Release'):configs.append(add(name+kind,{'isa':'XCBuildConfiguration','name':kind,'buildSettings':settings}))
         return add(name+'config',{'isa':'XCConfigurationList','buildConfigurations':configs,'defaultConfigurationName':'Release','defaultConfigurationIsVisible':'0'})
-    project_cfg=configs('project',{'CLANG_ENABLE_OBJC_ARC':'YES','SWIFT_VERSION':'5.0','CLANG_CXX_LANGUAGE_STANDARD':'c++17'})
+    project_cfg=configs('project',{'CLANG_ENABLE_OBJC_ARC':'YES','CLANG_ENABLE_MODULES':'YES','SWIFT_VERSION':'5.0','CLANG_CXX_LANGUAGE_STANDARD':'c++17'})
     shared=[ROOT/'apps/apple/Shared'/name for name in ('ClientView.swift','ClientModel.swift','RemoteViewer.swift','MediaPlayer.swift')]
     specs=[('NetGo',shared+[ROOT/'apps/apple'/platform/'NetGoApp.swift'],'app')]
     if platform=='iOS':specs.append(('NetGoTunnel',[ROOT/'apps/apple/iOS/PacketTunnelProvider.swift',ROOT/'apps/apple/iOS/TunnelBridge.m'],'appex'))
@@ -40,7 +40,7 @@ def create(platform,output,native,framework=None):
         product_refs.append(product);phases=[source_phase,framework_phase];dependencies=[]
         settings={'PRODUCT_NAME':name,'PRODUCT_BUNDLE_IDENTIFIER':'org.netgo.client.mac' if platform=='macOS' else ('org.netgo.client.ios' if extension=='app' else 'org.netgo.client.ios.tunnel'),
                   'GENERATE_INFOPLIST_FILE':'YES','CODE_SIGN_STYLE':'Automatic','CODE_SIGNING_ALLOWED':'NO','SWIFT_VERSION':'5.0',
-                  'SWIFT_INCLUDE_PATHS':str(ROOT/'apps/apple/Bridge'),'HEADER_SEARCH_PATHS':[str(ROOT/'apps/apple/Bridge'),str(ROOT/'packages/remote-client/include')],
+                  'SWIFT_INCLUDE_PATHS':str(ROOT/'apps/apple/Bridge'),'LIBRARY_SEARCH_PATHS':str(Path(native).parent),'HEADER_SEARCH_PATHS':[str(ROOT/'apps/apple/Bridge'),str(ROOT/'packages/remote-client/include')],
                   'OTHER_LDFLAGS':['-lc++','-framework','Security','-framework','CoreFoundation'], 'ENABLE_HARDENED_RUNTIME':'YES'}
         if platform=='macOS':settings.update(SDKROOT='macosx',MACOSX_DEPLOYMENT_TARGET='14.0',OTHER_LDFLAGS=['-lc++','-lcurl','-framework','Security','-framework','CoreFoundation'],INFOPLIST_KEY_NSPrincipalClass='NSApplication')
         else:
