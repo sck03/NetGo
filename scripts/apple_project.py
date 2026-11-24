@@ -51,7 +51,13 @@ def create(platform,output,native,framework=None,resources=(),selected_version=N
                   'GENERATE_INFOPLIST_FILE':'YES','CODE_SIGN_STYLE':'Automatic','CODE_SIGNING_ALLOWED':'NO','SWIFT_VERSION':'5.0',
                   'SWIFT_INCLUDE_PATHS':str(ROOT/'apps/apple/Bridge'),'LIBRARY_SEARCH_PATHS':str(Path(native).parent),'HEADER_SEARCH_PATHS':[str(ROOT/'apps/apple/Bridge'),str(ROOT/'packages/remote-client/include')],
                   'OTHER_LDFLAGS':['-lc++','-lresolv','-framework','Security','-framework','CoreFoundation'], 'ENABLE_HARDENED_RUNTIME':'YES'}
-        settings.update(MARKETING_VERSION=marketing,CURRENT_PROJECT_VERSION=str(build_number),INFOPLIST_KEY_CFBundleShortVersionString=marketing,INFOPLIST_KEY_CFBundleVersion=str(build_number),INFOPLIST_KEY_NetGoBuildVersion=app_version)
+        settings.update(MARKETING_VERSION=marketing,CURRENT_PROJECT_VERSION=str(build_number),INFOPLIST_KEY_CFBundleShortVersionString=marketing,INFOPLIST_KEY_CFBundleVersion=str(build_number))
+        if extension=='app':
+            # Xcode's generated-plist settings only support selected keys;
+            # merge an explicit plist so the full SemVer survives packaging.
+            app_info=output/(name+'-Info.plist')
+            app_info.write_bytes(plistlib.dumps({'NetGoBuildVersion':app_version}))
+            settings['INFOPLIST_FILE']=str(app_info)
         if platform=='macOS':settings.update(SDKROOT='macosx',MACOSX_DEPLOYMENT_TARGET='14.0',OTHER_LDFLAGS=['-lc++','-lcurl','-framework','Security','-framework','CoreFoundation'],INFOPLIST_KEY_NSPrincipalClass='NSApplication')
         else:
             settings.update(SDKROOT='iphoneos',IPHONEOS_DEPLOYMENT_TARGET='17.0',TARGETED_DEVICE_FAMILY='1,2',CODE_SIGN_ENTITLEMENTS=str(ROOT/'apps/apple/iOS/NetGo.entitlements'))
