@@ -22,7 +22,9 @@ jobs:
         with:
           node-version: '26.13.1'
       - name: Build and verify Linux server
-        run: bash scripts/build-linux-server.sh
+        run: |
+          git config --global --add safe.directory "$GITHUB_WORKSPACE"
+          bash scripts/build-linux-server.sh
       - name: Preserve server outputs and verification
         if: always()
         uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9
