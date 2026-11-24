@@ -19,7 +19,26 @@ Windows 11项CTest、TLS夹具、系统DLL与10MiB预算检查已执行。共享
 
 Debian13使用系统OpenSSL3.5.9，在独立验证目录执行6项共享核心/票据/传输/客户端ASan/UBSan检查。首次验证漏打包共享票据向量导致一项失败，补齐测试输入后全部通过；原始失败日志保留。新用例包含分片、慢速滴传、已关闭对端及高描述符连接。没有更改实机已有LAN/VPS服务、默认网关、SSH或Docker。
 
-Go internal/cmd 全部测试与vet已执行。续租新增了服务端时间调整12秒的真实TLS回归，验证两帧之间成功续租与校准；原始测试夹具未切换active状态导致的失败已保留并修正。对应日志摘要、最终云端运行和提交记录见CI.json。开发日志、输入包与构建缓存仍在忽略目录，不进入用户运行包。
+Go internal/cmd 全部测试与vet已执行。续租新增了模拟服务端时间前移12秒、经过真实TLS连接的回归，验证两帧之间成功续租与校准；原始测试夹具未切换active状态导致的失败已保留并修正。对应日志摘要、最终云端运行和提交记录见CI.json。开发日志、输入包与构建缓存仍在忽略目录，不进入用户运行包。
+
+Windows使用computer-use检查本轮远控测试窗口：按钮结构和空闲停止禁用状态确认，Alt+F4退出后窗口与进程均结束。当前Windows10 LTSC的截图接口返回0x80004002，鼠标输入几何不可用；不将无障碍结构检查算作视觉或真实鼠标输入验收。测试未启用真实站点远控或修改用户网络。
+
+## 云端构建与包核验
+
+下列运行均已完成并成功；客户端来自续租修复提交 `125593c`，LAN 服务端来自 `cba9be5`，后续提交未修改服务端代码。每份包均已下载核验发布清单、资产 SHA-256、归档内容和原生架构；完整提交号、GitHub 产物摘要及文件数见 [CI.json](CI.json)。
+
+| 目标 | 架构与产物 | GitHub 运行 |
+| --- | --- | --- |
+| Windows | amd64，安装器与绿色版 | [45408796386](https://github.com/sck03/NetGo/actions/runs/45408796386) |
+| Linux 桌面 | amd64，运行包 | [45408796697](https://github.com/sck03/NetGo/actions/runs/45408796697) |
+| Android | arm64，debug 与未签名 APK | [45408796685](https://github.com/sck03/NetGo/actions/runs/45408796685) |
+| macOS | arm64，App | [45408796780](https://github.com/sck03/NetGo/actions/runs/45408796780) |
+| iOS | arm64，模拟器 App 与未签名设备 IPA | [45408796509](https://github.com/sck03/NetGo/actions/runs/45408796509) |
+| LAN Linux 服务端 | amd64，运行包与 Go 安装器 | [45405847134](https://github.com/sck03/NetGo/actions/runs/45405847134) |
+
+Windows 绿色包共10个文件，日常入口为 NetGo.exe；`.netgo/NetGo-Network-Setup.exe` 是程序调用的网络安装组件。测试程序、源码和私钥未进入运行包。本地最终 NetGo.exe 为7,072,256字节。LAN运行归档保留 frpc，未包含 VPS 专用 frps 或客户端后台程序。
+
+所有运行的 publish 步骤均跳过，本轮没有创建 Release。以上是分别验证的开发产物，不作为同一提交的正式发行包；未签名 iOS IPA 仍需有效 Apple 签名与设备环境才能安装验收。
 
 ## 未完成
 

@@ -1,13 +1,13 @@
 {
   "schema": 1,
-  "checked_at": "2026-11-24T21:35:45+08:00",
+  "checked_at": "2026-11-24T22:25:05+08:00",
   "baseline_commit": "cf39cf928724c16b64a3649d425712d4da4e9bc1",
   "source_files_sha256": {
     "apps/windows/remote/CMakeLists.txt": "6e05ade50b095fb2c511cb0545c95b3c8e821871fd0d566a6c60e37dca46d6ef",
     "apps/windows/remote/include/display_layout.hpp": "2288f32b6ff1a8664a16f590a848e54c0dd034ac3eae664d2ab853944c860977",
     "apps/windows/remote/include/remote_runtime.hpp": "ce780651554f6d05be4fc0890444c0633e9a59fca6e7a1bca46c1735bd2f91c9",
     "apps/windows/remote/include/video_codec.hpp": "6c36d7035a764c890d074b9164a8a2f7ca866db14e4d072670ebd28eb1e9f933",
-    "apps/windows/remote/src/remote_runtime.cpp": "5b271f8f3d34f5372a078ecfbaab807cd59ed7107e278c570376231af5e533ef",
+    "apps/windows/remote/src/remote_runtime.cpp": "d2da2f3fa00cc4a338571ca134d2bc4f2c178ef0bc280c23944abb04cadbf17a",
     "apps/windows/remote/src/remote_window.cpp": "a99b777d5b6fbb2db93a2bfe3c667f536d2fc4c37acf283bbd57ac5b592a6f5d",
     "apps/windows/remote/src/video_codec.cpp": "3905b0b07d86b9bb1d93f16bffd7de04b1539da9aca043abf1115f536ccef16a",
     "apps/windows/remote/tests/layout_tests.cpp": "fd8e4b8cde332d14cf15cc368b81810af2c393bda51878fd90d150b67e28a1ca",
@@ -15,12 +15,12 @@
     "internal/remote/manager.go": "453e0cc6324783f3ad8fd87b0e79e301783107f2fe6608d4520cb8f921d1b1dd",
     "internal/remote/manager_test.go": "cc4afb19438b4a4d6c8a2c029c3c7e60ab8afcc0e5c7a3c94984c5456a16733b",
     "packages/remote-client/include/netgo_remote_client.h": "23c6a4d6f4e33a68595fd3987d1b44c383107a5afc33620dcf668f0e6968ff28",
-    "packages/remote-client/src/client.cpp": "564c8908900b36a37d966b8444e27ee95262642080bfe37923e64e1165351753",
-    "packages/remote-client/tests/client_tests.cpp": "0bab5f9bcfd5b57d02677698f9e1cf020861272b28f4fabffd70c53ad1bc4f57",
-    "packages/remote-core/include/netgo_remote_clock.hpp": "231f0db6cf893c4ef49efe5a68dbe2b5c8bb7ca255379b0ac3bec1f3a2458e57",
+    "packages/remote-client/src/client.cpp": "895b28f3f85cc9bc8050cb8b1acde322e5a9fd98f940b15436c50622b81e087d",
+    "packages/remote-client/tests/client_tests.cpp": "95dbfc087b8df9e14efbeaceb4de739a899a55c4bc0d5127aeb924509148608a",
+    "packages/remote-core/include/netgo_remote_clock.hpp": "0952183e0c4a6b0b770aa88f4cfad5864bdf6aab4b9e286a09184a134b31705a",
     "packages/remote-transport/CMakeLists.txt": "ab3deb638ab6d391147290f5c0336635095bcd1544035196a4c9b699b4e68569",
     "packages/remote-transport/include/remote_transport.hpp": "6209e23e105e9e0ec83408ba746229b0e53b86df88857e193d5a87d4483bd8ba",
-    "packages/remote-transport/src/transport.cpp": "99573ba4ea0c39d7dbe1681f92c749473e1c02e45b41eabcce8d1e2283b35178",
+    "packages/remote-transport/src/transport.cpp": "84cccd22c2025f3bc823249903a47567f332f35fa450bb28c4c95dfaa81280c8",
     "packages/remote-transport/tests/transport_tests.cpp": "959ff48a37b1e3d2dc3acea05773685cc1c0e5389c8cc35dbd790b32e2f97543"
   },
   "local_checks": {
@@ -41,19 +41,214 @@
       "3s total deadline",
       "closed peer SIGPIPE",
       "POSIX fd >1024",
-      "cancelled session cleanup"
-    ]
+      "cancelled session cleanup",
+      "authenticated renewal with simulated server clock +12s"
+    ],
+    "windows_ui": {
+      "method": "computer-use accessibility and keyboard",
+      "controls": [
+        "连接主机",
+        "允许本机远控…",
+        "刷新",
+        "停止"
+      ],
+      "idle_stop_disabled": true,
+      "alt_f4_exit": true,
+      "screenshot_error": "0x80004002 capture factory unsupported",
+      "mouse_geometry": "unavailable",
+      "real_site_enabled": false
+    },
+    "windows_netgo_exe_bytes": 7072256
   },
   "workspace_log_sha256": {
-    "remote-improvement-native-final-verified3.txt": "82efe8092eca4896b0268cdf664aefb50767d890e031ec83dbf7f7e6b3466e8b",
     "remote-improvement-go-all.txt": "92bbe36845c241ca9f1ee87a7d14cec7d1e92f976adbb3a684ba8a3396c65d3c",
     "remote-improvement-go-vet.txt": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
     "remote-improvement-live-video.txt": "e8bcf590340210cf327b5f937798b31e507786cbde32cbf38ef032a05c58bc60",
-    "remote-improvement-linux-sanitizers-final4.txt": "58796d12889a28f9a34031e8b47301d55a48e857f16a6e8ba06031c4de01a6c5",
-    "remote-improvement-linux-transport-proof.txt": "694ca22d13b06b3c2990ee0fc6a455b1e41e9302c18f5d2bc7010979bf3ce5f0"
+    "remote-improvement-linux-transport-proof.txt": "694ca22d13b06b3c2990ee0fc6a455b1e41e9302c18f5d2bc7010979bf3ce5f0",
+    "remote-improvement-final-native.txt": "0cb6b0429831e0110ceed5a21b1bbb12f45f51f2a6545f3abd360c8908c79003",
+    "remote-improvement-renewal-linux.txt": "b3d03f8ea9a23cf6ab8b503d8c85faf0a0276919d96c0a6395481d57d1ee8dad",
+    "remote-improvement-renewal-test.txt": "84912980e2b14dbffeea047bf237103cf96ee907f46a3ea53fd9c6a60a1625d9"
   },
-  "cloud_runs": [],
-  "cloud_status": "pending",
+  "cloud_runs": [
+    {
+      "target": "windows",
+      "id": 45408796386,
+      "url": "https://github.com/sck03/NetGo/actions/runs/45408796386",
+      "source_commit": "125593cd7026fd0766d5f4b76297326d3554b8b8",
+      "status": "completed",
+      "conclusion": "success",
+      "publish": "skipped",
+      "version": "0.3.0-dev",
+      "arch": "amd64",
+      "sdk": "none",
+      "artifact": {
+        "id": 14928617238,
+        "name": "release-windows-0.3.0-dev-amd64-none-45408796386",
+        "size_in_bytes": 29965396,
+        "digest": "sha256:5d7c175358e2f66b66a1dc625bc2720eda3cb31065852e846184c71aedbf0afa"
+      },
+      "manifest_sha256": "a7aa371cb80372a31daaf63daf18d5f69d257a04da85b630a0585fb80276fbb6",
+      "archives": [
+        {
+          "archive": "NetGo-0.3.0-dev-windows-amd64-portable.zip",
+          "entries": 10,
+          "verified_native_arch": "amd64"
+        }
+      ]
+    },
+    {
+      "target": "linux-client",
+      "id": 45408796697,
+      "url": "https://github.com/sck03/NetGo/actions/runs/45408796697",
+      "source_commit": "125593cd7026fd0766d5f4b76297326d3554b8b8",
+      "status": "completed",
+      "conclusion": "success",
+      "publish": "skipped",
+      "version": "0.3.0-dev",
+      "arch": "amd64",
+      "sdk": "none",
+      "artifact": {
+        "id": 14925694794,
+        "name": "release-linux-client-0.3.0-dev-amd64-none-45408796697",
+        "size_in_bytes": 23337041,
+        "digest": "sha256:b8d9d906d17fb3fcfb64089a9e2f71133a76b8b6a0815b1031121c5509866c4f"
+      },
+      "manifest_sha256": "acd432da2aa7dea38273f16a3a7a18f832d38a8bca439741a42741258b4fe08f",
+      "archives": [
+        {
+          "archive": "NetGo-0.3.0-dev-linux-client-amd64.tar.gz",
+          "entries": 8,
+          "verified_native_arch": "amd64"
+        }
+      ]
+    },
+    {
+      "target": "android",
+      "id": 45408796685,
+      "url": "https://github.com/sck03/NetGo/actions/runs/45408796685",
+      "source_commit": "125593cd7026fd0766d5f4b76297326d3554b8b8",
+      "status": "completed",
+      "conclusion": "success",
+      "publish": "skipped",
+      "version": "0.3.0-dev",
+      "arch": "arm64",
+      "sdk": "none",
+      "artifact": {
+        "id": 14928485086,
+        "name": "release-android-0.3.0-dev-arm64-none-45408796685",
+        "size_in_bytes": 56264994,
+        "digest": "sha256:70842e027fef9852b0ef1a936b0e03bb9decb34c41acf45d2f18fa6cf5c57cac"
+      },
+      "manifest_sha256": "d38312272a4037bbdf24207e31f14e00bb12f163b44481b26a557da7bdda3d74",
+      "archives": [
+        {
+          "archive": "NetGo-0.3.0-dev-android-arm64-debug.apk",
+          "entries": 138,
+          "verified_native_arch": "arm64"
+        },
+        {
+          "archive": "NetGo-0.3.0-dev-android-arm64-unsigned.apk",
+          "entries": 135,
+          "verified_native_arch": "arm64"
+        }
+      ]
+    },
+    {
+      "target": "macos",
+      "id": 45408796780,
+      "url": "https://github.com/sck03/NetGo/actions/runs/45408796780",
+      "source_commit": "125593cd7026fd0766d5f4b76297326d3554b8b8",
+      "status": "completed",
+      "conclusion": "success",
+      "publish": "skipped",
+      "version": "0.3.0-dev",
+      "arch": "arm64",
+      "sdk": "none",
+      "artifact": {
+        "id": 14927600272,
+        "name": "release-macos-0.3.0-dev-arm64-none-45408796780",
+        "size_in_bytes": 21597025,
+        "digest": "sha256:ccc0686d94492cf18f6828764717b7e15e0c95123a0758c76d4a1daa2d33db3f"
+      },
+      "manifest_sha256": "5b7897a4a4385a1093723eb67d1444685a7871363f14fa18d70480c9da8e5e55",
+      "archives": [
+        {
+          "archive": "NetGo-0.3.0-dev-macos-arm64.zip",
+          "entries": 20,
+          "verified_native_arch": "arm64"
+        }
+      ]
+    },
+    {
+      "target": "ios",
+      "id": 45408796509,
+      "url": "https://github.com/sck03/NetGo/actions/runs/45408796509",
+      "source_commit": "125593cd7026fd0766d5f4b76297326d3554b8b8",
+      "status": "completed",
+      "conclusion": "success",
+      "publish": "skipped",
+      "version": "0.3.0-dev",
+      "arch": "arm64",
+      "sdk": "both",
+      "artifact": {
+        "id": 14928378498,
+        "name": "release-ios-0.3.0-dev-arm64-both-45408796509",
+        "size_in_bytes": 32306074,
+        "digest": "sha256:13490335c9d7cb41d78184cda8e412d2c2d3a689dbe19a86cec01195cd67a769"
+      },
+      "manifest_sha256": "065676848fa7df02bb6a189b3400798f5174b55b1f7db27f5fcb39371aa1f300",
+      "archives": [
+        {
+          "archive": "NetGo-0.3.0-dev-ios-arm64-simulator.zip",
+          "entries": 13,
+          "verified_native_arch": "arm64"
+        },
+        {
+          "archive": "NetGo-0.3.0-dev-ios-arm64-unsigned.ipa",
+          "entries": 14,
+          "verified_native_arch": "arm64"
+        }
+      ]
+    },
+    {
+      "target": "linux-server",
+      "id": 45405847134,
+      "url": "https://github.com/sck03/NetGo/actions/runs/45405847134",
+      "source_commit": "cba9be5a6e7e65e2f5ef712043c94a614097a6dd",
+      "status": "completed",
+      "conclusion": "success",
+      "publish": "skipped",
+      "version": "0.3.0-dev",
+      "arch": "amd64",
+      "sdk": "none",
+      "artifact": {
+        "id": 14927465390,
+        "name": "release-linux-server-0.3.0-dev-amd64-none-45405847134",
+        "size_in_bytes": 104911628,
+        "digest": "sha256:ed333dd73498974705115c8547f42aa5c5c2cb2cd2ccba6139d7b36d34f7d078"
+      },
+      "manifest_sha256": "9da840ce6dbc23ca1bed1cc321ea166d2a21448f7466f51aa3a8e4ca54a8b27b",
+      "archives": [
+        {
+          "archive": "NetGo-0.3.0-dev-linux-amd64.zip",
+          "entries": 24,
+          "verified_native_arch": "amd64"
+        }
+      ]
+    }
+  ],
+  "cloud_status": "passed",
   "release_created": false,
-  "scope": "Implementation and bounded regression validation; no full cross-device/native-device remote desktop acceptance."
+  "scope": "Implementation and bounded regression validation; no full cross-device/native-device remote desktop acceptance.",
+  "implementation_commits": [
+    "cba9be5a6e7e65e2f5ef712043c94a614097a6dd",
+    "125593cd7026fd0766d5f4b76297326d3554b8b8"
+  ],
+  "cloud_validation": [
+    "GitHub API completion and skipped publication",
+    "Downloaded release payload digest and ZIP CRC",
+    "Manifest source commit, asset SHA-256 and sidecar checksums",
+    "Runtime archive allowlist and native architecture",
+    "Apple bundle version and build number"
+  ]
 }
