@@ -1,61 +1,159 @@
-# 独立安装与维护
+# LAN 与 VPS 一键安装、配置和卸载
 
-服务端核心与 Linux/VPS 安装维护统一使用 Go。最终平台包不需要 Python、Node 或 Go 编译器；Python 仅用于开发侧构建和验证。当前目标为 Debian 12/13 amd64、systemd，API v2、数据库 schema 2。旧开发环境须保留归档后使用新数据初始化。
+LAN 使用独立脚本 **install-server.sh**、快捷菜单 **ng**；VPS 使用 **install-vps.sh**、快捷菜单 **ngv**。程序安装和日常维护由 Go 实现，最终用户不需要 Python、Node 或 Go 编译器。当前支持 Debian 12/13、amd64、systemd，使用 API v2 / schema 2。
 
-## 局域网 Linux 服务端
+## 当前下载状态
 
-从 GitHub Actions 下载 Linux server 平台包，解压后以 root 运行包内 `bash install-server.sh`。程序安装后打开菜单，以后输入 **`ng`** 即可。远程下载入口使用 GitHub Release；尚无对应 Release 时需下载 Actions 产物，安装器不会在用户服务器上临时安装编译器或 Python。
+截至 2026-11-24，仓库尚未发布 GitHub Release。`releases/latest/download` 的在线安装器下载因此不可用。**当前请下载成功构建的 Actions 平台运行包，运行包内的一键脚本可以安装并打开菜单。**
 
-菜单分别提供首次初始化/启动、状态、地址与端口、证书、客户端导入文件、旁路由 IP/DNS、VPS 设置、诊断和卸载。安装初始化会询问控制/Relay 地址、端口、LAN 网卡与网段、证书选项、管理员邮箱和密码。密码不进入命令行参数。
+1. 打开 [Linux server](https://github.com/sck03/NetGo/actions/workflows/build-linux-server.yml) 或 [VPS auxiliary node](https://github.com/sck03/NetGo/actions/workflows/build-vps.yml) 最近一次成功运行。
+2. 在底部下载 Artifacts，解压外层 ZIP。
+3. 找到真正的程序安装包：LAN 为 `NetGo-0.3.0-dev-linux-amd64.zip`（通常在 `dist/linux-server/`）；VPS 为 `NetGo-0.3.0-dev-vps-linux-amd64.zip`。
+4. 将对应运行包复制到目标机器。以下命令假设文件放在 `/root/`，在 root 终端运行；实际版本号按下载文件替换。
 
-默认控制 TCP 10443、Relay TCP/UDP 18443、STUN UDP 3478，可在菜单修改。自动签发使用站点私有 CA；已有证书可导入 `control.crt/key`、`relay.crt/key`，私有 CA 另需 `ca.crt`。证书校验域名/IP、有效期、完整链及私钥配对，CA 私钥留在 LAN。
+如果缺少 unzip：`apt-get update && apt-get install -y --no-upgrade unzip`。安装器按需准备所缺的运行依赖，不进行整机升级或自动清理系统包。
 
-初始化通过 NetBird API 创建本地管理员、关闭默认全员互通策略，并登记专用路由节点。账号默认没有资源权限，管理员在管理页授予明确的 LAN 或互联网资源权限。
-
-旁路由菜单支持指定 IP、首选/备用 DNS，以及普通 DNS 或 Clash/Mihomo Fake-IP DNS（可自动检测）。Fake-IP 仅支持专用 `198.18.0.0/15` 地址范围。互联网出口使用独立的 VPN 入站策略路由表，服务器原有默认路由不变。
-
-**必须在管理页将“互联网（旁路由）”资源授予相应账号，该账号才能使用旁路由访问互联网。** 客户端默认关闭互联网模式，用户可在连接前选择。勾选开关不增加权限；撤权关闭该账号的租约转发，并清理其已有连接。私网访问仍由单独的 LAN 资源控制，DNS 只允许已设置地址。
-
-配置修改会保存受保护备份，停止本次受管服务，校验并启动新配置；失败时恢复原配置及服务，并保持配置版本递增。客户端重新导入更新的站点 JSON。更换地址或 CA 时由客户端确认管理员提供的新身份。
-
-## VPS 辅助节点
-
-VPS 使用独立 `install-vps.sh`；安装后快捷命令为 **`ngv`**。VPS 包包含 `frps`、NetBird Relay 和 Go 维护工具。`frps` 在 VPS 上负责反向控制隧道；LAN 包只需要 `frpc`，因此不重复打入 `frps`。
-
-先在 LAN 的 `ng → VPS` 菜单填写 VPS 地址与端口，选择或导入节点证书，并导出一个 `NetGo-vps.zip`。私下复制到 VPS，再在 `ngv` 中选择导入。该 ZIP 包含节点 TLS 私钥及节点通信密钥，不含控制数据库、管理员令牌、设备密钥或站点 CA 私钥。
-
-VPS 菜单提供配置导入、状态、端口修改、证书更新、诊断和卸载。VPS 改端口后生成公开设置 JSON，复制回 LAN 并在 `ng → VPS → 导入新设置` 更新 LAN 隧道及客户端入口。更新证书通过 LAN 新导出的节点 ZIP 导入，避免把 CA 签发私钥复制到 VPS。
-
-独立端口模式可用 IP 或域名。共享 443 模式需要三个不同 DNS 域名及空闲 443 端口，并增加受管 HAProxy 和 QUIC 重定向。已有 Docker、SSH、80/443 服务不被接管；云安全组和现有过滤策略按实际所需端口配置。
-
-## 卸载和离线调用
-
-在各自菜单选择卸载。只停止与移除本次受管服务、快捷命令、路由/防火墙规则，保留配置、身份、证书、数据和程序以供重装；不执行系统包自动清理。发现受管文件被其他程序修改时保留现场。
-
-高级或自动化调用可使用：
+## LAN 服务端首次安装
 
 ```sh
-bash install-server.sh install --source /root/NetGo-server --install-only
-ng configure
+unzip /root/NetGo-0.3.0-dev-linux-amd64.zip -d /root/NetGo-server
+cd /root/NetGo-server
+bash install-server.sh
+```
+
+菜单选择 **1) 首次配置/启动 VPN**，设置控制 IP/域名、端口、LAN 网卡/网段、证书和管理员账号。初次生成私有 CA，或导入已有证书后，维护器校验证书的域名/IP、有效期、完整链和私钥配对。
+
+独立端口模式的默认值：
+
+| LAN 项目 | 默认值 |
+| --- | --- |
+| HTTPS 控制及管理网页 | TCP 10443 |
+| Relay | TCP/UDP 18443 |
+| STUN | UDP 3478 |
+
+例如：控制地址和本地 Relay 都为 LAN 服务器 `192.168.18.220`，网卡 `ens32`，网段 `192.168.18.0/23`。`255.255.254.0` 对应 `/23`。实际网卡和地址以目标机器为准。
+
+完成后打开控制网址的首页，例如 `https://192.168.18.220:10443/`，登录管理网页创建账号、资源和授权。私有 CA 站点应先在管理浏览器中信任其公共 CA。账号默认没有资源权限；管理员需明确授予 LAN 或互联网资源。
+
+输入 `ng` 打开菜单：
+
+| 菜单 | 用途 |
+| --- | --- |
+| 1) 首次配置/启动 VPN | 初次初始化；已有站点恢复启动 |
+| 2) 信息和状态 | 查看控制网址、配置位置、受管服务状态 |
+| 3) 修改域名/IP 与端口 | 设置 LAN 控制与 Relay 地址、端口 |
+| 4) 生成/导入证书 | 维护控制/Relay 证书 |
+| 5) 导出客户端配置 | 导出公共站点 JSON |
+| 6) 设置旁路由 IP/DNS | 设置账号授权的互联网出口 |
+| 7) VPS 设置与导出 | 配置辅助节点、导出节点包、导入 VPS 新设置 |
+| 8) 诊断/恢复连接 | 检查和恢复连接 |
+| 9) 卸载（保留数据） | 卸载本项目受管对象 |
+
+控制域名或 CA 变更后，客户端重新导入维护器导出的站点文件，并确认身份变更。修改配置会建立受保护备份，校验并启动新配置，失败时恢复原配置及服务；配置版本保持递增。
+
+## VPS 安装和与 LAN 配对
+
+只需一台 VPS。独立端口模式可用 IP 或域名：
+
+| VPS 项目 | 默认值 | 作用 |
+| --- | --- | --- |
+| 控制入口 | TCP 24443 | 客户端到 LAN 的备用控制入口 |
+| frps 隧道入口 | TCP 27000 | LAN 的 frpc 与 VPS 建立隧道 |
+| Relay | TCP/UDP 28443 | VPN 直连失败时的数据中继 |
+| STUN | UDP 3478 | VPN 地址发现 |
+
+先完成 LAN 初始化，在 `ng → 7) VPS 设置与导出` 中选择添加/修改 VPS，填写以上地址和端口、选择证书，导出 `/root/NetGo-vps.zip`。将该节点配置包和 VPS 程序安装包分别复制到 VPS：
+
+```sh
+unzip /root/NetGo-0.3.0-dev-vps-linux-amd64.zip -d /root/NetGo-vps
+cd /root/NetGo-vps
+bash install-vps.sh
+```
+
+在 `ngv` 菜单选择 **1) 导入配置包/启动节点**，输入 `/root/NetGo-vps.zip`。也可在运行包目录使用：
+
+```sh
+bash install-vps.sh install --source /root/NetGo-vps --bundle /root/NetGo-vps.zip
+```
+
+VPS 的程序安装包 `NetGo-版本-vps-linux-amd64.zip` 用来安装程序；LAN 导出的 `NetGo-vps.zip` 含节点证书私钥及通信密钥，用来配对站点。不要把后者发给客户端用户或提交到 GitHub。客户端使用 `ng → 5` 导出的公共站点 JSON。
+
+配对完成后，在 LAN 再次导出客户端配置。导出内容会保留 LAN 控制身份，并加入 VPS 备用 `Candidates`、`AuxiliaryRelay`。Windows 应导入此文件，不把“控制网址”或“本地中继”直接换成 VPS。
+
+`ngv` 菜单提供配置导入、状态、端口修改、更新证书、诊断和卸载。VPS 修改端口会生成公开设置 JSON，将其导回 LAN 的 `ng → 7 → 导入 VPS 新设置`，再导出最新客户端配置。证书更新使用 LAN 新导出的节点 ZIP。
+
+共享 443 模式需要三个不同 DNS 域名及空闲 443，并增加受管 HAProxy 和 QUIC 重定向。已有 SSH、Docker、80/443 服务不被接管；云安全组和现有防火墙需放行实际使用的 NetGo 端口。SSH 端口不属于 NetGo 客户端配置。
+
+## 旁路由与账号授权
+
+在 `ng → 6` 设置旁路由 IP、首选/备用 DNS、普通 DNS 或 Fake-IP DNS。示例：
+
+| 项目 | 示例 |
+| --- | --- |
+| 旁路由 IP | 192.168.19.254 |
+| 首选 DNS | 192.168.19.254 |
+| 所在 LAN 网段 | 192.168.18.0/23 |
+| Fake-IP 范围 | 198.18.0.0/15，支持 Clash/Mihomo |
+
+服务器原有默认网关保留，互联网出口使用独立 VPN 入站策略。
+
+**还需在管理页创建“互联网（旁路由）”资源并授权账号。** 客户端开关只选择已授权能力；撤权关闭租约转发并清理已有连接。LAN 设备和端口访问单独授权。旁路由 IP 不填到 Windows 的“路由虚拟 IP”或中继字段。
+
+## 导出文件和 Windows 连接
+
+在 `ng → 5) 导出客户端配置` 保存 `/root/NetGo-site.json`；服务端当前公共配置也在 `/etc/netgo/client-site.json`。把此 JSON 复制到客户端，点击“导入”，再输入账号密码连接。
+
+它包括站点 ID、固定控制网址、直达和备用入口、VPN 网关、公共 CA、Relay 标识及互联网 DNS，不含密码、令牌或私钥。截图字段的逐项解释见 [Windows 客户端说明](WINDOWS_CLIENT.zh-CN.md)。
+
+Windows 安装版双击 Setup；绿色版解压后打开 NetGo.exe，首次网络授权由程序调用内部准备器。普通用户不用手工运行 PowerShell 维护脚本或分别启动后台程序。
+
+## 卸载与保留数据重装
+
+LAN 输入 `ng`、VPS 输入 `ngv`，选择菜单中的 9 并输入 yes；或者：
+
+```sh
+# 在 LAN 服务器
 ng uninstall --yes
 
-bash install-vps.sh install --source /root/NetGo-vps --bundle /root/NetGo-vps.zip
-ngv doctor
+# 在 VPS
 ngv uninstall --yes
 ```
 
-完整 ZIP 可用 `--package FILE --sha256 HASH` 安装，包和内部文件清单均校验。`--plan` 只显示计划。
+卸载移除本项目受管服务、快捷命令和规则，保留程序、配置、证书、身份和数据。发现外部修改的受管文件时保留现场，不清理系统包、SSH、Docker 或未知服务。
 
-## Windows
+卸载后快捷命令已经移除，重装从保留的运行包目录执行：
 
-安装版双击 Setup，之后从开始菜单打开 **NetGo.exe**；在系统“已安装的应用”中卸载。绿色版解压后双击 NetGo.exe，首次 VPN 网络授权由客户端调用内部准备工具。正常客户端无需运行 PowerShell 维护脚本或分别启动后台 EXE。
+```sh
+# LAN：恢复服务文件和快捷命令，再打开菜单选择 1
+cd /root/NetGo-server
+bash install-server.sh install --source /root/NetGo-server --install-only
+bash install-server.sh
 
-站点 JSON、账号密码、连接/断开、互联网模式选择和远控都从客户端操作。密码与设备密钥保存在 Windows Credential Manager；导出站点文件不包含密码或私钥。
+# VPS：恢复安装并加载保留的节点配置
+cd /root/NetGo-vps
+bash install-vps.sh install --source /root/NetGo-vps --bundle /etc/netgo-vps/bundle.zip
+```
 
-## 验证与参考
+高级安装可指定本地包 `--package FILE --sha256 HASH`；此时需使用已取得的 Go 安装器或含安装程序的运行包入口。`--source DIR` 指向已解压的完整平台运行包；`--plan` 只显示计划，不下载、不安装。`--install-only` 只安装程序/受管入口，首次站点设置仍从菜单完成。
 
-客户端不再要求本机与服务端时间差小于 30 秒。通过 TLS 和站点身份校验后，客户端采用服务端时间，并用单调时钟计算经过时间；请求签名、凭据刷新和租约期限使用这一时间基准。管理网页也采用相同方法。普通用户不需要为秒或分钟级偏差手动校时；证书验证、防重放、撤权和租约到期仍然有效。
+## 正式 Release 发布后的在线入口
 
-构建、单元测试和模拟器检查不等于跨设备 VPN/远控、UAC/锁屏、多屏或长期运行验收。Apple 构建已独立接入；设备安装需要签名，实机 VPN/媒体需要设备环境。
+仓库发布包含平台程序包、独立 Go 安装器、安装器摘要和根 SHA256SUMS 的正式 Release 后，root 可使用：
 
-菜单体验参考 [sing-box-yg](https://github.com/yonggekkk/sing-box-yg/tree/b13f9435c4792fccf04d4fbc73e24a1948abff1b) 与 [sing-box-vpn](https://github.com/sck03/sing-box-vpn/tree/2a046930fdad1d49823f5dd75495b1c91e152802) 的快捷命令、证书、端口和卸载流程，代码独立实现。构建入口见 [独立构建说明](BUILD_CLIENTS.zh-CN.md)。
+```sh
+# LAN
+curl -fL https://raw.githubusercontent.com/sck03/NetGo/main/install-server.sh -o install-server.sh && bash install-server.sh
+
+# VPS
+curl -fL https://raw.githubusercontent.com/sck03/NetGo/main/install-vps.sh -o install-vps.sh && bash install-vps.sh
+```
+
+脚本从 Release 下载并校验安装器，再由 Go 下载、校验和安装平台包。当前没有 Release，以上在线下载会失败；仅发布 prerelease 也不会提供 `releases/latest` 的正式版本入口。
+
+## 验证范围
+
+客户端不再要求本机与服务端时差小于 30 秒，使用可信服务端时间与单调经过时间；证书、签名、防重放、撤权及租约期限仍有效。
+
+LAN/VPS 安装维护与部分 VPN 场景已实测；七个平台构建已通过。远程桌面完整跨设备、Windows UAC/锁屏/多屏、Apple/移动设备和长期运行验收尚未完成，见 [本轮报告](evidence/2026-11-24-platforms/REPORT.zh-CN.md)。
+
+菜单体验参考 [sing-box-yg](https://github.com/yonggekkk/sing-box-yg/tree/b13f9435c4792fccf04d4fbc73e24a1948abff1b) 与 [sing-box-vpn](https://github.com/sck03/sing-box-vpn/tree/2a046930fdad1d49823f5dd75495b1c91e152802)，安装逻辑独立实现。开发构建入口见 [构建说明](BUILD_CLIENTS.zh-CN.md)。

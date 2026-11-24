@@ -1,77 +1,162 @@
 # NetGo
 
-当前源码提供 Linux 控制服务、Windows、Linux GTK、Android、macOS 和 iOS 原生客户端。账号与权限保留在本地 Linux；可选 VPS 提供备用控制入口和 NetBird 中继。Apple 构建已接入独立脚本，签名和实机验收需设备环境。
+NetGo 将账号、权限、管理网页和 VPN 网关部署在局域网 Debian 服务器上，让获授权的客户端访问指定的局域网设备。可选的一台 VPS 提供备用控制入口及 Relay/STUN 中继；账号和权限仍由 LAN 服务端管理。
 
-可选 VPS 只需一台：同时运行 frps（备用登录/控制）和 NetBird Relay/STUN（直连失败时的 VPN 业务中继）。多个示例域名可指向同一 VPS IP；不要求两台 VPS。
+普通客户端的操作是：**导入服务端导出的站点 JSON → 输入账号密码 → 连接**。Windows 日常只打开 **NetGo.exe**，首次网络授权由程序发起。
 
-**Windows 界面与产品后台已改为 C++20 / Win32。** 旧 Wails 桌面代码、网页桌面模式、Go Windows IPC/凭据实现及旧运行产物已清理。Linux 管理服务使用 Go，管理网页使用 Vue，独立 NetBird 核心保留上游语言。
+当前为 **0.3.0-dev / API v2 / schema 2 开发版**。LAN/VPS 的 VPN、账号授权、旁路由出口及安装维护已有实机验证；七个平台的构建已通过。远程桌面已接入部分平台和共享会话组件，**两台设备之间完整的画面、键鼠、音频及恢复流程尚未完成实机验收**。构建成功不表示全部远控或全部设备功能已可稳定使用。
 
-当前源码版本：**0.3.0-dev / API v2 / SQLite schema 2**，不兼容旧开发接口和数据库。Windows 普通使用入口统一为 **NetGo.exe**，主界面、连接后台与远控共用同一个程序文件，通过内部模式隔离运行；无需分别启动多个 EXE。安装版提供 Setup，绿色版解压后启动 NetGo.exe，网络服务准备由客户端调用。Windows 尚未完成全部设备验收。
+## 1. 下载哪个包
 
-已实现主机登记、分权授权、绑定票据、持钥证明、持久一次消费、远控续租与最小 peer/端口策略。Windows 已接入 DXGI、系统 H.264 编解码、键鼠/文本输入和 WASAPI 音频；Windows 与 GTK 查看器复用 [共享 C 接口](packages/remote-client/README.md)。本地编解码、真实 TLS/持钥证明测试及编译只提供局部证据，跨设备 overlay 画面/输入/音频、锁屏/UAC、多屏、文件/剪贴板、移动/Apple 客户端与 72 小时验收仍未完成。任务见 [远控与五平台方案](docs/REMOTE_NATIVE_PLAN.zh-CN.md)和 [集成契约](docs/INTEGRATION_CONTRACT.zh-CN.md)。
+从 [GitHub Actions](https://github.com/sck03/NetGo/actions) 选择对应工作流最近一次成功的运行，在页面底部下载 Artifacts。Actions 下载的 ZIP 是外层归档；解压后，再找到下表中的运行包。不要使用 GitHub 的源码 ZIP 代替安装包。
 
-## 独立安装入口
-
-各平台的 [构建脚本/GitHub 工作流](docs/BUILD_CLIENTS.zh-CN.md) 分别维护。Linux/VPS 的安装、证书、端口和菜单由 Go 工具实现，最终安装包无需 Python；Python 只用于开发侧构建、打包与验证。
-
-| 安装对象 | 独立脚本 | 操作 |
+| 使用位置 | 工作流 | 要使用的运行包 |
 | --- | --- | --- |
-| Debian 服务端 | [install-server.sh](install-server.sh) | 安装、首次配置、状态、诊断、卸载与保留数据重装 |
-| VPS 辅助节点 | [install-vps.sh](install-vps.sh) | 独立安装、导入 VPS 专用配置、状态、诊断、卸载与保留配置重装 |
-| Windows 客户端 | NetGo-Setup.exe | 图形安装/系统卸载；日常仅启动 NetGo.exe |
+| 局域网 Debian 服务端 | [Linux server](https://github.com/sck03/NetGo/actions/workflows/build-linux-server.yml) | `NetGo-0.3.0-dev-linux-amd64.zip`，通常位于外层归档的 `dist/linux-server/` |
+| VPS 辅助节点 | [VPS auxiliary node](https://github.com/sck03/NetGo/actions/workflows/build-vps.yml) | `NetGo-0.3.0-dev-vps-linux-amd64.zip` |
+| Windows 客户端 | [Windows client](https://github.com/sck03/NetGo/actions/workflows/build-windows-client.yml) | `NetGo-0.3.0-dev-windows-Setup.exe` 或 `NetGo-0.3.0-dev-windows-portable.zip`，位于 `dist/windows-client/` |
+| Linux 桌面客户端 | [Linux desktop client](https://github.com/sck03/NetGo/actions/workflows/build-linux-client.yml) | `NetGo-0.3.0-dev-linux-client-amd64.tar.gz`，解压后打开 `netgo-desktop` |
+| Android 客户端 | [Android client](https://github.com/sck03/NetGo/actions/workflows/build-android-client.yml) | 调试 APK 用于测试；未签名 APK 需签名后安装 |
+| macOS 客户端 | [macOS client](https://github.com/sck03/NetGo/actions/workflows/build-macos-client.yml) | macOS ZIP 中的 `NetGo.app`，目标设备上的权限和功能仍待验收 |
+| iPhone/iPad 客户端 | [iOS client](https://github.com/sck03/NetGo/actions/workflows/build-ios-client.yml) | 设备 IPA 需有效签名；模拟器 ZIP 用于 Xcode 模拟器 |
 
-LAN 快捷命令 `ng`，VPS 快捷命令 `ngv`，各自提供安装、设置、证书、端口、诊断和卸载菜单。参数见 [安装说明](docs/INSTALLERS.zh-CN.md)。远程一键下载使用 Release；未发布时，从 Actions 下载对应平台包，解压后运行包内安装脚本。安装过程无需编译器或 Python。
+版本号以实际下载文件为准。各平台脚本和工作流独立维护，见 [构建说明](docs/BUILD_CLIENTS.zh-CN.md)。
+
+## 2. Debian 服务端一键安装与维护
+
+**有独立的一键安装脚本 `install-server.sh`。** 它安装程序并打开交互菜单；后续输入 **`ng`** 即可修改设置或卸载。运行和维护不需要 Python、Node 或 Go 编译器。
+
+目前支持 Debian 12/13、amd64、systemd。先下载上表的服务端运行包，复制到服务器；以下示例假设文件放在 `/root/`，并在 root 终端执行：
 
 ```sh
-curl -fL https://raw.githubusercontent.com/sck03/NetGo/main/install-server.sh -o install-server.sh
-bash install-server.sh install --plan
+unzip /root/NetGo-0.3.0-dev-linux-amd64.zip -d /root/NetGo-server
+cd /root/NetGo-server
 bash install-server.sh
 ```
 
-Windows 双击 Setup 安装，从开始菜单打开 NetGo；绿色版解压后双击 NetGo.exe，首次网络授权由程序发起。普通用户无需运行 PowerShell 维护脚本。
+如果没有 `unzip`，先安装该系统工具：`apt-get update && apt-get install -y --no-upgrade unzip`。
 
-旁路由互联网出口单独设置 IP、DNS 和 DNS 模式，支持 Clash/Mihomo 的 `198.18.0.0/15` Fake-IP。**只有获得“互联网（旁路由）”资源授权的账号才可使用**，客户端默认关闭互联网模式；撤权会关闭租约转发并清理对应连接。局域网权限继续单独控制。
+首次在菜单选择 **1) 首次配置/启动 VPN**，按提示填写：
 
-客户端不再以 30 秒本机时差拒绝连接：验证 TLS 和站点身份后，采用服务端时间与单调经过时间进行签名、刷新和租约检查，保留防重放和会话到期保护。
+- 控制地址：LAN 服务器的 IP，或为该站点配置的控制域名。
+- 控制端口：默认 `10443`；本地 Relay 地址通常使用同一台 LAN 服务器，Relay 默认 `18443`，STUN 默认 `3478`。
+- LAN 网卡和网段：例如 `ens32`、`192.168.18.0/23`；`255.255.254.0` 对应 `/23`。
+- 证书：可以生成站点私有 CA 证书，或导入已有证书。
+- 管理员邮箱、账号和密码。
 
-面向国内动态公网线路，本地默认使用控制 TCP 10443、Relay TCP/UDP 18443，可按运营商允许的端口调整。无需开放本地 443；VPS 可独立使用高位端口或 443。HTTPS 域名证书不绑定端口，使用 DNS-01 可避免依赖入站 80/443。
+完成后，在浏览器打开安装时的控制网址，例如 `https://192.168.18.220:10443/`，登录管理网页创建普通账号并分配资源权限。私有 CA 站点需在管理浏览器中信任管理员提供的公共 CA 证书；客户端导入的站点 JSON 会携带所需公共 CA。
 
-H3C 多宽带场景同时考虑按连接负载均衡与主备切换：路由器管理各 WAN 的拨号、端口映射和回程，NetGo 管理多入口与恢复。见 [多 WAN 部署说明](docs/MULTI_WAN.zh-CN.md)及 examples/site-multiwan.json。
+菜单常用项：
 
-## 审阅入口
+| 命令/菜单 | 操作 |
+| --- | --- |
+| `ng` | 打开 LAN 管理菜单 |
+| 2) 信息和状态 | 查看站点、客户端配置位置和服务状态 |
+| 3) 修改域名/IP 与端口 | 修改 LAN 控制/Relay 地址和端口 |
+| 4) 生成/导入证书 | 维护本站点证书 |
+| 5) 导出客户端配置 | 导出 `NetGo-site.json`，发给客户端用户 |
+| 6) 设置旁路由 IP/DNS | 配置按账号授权的互联网出口 |
+| 7) VPS 设置与导出 | 添加 VPS 并导出节点配置包 |
+| 8) 诊断/恢复连接 | 检查并恢复受管服务 |
+| 9) 卸载（保留数据） | 移除受管服务、快捷命令和规则，保留配置、证书、数据和程序 |
 
-- [完整实施方案 v2.2](docs/EXECUTION_PLAN.zh-CN.md)
-- [远控与原生多平台可执行任务](docs/REMOTE_NATIVE_PLAN.zh-CN.md)
-- [统一身份、网络与远控的集成契约](docs/INTEGRATION_CONTRACT.zh-CN.md)
-- [v2.0 接续、修复与验证](docs/evidence/2026-11-23-continuation/REPORT.zh-CN.md)
-- [Debian 13 与公网 VPS 接续交付](docs/evidence/2026-11-23-delivery/REPORT.zh-CN.md)
-- [历史安装与实机验证记录](docs/evidence/2026-11-22-installers/REPORT.zh-CN.md)
-- [历史 v1.6 连续实施与审阅记录](docs/evidence/2026-11-22-plan-v1.6/REPORT.zh-CN.md)
-- [Windows 客户端使用说明](docs/WINDOWS_CLIENT.zh-CN.md)
-- [历史 v1.5 新线程接续与交付终检](docs/evidence/2026-11-22-handoff/REPORT.zh-CN.md)
-- [历史 v1.5 完整性复核与实施报告](docs/evidence/2026-11-22-completion/REPORT.zh-CN.md)
-- [分阶段进度](docs/PROGRESS.zh-CN.md)
-- [任务状态与实施清单](docs/IMPLEMENTATION_BACKLOG.zh-CN.md)
-- [方案条款、源码与验收追踪](docs/IMPLEMENTATION_MATRIX.zh-CN.md)
-- [实际验证报告](docs/evidence/implementation/REPORT.zh-CN.md)
-- [0.2.1-dev 续作与审阅报告](docs/evidence/0.2.1-dev/REPORT.zh-CN.md)
-- [上轮 v1.4 分段修复与验证报告](docs/evidence/2026-11-22-review/REPORT.zh-CN.md)
-- [历史 33 项待验收汇总](docs/evidence/2026-11-22-plan-v1.6/network-summary/REPORT.zh-CN.md)
-- [构建、安装与运维](docs/OPERATIONS.zh-CN.md)
-- [网络验收手册](docs/NETWORK_ACCEPTANCE.zh-CN.md)
-- [Windows 原生架构决策](docs/adr/0002-native-windows-client.md)
-- [固定版本](upstream/versions.lock.json)与[第三方通知](THIRD_PARTY_NOTICES.md)
+命令行卸载也可使用 `ng uninstall --yes`。重装时在保留的运行包目录执行 `bash install-server.sh install --source /root/NetGo-server --install-only`，再打开菜单选择首次配置/启动，恢复已有站点。完整参数见 [安装与维护说明](docs/INSTALLERS.zh-CN.md)。
 
-## 构建
+### 在线下载的一条命令：当前尚缺 Release
 
-Windows：安装 MSYS2 UCRT64 编译工具和带 cryptography 的 Python，准备锁定 Go/Node，执行：
+**截至 2026-11-24，仓库没有 GitHub Release。** 当前可用的是上述 Actions 运行包内的一键安装。仅下载仓库根目录的脚本，会因找不到 Release 安装器而返回 404；下载源码也不包含这些已编译程序。
 
-    .\scripts\build.ps1 -Toolchain D:\msys64\ucrt64
+发布包含安装器、平台包及摘要文件的正式 Release 后，以下在线入口才可使用。仅有预发布版本不会使 GitHub 的 `releases/latest` 入口生效：
 
-Debian 12/13 amd64：开发侧执行 `scripts/bootstrap-linux.sh`、`scripts/build.sh` 与 `scripts/build-upstream.sh`。服务端包只保留四个项目程序和五个 LAN 上游程序；VPS 包独立包含 frps、Relay 和 Go 维护工具。安装前可运行 --plan。
+```sh
+# LAN 服务端：在 root 终端运行，正式 Release 发布后可用
+curl -fL https://raw.githubusercontent.com/sck03/NetGo/main/install-server.sh -o install-server.sh && bash install-server.sh
 
-核心源码位于 apps/windows、cmd、internal、apps/ui；补丁位于 upstream/patches。客户端包括服务器列表、账号密码认证、连接/断开、控制/数据路径状态、资源列表、托盘、密码保护、自动恢复和脱敏诊断。
+# VPS 辅助节点：在 VPS 的 root 终端运行，正式 Release 发布后可用
+curl -fL https://raw.githubusercontent.com/sck03/NetGo/main/install-vps.sh -o install-vps.sh && bash install-vps.sh
+```
 
-开发验证使用 `scripts/verify.ps1` 或 `scripts/verify-linux.py`，各平台通过独立脚本打包；源码包使用 `scripts/package-source.py`。检查绑定源码、日志和产物摘要。验收工具见 [验收工具说明](tests/network/README.zh-CN.md)。
+## 3. VPS 辅助节点一键安装
 
-旧 ARCHITECTURE_PLAN 保留为历史参考。旁路由本身由外部设备提供代理能力，NetGo 管理获授权 VPN 账号到该设备的接入；目前仍不支持 OpenWrt 服务端或多个站点同时连接。
+VPS 使用另一份独立脚本 **`install-vps.sh`**，安装后输入 **`ngv`** 打开菜单。VPS 上的 `frps` 负责备用控制转发，Relay/STUN 负责 VPN 中继；LAN 上使用 `frpc` 与 VPS 建立控制隧道。
+
+先完成 LAN 站点初始化，再按以下顺序操作：
+
+1. 在 LAN 的 `ng → 7) VPS 设置与导出` 中添加 VPS 地址、控制/隧道/Relay/STUN 端口及证书，导出 `/root/NetGo-vps.zip`。
+2. 将 **VPS 程序安装包**和这个 **节点配置包**分别复制到 VPS。
+3. 在 VPS 上解压程序安装包并运行安装脚本：
+
+```sh
+unzip /root/NetGo-0.3.0-dev-vps-linux-amd64.zip -d /root/NetGo-vps
+cd /root/NetGo-vps
+bash install-vps.sh
+```
+
+4. 在 `ngv` 菜单选择 **1) 导入配置包/启动节点**，填写 `/root/NetGo-vps.zip`。
+5. 回到 LAN 的 `ng → 5) 导出客户端配置`，重新导出站点 JSON，客户端导入后即可自动选择 LAN 直连或 VPS 备用入口。
+
+`NetGo-0.3.0-dev-vps-linux-amd64.zip` 安装程序；LAN 导出的 `NetGo-vps.zip` 配置该节点。后者含节点 TLS 私钥和通信密钥，只在 LAN/VPS 管理员之间传递，客户端用户使用的是 `NetGo-site.json`。
+
+日常用 `ngv` 修改端口、更新证书、诊断或卸载；命令行卸载为 `ngv uninstall --yes`。VPS 改端口后，应把其导出的新设置导回 LAN，再重新导出客户端 JSON。
+
+## 4. Windows 客户端怎么填
+
+**推荐直接导入，不需要逐项填写截图中的表单。** 在 LAN 执行 `ng → 5) 导出客户端配置`，将生成的 JSON 复制到电脑，在 NetGo 主界面点击“导入”。文件会同时带入站点 ID、控制网址、直达/备用入口、VPN 网关、公共 CA 和中继信息。
+
+若管理员要求手工配置，截图字段的含义如下：
+
+| 截图字段 | 填什么 | 示例/来源 |
+| --- | --- | --- |
+| 显示名称 | 便于自己识别的名称 | “家里的服务器”，可以自定义 |
+| 站点 ID | LAN 站点实际的 `ID` | 从导出文件读取；不要直接沿用示例 `site1` |
+| 控制网址 | **LAN 站点的固定控制身份 `Origin`**，包含 `https://` 和控制端口 | 例如 `https://192.168.18.220:10443`，或安装时配置的控制域名；使用 VPS 时仍沿用导出值 |
+| 直达入口 | **直接到 LAN 服务端的控制入口**，格式为 `主机:端口` | LAN 内可用 `192.168.18.220:10443`；外网直达需可达的公网地址/域名及对应端口映射 |
+| 路由虚拟 IP | LAN 的 NetGo VPN 网关在 VPN 内部的地址，即 `GatewayIP` | 从导出文件读取；截图中的 `100.96.0.1` 只是示例，不能填 LAN IP 或旁路由 IP |
+| 证书信任 | 私有 CA 使用站点文件中的公共 CA，手工配置时导入管理员提供的 `ca.crt` | “使用系统信任”适用于系统已信任的证书；不导入私钥 |
+| 本地中继 | **LAN 上的 Relay 主机名或 IP**，即 `LocalRelay` | 例如 `192.168.18.220`；不加 `https://`、`rels://` 或端口；不填写 VPS |
+
+VPS 地址放在站点文件的 **备用控制入口 `Candidates`（`Kind: auxiliary`）**，VPS Relay 放在 **`AuxiliaryRelay`**。这两项不在截图的普通新建表单里，正常由 `ng` 导出并导入；管理员手工维护时使用“配置 → 高级配置”。
+
+例如，LAN 控制入口是 `192.168.18.220:10443`，VPS 备用入口是 `203.0.113.10:24443`。外网客户端连不上 LAN 私有地址时，会选择 VPS 入口；**控制网址仍保持 LAN 站点的原值**。VPS 将请求转回 LAN，客户端验证同一站点的证书。`203.0.113.10` 是文档示例，实际地址以导出文件为准。
+
+```mermaid
+flowchart LR
+    Client["客户端"] -->|"LAN / 公网直连入口"| LAN["LAN 服务端：账号、权限、VPN 网关"]
+    Client -->|"VPS 备用入口"| VPS["VPS：控制转发、Relay/STUN"]
+    VPS -->|"控制请求转回 LAN"| LAN
+    LAN -->|"获授权的互联网流量"| Router["旁路由"]
+```
+
+本地/VPS Relay 的真实连接端口由服务端下发。“本地中继”用于识别本地 Relay 路径，不用靠修改它来选择 VPS。详细格式及排错见 [Windows 使用说明](docs/WINDOWS_CLIENT.zh-CN.md)。
+
+## 5. 端口与旁路由
+
+以下是独立端口模式的默认值，修改后以服务端导出的配置为准：
+
+| 节点 | 用途 | 默认端口 | Windows 中对应什么 |
+| --- | --- | --- | --- |
+| LAN | HTTPS 控制/管理网页 | TCP `10443` | 控制网址、LAN 直达入口 |
+| LAN | Relay 中继 | TCP/UDP `18443` | 服务端下发；“本地中继”只填主机 |
+| LAN | STUN | UDP `3478` | 服务端下发 |
+| VPS | 备用控制入口 | TCP `24443` | 备用 `Candidates` |
+| VPS | LAN→VPS 控制隧道 | TCP `27000` | LAN/VPS 维护器配置，客户端不填 |
+| VPS | Relay 中继 | TCP/UDP `28443` | 服务端下发、`AuxiliaryRelay` 标识 |
+| VPS | STUN | UDP `3478` | 服务端下发 |
+
+SSH 端口用于管理员登录机器，与 NetGo 客户端入口无关。共享 443 模式的条件和端口配置见 [安装说明](docs/INSTALLERS.zh-CN.md)。
+
+旁路由在 LAN 的 `ng → 6) 设置旁路由 IP/DNS` 中配置。例如 IP 和 DNS 都使用 `192.168.19.254`，支持普通 DNS 和 Clash/Mihomo 的 `198.18.0.0/15` Fake-IP。**管理员还必须给账号授予“互联网（旁路由）”资源**，客户端勾选互联网模式才可使用；局域网设备权限单独授予。这个地址不填到 Windows 的“路由虚拟 IP”或“本地中继”中。
+
+旁路由设置使用独立的 VPN 入站策略，保留服务器原有默认网关。客户端不再要求与服务端时差小于 30 秒，采用可信服务端时间和单调经过时间；证书、签名、防重放和租约期限检查仍保留。
+
+## 6. 文档与验证
+
+- [安装、卸载与离线参数](docs/INSTALLERS.zh-CN.md)
+- [Windows 客户端与字段对照](docs/WINDOWS_CLIENT.zh-CN.md)
+- [五客户端、LAN/VPS 的独立构建](docs/BUILD_CLIENTS.zh-CN.md)
+- [本轮实机与七平台构建记录](docs/evidence/2026-11-24-platforms/REPORT.zh-CN.md)
+- [当前进度](docs/PROGRESS.zh-CN.md)、[任务清单](docs/IMPLEMENTATION_BACKLOG.zh-CN.md)
+- [完整执行方案](docs/EXECUTION_PLAN.zh-CN.md)、[远控多平台方案](docs/REMOTE_NATIVE_PLAN.zh-CN.md)
+- [固定版本](upstream/versions.lock.json)、[第三方通知](THIRD_PARTY_NOTICES.md)
+
+开发者使用各平台独立构建脚本，详细工具链与检查入口见构建说明。项目采用新接口和新数据，不提供旧开发数据库或旧 API 兼容。
