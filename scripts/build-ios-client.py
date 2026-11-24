@@ -21,7 +21,8 @@ def main():
     run(['go','install','golang.org/x/mobile/cmd/gomobile@'+version],env=env)
     run(['go','install','golang.org/x/mobile/cmd/gobind@'+version],env=env)
     output=ROOT/'dist/ios-client';output.mkdir(parents=True,exist_ok=True)
-    framework=ROOT/'.cache'/('NetGoMobile-'+args.sdk+'.xcframework')
+    framework=ROOT/'.cache'/('mobile-'+args.sdk)/'NetGoMobile.xcframework'
+    framework.parent.mkdir(parents=True,exist_ok=True)
     with tempfile.TemporaryDirectory(prefix='ios-go-',dir=ROOT/'.cache') as temporary:
         source=Path(temporary)/'source'
         run(['python3','-B',ROOT/'scripts/prepare-mobile-inputs.py','--output',source,'--go',shutil.which('go')],env=env)
