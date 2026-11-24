@@ -16,7 +16,10 @@ jobs:
           go-version: '1.27.4'
           cache: false
       - name: Install native client build dependencies
-        run: sudo apt-get update && sudo apt-get install -y cmake ninja-build pkg-config libgtk-4-dev libssl-dev libcurl4-openssl-dev libavcodec-dev libavutil-dev libswscale-dev xvfb xauth
+        timeout-minutes: 12
+        run: |
+          sudo env DEBIAN_FRONTEND=noninteractive apt-get -o Acquire::ForceIPv4=true -o Acquire::http::Timeout=30 -o Acquire::https::Timeout=30 -o Acquire::Retries=3 -o DPkg::Lock::Timeout=60 update
+          sudo env DEBIAN_FRONTEND=noninteractive apt-get -o Acquire::ForceIPv4=true -o Acquire::http::Timeout=30 -o Acquire::https::Timeout=30 -o Acquire::Retries=3 -o DPkg::Lock::Timeout=60 install -y cmake ninja-build pkg-config libgtk-4-dev libssl-dev libcurl4-openssl-dev libavcodec-dev libavutil-dev libswscale-dev xvfb xauth
       - name: Build Linux client
         run: bash scripts/build-linux-client.sh
       - name: Check native window lifecycle

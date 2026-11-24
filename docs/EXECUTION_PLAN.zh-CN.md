@@ -515,7 +515,7 @@ docs/evidence/               测试环境和脱敏证据
 | netgoctl auxiliary add / remove | 添加/移除备用节点；保留本地 Relay/STUN 和直达候选 |
 | netgoctl export-site | 导出脱敏站点文件 |
 | netgoctl backup / restore | 一致备份和恢复身份、数据库、配置与必要密钥 |
-| netgoctl upgrade / rollback | 校验可信清单 digest、全部产品文件及 schema/protocol；停写加密快照、切换版本目录、健康失败恢复；当前只允许 schema 1 的产品二进制升级，上游升级与不可逆迁移须另行演练 |
+| netgoctl upgrade / rollback | 校验可信清单 digest、全部产品文件及 schema/protocol；停写加密快照、切换版本目录、健康失败恢复；当前只允许 API v2/schema 2 的同源产品二进制升级，上游升级与不可逆迁移须另行演练 |
 | netgoctl diagnostics | 生成默认脱敏的环境与状态证据 |
 | netgoctl client import / connect / disconnect / status / profiles | Linux 诊断客户端的当前用户 Unix IPC；连接密码从终端读取 |
 
