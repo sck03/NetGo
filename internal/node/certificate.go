@@ -36,6 +36,15 @@ func serial() *big.Int {
 	return n
 }
 func (m Manager) certificates(hosts map[string]string, source string, generate bool) (map[string][]byte, error) {
+	if source == "" {
+		if !generate {
+			return nil, errors.New("证书目录不能为空")
+		}
+		source = filepath.Join(m.etc(), "tls")
+	}
+	if err := noLinks(source); err != nil {
+		return nil, err
+	}
 	files := map[string][]byte{}
 	var ca *x509.Certificate
 	var caKey crypto.Signer
@@ -75,6 +84,9 @@ func (m Manager) certificates(hosts map[string]string, source string, generate b
 			}
 			files["ca.crt"], files["ca.key"] = existingCA, existingKey
 		} else {
+			if !os.IsNotExist(ce) || !os.IsNotExist(ke) {
+				return nil, errors.New("已有 CA 证书/私钥不完整或无法读取，请修正证书目录")
+			}
 			if m.Role == "vps" {
 				return nil, errors.New("请导入 LAN 签发的节点证书；VPS 不持有站点 CA 私钥")
 			}

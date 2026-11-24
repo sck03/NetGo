@@ -68,6 +68,18 @@ type Remote struct {
 	HTTP          *http.Client
 	Origin, Token string
 	Private       ed25519.PrivateKey
+	Now           func() time.Time
+}
+
+func terminalControlError(err error) bool {
+	if err == nil {
+		return false
+	}
+	switch err.Error() {
+	case "unauthorized", "forbidden", "not_found", "lease_expired", "session_conflict", "internet_forbidden":
+		return true
+	}
+	return false
 }
 
 func (r *Remote) Call(ctx context.Context, method, path string, in, out any, key string) error {
@@ -85,7 +97,11 @@ func (r *Remote) Call(ctx context.Context, method, path string, in, out any, key
 		req.Header.Set("Idempotency-Key", key)
 	}
 	if r.Token != "" {
-		stamp := strconv.FormatInt(time.Now().Unix(), 10)
+		now := time.Now()
+		if r.Now != nil {
+			now = r.Now()
+		}
+		stamp := strconv.FormatInt(now.Unix(), 10)
 		nonce := model.ID()
 		message := identity.SignatureMessage(method, path, stamp, nonce, b, r.Token)
 		req.Header.Set("Authorization", "Bearer "+r.Token)
@@ -285,26 +301,30 @@ func (c *Controller) run(ctx context.Context, gen uint64, p site.Profile, alias 
 		s.ControlCandidate = selector.Current().ID
 		s.State = "authenticating"
 	})
-	private, e := c.Vault.Read(p.ID)
+	scope := site.AccountScope(p.ID, alias)
+	seed, e := c.Vault.Read(scope)
 	if e != nil {
 		if !os.IsNotExist(e) {
 			return e
 		}
-		_, private, e = ed25519.GenerateKey(rand.Reader)
-		if e != nil {
+		seed = make([]byte, ed25519.SeedSize)
+		if _, e = rand.Read(seed); e != nil {
 			return e
 		}
-		if e = c.Vault.Write(p.ID, private); e != nil {
+		if e = c.Vault.Write(scope, seed); e != nil {
 			return e
 		}
 	}
-	if len(private) != ed25519.PrivateKeySize {
+	defer func() { clear(seed) }()
+	if len(seed) != ed25519.SeedSize {
 		return errors.New("invalid protected device key")
 	}
-	pk := ed25519.PrivateKey(private)
+	pk := ed25519.NewKeyFromSeed(seed)
+	defer func() { clear(pk) }()
+	engineProfile := func() site.Profile { v := p; v.ID = scope; return v }
 	loginCtx, cancel := context.WithTimeout(ctx, 60*time.Second)
 	defer cancel()
-	wg, e := c.Engine.Prepare(loginCtx, p)
+	wg, e := c.Engine.Prepare(loginCtx, engineProfile())
 	if e != nil {
 		return e
 	}
@@ -318,7 +338,7 @@ func (c *Controller) run(ctx context.Context, gen uint64, p site.Profile, alias 
 			result = errors.New("engine_cleanup_failed")
 		}
 	}()
-	remote := &Remote{HTTP: selector.Client(), Origin: p.Origin, Private: pk}
+	remote := &Remote{HTTP: selector.Client(), Origin: p.Origin, Private: pk, Now: selector.Now}
 	verifier := model.ID()
 	begin := identity.Begin{SiteID: p.ID, PublicKey: base64.RawURLEncoding.EncodeToString(pk.Public().(ed25519.PublicKey)), WireGuardKey: wg, Challenge: model.Challenge(verifier)}
 	var transaction identity.Transaction
@@ -344,6 +364,7 @@ func (c *Controller) run(ctx context.Context, gen uint64, p site.Profile, alias 
 		return e
 	}
 	remote.HTTP = selector.Client()
+	remote.Now = selector.Now
 	if engine, ok := c.Engine.(InternetEngine); ok {
 		if e = engine.ConfigureInternet(loginCtx, internet, p.InternetDNS); e != nil {
 			return e
@@ -352,13 +373,13 @@ func (c *Controller) run(ctx context.Context, gen uint64, p site.Profile, alias 
 		return errors.New("internet_not_supported")
 	}
 	c.set(gen, func(s *Status) { s.Control = selector.Current().Kind; s.ControlCandidate = selector.Current().ID })
-	if e = c.Engine.Login(loginCtx, p, auth.IDToken); e != nil {
+	if e = c.Engine.Login(loginCtx, engineProfile(), auth.IDToken); e != nil {
 		return e
 	}
-	if e = c.Engine.Up(loginCtx, p); e != nil {
+	if e = c.Engine.Up(loginCtx, engineProfile()); e != nil {
 		return e
 	}
-	if e = c.Engine.WaitConnected(loginCtx, p); e != nil {
+	if e = c.Engine.WaitConnected(loginCtx, engineProfile()); e != nil {
 		return e
 	}
 	var peer struct{ ID string }
@@ -388,7 +409,7 @@ func (c *Controller) run(ctx context.Context, gen uint64, p site.Profile, alias 
 		return e
 	}
 	c.set(gen, func(s *Status) { s.State = "negotiating"; s.Lease = lease })
-	remoteConnection := c.attachRemote(ctx, p.ID, auth, pk)
+	remoteConnection := c.attachRemote(ctx, p.ID, scope, auth, pk)
 	defer c.detachRemote(remoteConnection)
 	tick := time.NewTicker(5 * time.Second)
 	defer tick.Stop()
@@ -400,7 +421,7 @@ func (c *Controller) run(ctx context.Context, gen uint64, p site.Profile, alias 
 		case job := <-remoteConnection.jobs:
 			remoteConnection.handle(job, remote)
 		case <-tick.C:
-			if !time.Now().Before(lease.ExpiresAt) {
+			if !selector.Now().Before(lease.ExpiresAt) {
 				return errors.New("lease_expired")
 			}
 			check, done := context.WithTimeout(ctx, 8*time.Second)
@@ -408,30 +429,36 @@ func (c *Controller) run(ctx context.Context, gen uint64, p site.Profile, alias 
 			done()
 			c.set(gen, func(s *Status) { s.Control = selector.Current().Kind; s.ControlCandidate = selector.Current().ID })
 			if e != nil {
-				c.set(gen, func(s *Status) { s.State = "recovering" })
+				c.set(gen, func(s *Status) { s.State = "recovering"; s.Error = e.Error() })
 				continue
 			}
-			if time.Until(auth.ExpiresAt) < 2*time.Minute && auth.RefreshToken != "" {
+			if auth.ExpiresAt.Sub(selector.Now()) < 2*time.Minute && auth.RefreshToken != "" {
 				var renewed identity.Result
 				if e = remote.Call(ctx, "POST", "/netgo/v2/auth/refresh", map[string]string{"refresh_token": auth.RefreshToken}, &renewed, ""); e != nil {
+					if terminalControlError(e) {
+						return e
+					}
 					c.set(gen, func(s *Status) { s.State = "recovering"; s.Error = "authentication_refresh_failed" })
 					continue
 				}
 				auth = renewed
 				remote.Token = renewed.Token
-				if e = c.Engine.Login(ctx, p, renewed.IDToken); e != nil {
+				if e = c.Engine.Login(ctx, engineProfile(), renewed.IDToken); e != nil {
 					continue
 				}
-				if e = c.Engine.Up(ctx, p); e != nil {
+				if e = c.Engine.Up(ctx, engineProfile()); e != nil {
 					continue
 				}
 				if e = applyRoutes(ctx); e != nil {
 					continue
 				}
 			}
-			if time.Since(lastRenew) >= 30*time.Second || time.Until(lease.ExpiresAt) < 40*time.Second {
+			if time.Since(lastRenew) >= 30*time.Second || lease.ExpiresAt.Sub(selector.Now()) < 40*time.Second {
 				e = remote.Call(ctx, "POST", "/netgo/v2/sessions/"+lease.ID+"/renew", map[string]any{"Generation": gen}, &lease, "")
 				if e != nil {
+					if terminalControlError(e) {
+						return e
+					}
 					c.set(gen, func(s *Status) { s.State = "recovering"; s.Error = e.Error() })
 					continue
 				}
@@ -441,13 +468,13 @@ func (c *Controller) run(ctx context.Context, gen uint64, p site.Profile, alias 
 				}
 			}
 			stateCtx, done := context.WithTimeout(ctx, 5*time.Second)
-			ds, de := c.Engine.Status(stateCtx, p)
+			ds, de := c.Engine.Status(stateCtx, engineProfile())
 			done()
 			if de != nil || !strings.EqualFold(ds.State, "connected") {
 				recovery, done := context.WithTimeout(ctx, 20*time.Second)
-				de = c.Engine.Login(recovery, p, auth.IDToken)
+				de = c.Engine.Login(recovery, engineProfile(), auth.IDToken)
 				if de == nil {
-					de = c.Engine.Up(recovery, p)
+					de = c.Engine.Up(recovery, engineProfile())
 				}
 				if de == nil {
 					de = applyRoutes(recovery)

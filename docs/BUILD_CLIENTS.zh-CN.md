@@ -18,6 +18,10 @@ Windows 需要固定 Go、UCRT64 GCC/CMake/Ninja、Python cryptography，脚本�
 
 GitHub 构建成功表示相应构建检查通过。未签名 APK/IPA 需要签名才能用于设备安装；构建不替代 VPN、远控、权限或长期运行验收。Apple 使用稳定 Xcode，macOS 14+、iOS 17+，媒体和网络接口与其他平台共享。
 
+Linux 桌面运行包只携带 netgo-desktop、netgo-client-service、netbird、桌面入口、摘要和许可证。首次网络连接由界面通过系统管理员授权调用 Go 安装模块；该模块与 LAN/VPS 安装模块分开，使用独立状态、服务与 IPC。程序通过受保护的连接服务避免互联网模式将控制连接送回 VPN。
+
+Windows、Go 客户端和管理网页使用可信服务端时间与单调经过时间；不再把 30 秒本机时差作为登录前阻断。TLS 证书、nonce、防重放和会话期限检查仍保留。
+
 Actions 使用官方最新稳定版本并固定提交 SHA；Go 1.27.4、Node 26.13.1 LTS、AGP 9.5.2、Gradle 9.9.2、Kotlin 2.4.21、Compose BOM 2026.11.01 已于 2026-11-24 查询。固定版本便于重现，后续升级先查询官方稳定发布，再更新锁定输入并验证。
 
 VPS 的安装与卸载单独使用 `install-vps.sh`，局域网 Linux 服务端使用 `install-server.sh`。流程见 [独立安装说明](INSTALLERS.zh-CN.md)。

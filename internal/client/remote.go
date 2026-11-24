@@ -28,9 +28,9 @@ type remoteJob struct {
 	result  chan remoteResult
 }
 type remoteConnection struct {
-	ctx                        context.Context
-	site, device, user, public string
-	jobs                       chan remoteJob
+	ctx                               context.Context
+	site, scope, device, user, public string
+	jobs                              chan remoteJob
 }
 
 var remoteSessionPath = regexp.MustCompile(`^/netgo/v2/remote/sessions/[A-Za-z0-9_-]{22}(/(consume|renew))?$`)
@@ -96,10 +96,13 @@ func (c *Controller) SignPossession(site, message string) (string, error) {
 	if len(message) != 123 || !strings.HasPrefix(message, "NetGo remote possession v1\x00") {
 		return "", errors.New("remote_invalid_proof")
 	}
-	if _, err := c.RemoteContext(site); err != nil {
-		return "", err
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	connection := c.remote
+	if connection == nil || connection.site != site || connection.ctx.Err() != nil {
+		return "", errors.New("remote_site_disconnected")
 	}
-	seed, err := c.Vault.Read(site)
+	seed, err := c.Vault.Read(connection.scope)
 	if err != nil {
 		return "", err
 	}
@@ -108,7 +111,7 @@ func (c *Controller) SignPossession(site, message string) (string, error) {
 			seed[i] = 0
 		}
 	}()
-	if len(seed) != 32 {
+	if len(seed) != ed25519.SeedSize {
 		return "", errors.New("remote_device_key_missing")
 	}
 	private := ed25519.NewKeyFromSeed(seed)
@@ -119,8 +122,8 @@ func (c *Controller) SignPossession(site, message string) (string, error) {
 	}()
 	return base64.RawURLEncoding.EncodeToString(ed25519.Sign(private, []byte(message))), nil
 }
-func (c *Controller) attachRemote(ctx context.Context, site string, auth identity.Result, pk ed25519.PrivateKey) *remoteConnection {
-	connection := &remoteConnection{ctx: ctx, site: site, device: auth.DeviceID, user: auth.User.ID, public: base64.RawURLEncoding.EncodeToString(pk.Public().(ed25519.PublicKey)), jobs: make(chan remoteJob, 8)}
+func (c *Controller) attachRemote(ctx context.Context, site, scope string, auth identity.Result, pk ed25519.PrivateKey) *remoteConnection {
+	connection := &remoteConnection{ctx: ctx, site: site, scope: scope, device: auth.DeviceID, user: auth.User.ID, public: base64.RawURLEncoding.EncodeToString(pk.Public().(ed25519.PublicKey)), jobs: make(chan remoteJob, 8)}
 	c.mu.Lock()
 	c.remote = connection
 	c.mu.Unlock()

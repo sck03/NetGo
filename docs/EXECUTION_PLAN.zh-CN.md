@@ -2,7 +2,9 @@
 
 版本：2.3。修订日期：2026-11-24（Asia/Shanghai）。当前源码：0.3.0-dev / API v2 / schema 2。服务端领域、Windows 单 NetGo.exe 与 GTK 查看器已实现部分功能；逐平台构建、签名、设备及交付退出条件分别记录，不将阶段包当成五平台全部完成。
 
-最新用户修订：macOS/iOS 暂缓实现，保留以后适配的接口与模块边界。本轮独立生成 Windows、Linux 桌面、Android 客户端及 Linux 服务端；脚本/工作流分开，见 [独立构建说明](BUILD_CLIENTS.zh-CN.md)。
+最新用户修订：五个原生客户端继续实现，macOS/iOS 已加入独立构建；签名与设备验收按实际环境登记。Windows、Linux 桌面、Android、macOS、iOS、LAN 服务端与 VPS 共七个独立构建入口，见 [独立构建说明](BUILD_CLIENTS.zh-CN.md)。服务端及节点维护统一 Go，不兼容旧 API/数据库；普通 Windows 用户只打开 NetGo.exe。
+
+2026-11-24 接续：LAN/VPS 以新 schema 2 初始化受保护实验环境，维护采用 ng/ngv 菜单。旁路由互联网是按账号授权的独立资源。客户端使用通过 TLS 验证的服务端时间，不再以 30 秒本机时差拒绝连接。下文保留历轮设计与验收约束；实际命令和当前状态以 [运行维护](OPERATIONS.zh-CN.md)、[进度](PROGRESS.zh-CN.md) 为准。
 
 v2.2 明确统一站点/账号/设备体验，分别维护站点会话、网络通道和远控会话的生命周期；增加跨模块退出、撤权、路径变化、失效恢复和包体门槛。详见 [统一集成契约](INTEGRATION_CONTRACT.zh-CN.md)，其中 I01–I10 是融合验收条件，不以模块单测通过代替。Windows 新增系统 DXGI GPU 采集原型，尚未连接编码/网络/远控授权。新增 [远控票据契约](REMOTE_TICKET.zh-CN.md)，Go 签发与独立 C++ 验签模块使用同一组样本；它们尚未接入 API v2 或主机监听器。
 

@@ -23,7 +23,7 @@ set -euo pipefail
 root=/usr/local/libexec/netgo
 owner=$(cat "$root/owner")
 install -d -m 0755 /var/run/netgo
-NB_STATE_DIR=/var/lib/netgo-network "$root/netbird" --daemon-addr unix:///var/run/netgo/netbird.sock --log-file console service run &
+NB_STATE_DIR=/var/lib/netgo-network NB_USE_LEGACY_ROUTING=true "$root/netbird" --daemon-addr unix:///var/run/netgo/netbird.sock --log-file console service run &
 child=$!
 trap 'kill -TERM "$child" 2>/dev/null || true; wait "$child" || true' EXIT TERM INT
 for _ in {1..100}; do

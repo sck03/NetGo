@@ -61,6 +61,58 @@ func (m Manager) verifyInstalled(state Installation) error {
 func (m Manager) saveInstallation(state Installation) error {
 	return m.json(filepath.Join(m.base(), "installation.json"), state)
 }
+func (m Manager) recoverFailedInstallation(state Installation) error {
+	if state.Owner != Owner || state.Role != m.Role {
+		return errors.New("未知安装归属，保留现有文件")
+	}
+	for path, hash := range state.Files {
+		if filepath.Clean(path) != path || (!strings.HasPrefix(path, m.base()+string(os.PathSeparator)) && !strings.HasPrefix(path, m.path("/etc/systemd/system")+string(os.PathSeparator))) {
+			return errors.New("非法归属路径")
+		}
+		if err := noLinks(path); err != nil {
+			return err
+		}
+		if _, err := os.Lstat(path); os.IsNotExist(err) {
+			continue
+		}
+		actual, err := sha(path)
+		if err != nil || actual != hash {
+			return errors.New("失败安装的残留文件被外部修改，保留现场")
+		}
+		if err = os.Remove(path); err != nil {
+			return err
+		}
+	}
+	short, long := "ng", "netgo-serverctl"
+	if m.Role == "vps" {
+		short, long = "ngv", "netgo-vpsctl"
+	}
+	for path, target := range state.Links {
+		if path != m.path("/usr/local/bin/"+short) && path != m.path("/usr/local/bin/"+long) {
+			return errors.New("非法快捷命令归属")
+		}
+		actual, err := os.Readlink(path)
+		if os.IsNotExist(err) {
+			continue
+		}
+		if err != nil || actual != target {
+			return errors.New("失败安装的快捷命令被外部修改")
+		}
+		if err = os.Remove(path); err != nil {
+			return err
+		}
+	}
+	for _, name := range []string{"current", "upstream", "bin"} {
+		path := filepath.Join(m.base(), name)
+		if err := noLinks(path); err != nil {
+			return err
+		}
+		if err := os.Remove(path); err != nil && !os.IsNotExist(err) {
+			return errors.New("安装残留目录有未识别内容，保留现场")
+		}
+	}
+	return os.Remove(filepath.Join(m.base(), "installation.json"))
+}
 func (m Manager) Install(source string) (result error) {
 	if source == "" {
 		return errors.New("需要下载并校验的完整平台包，或 --source 本地完整包")
@@ -75,7 +127,15 @@ func (m Manager) Install(source string) (result error) {
 	if _, err = os.Stat(filepath.Join(m.base(), "install.manifest")); err == nil {
 		return errors.New("发现旧式安装归属，请保留现有环境并使用干净的测试系统")
 	}
+	if old, e := m.installation(); e == nil && old.Status == "failed" {
+		if err = m.recoverFailedInstallation(old); err != nil {
+			return err
+		}
+	}
 	if old, e := m.installation(); e == nil {
+		if old.Owner != Owner || old.Role != m.Role {
+			return errors.New("未知安装归属，保留现有文件")
+		}
 		if old.Status != "uninstalled" {
 			if e = m.verifyInstalled(old); e != nil {
 				return e
@@ -110,7 +170,7 @@ func (m Manager) Install(source string) (result error) {
 	}
 	if entries, e := os.ReadDir(m.base()); e == nil {
 		for _, entry := range entries {
-			if entry.Name() != ".install.lock" {
+			if entry.Name() != ".install.lock" && entry.Name() != "command-error.txt" {
 				return errors.New("安装目录存在未识别文件，拒绝覆盖")
 			}
 		}

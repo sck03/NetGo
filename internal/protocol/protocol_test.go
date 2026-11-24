@@ -27,15 +27,12 @@ func TestHealthRequiresAllNativeCapabilities(t *testing.T) {
 	}
 }
 
-func TestHealthRejectsClockSkewBeforeAuthentication(t *testing.T) {
-	for _, offset := range []time.Duration{-time.Minute, 0, time.Minute} {
+func TestHealthAllowsClockSkewAfterTLSVerification(t *testing.T) {
+	for _, offset := range []time.Duration{-24 * time.Hour, -time.Minute, 0, time.Minute, 24 * time.Hour} {
 		h := Health{Protocol: 2, SiteID: "site", Capabilities: Capabilities(), ServerUnix: time.Now().Add(offset).Unix()}
 		err := h.Validate("site")
-		if offset == 0 && err != nil {
+		if err != nil {
 			t.Fatal(err)
-		}
-		if offset != 0 && !errors.Is(err, ErrClockSkew) {
-			t.Fatalf("clock offset %s was not diagnosed: %v", offset, err)
 		}
 	}
 }

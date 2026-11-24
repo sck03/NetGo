@@ -1,24 +1,37 @@
-# 独立平台构建与安装验证
+# 独立平台构建、时钟修复与节点实机验证
 
-本次按最新范围交付 Windows、Linux 桌面、Android、局域网 Linux 服务端和 VPS 辅助节点的独立脚本及五份 GitHub 工作流。macOS/iOS 暂缓，保留共享 C ABI、媒体/输入回调和安全存储接口。
+本轮对应0.3.0-dev / API v2 / schema 2。五个客户端、LAN服务端和VPS分别拥有构建脚本和GitHub工作流。LAN/VPS安装维护统一Go，最终用户不需要Python；Apple客户端已实现并继续推进设备验收。
 
-## 已验证
+## 已执行验证
 
-- Windows：统一 `NetGo.exe`，8 项原生 CTest、TLS 夹具、系统 DLL 与体积检查通过；程序约 6.71 MiB。Setup 和绿色 ZIP 生成、校验通过，根目录只提供一个日常产品入口。网络准备器位于 `.netgo`，由程序调用。
-- Android：Go VPN AAR、JNI、Kotlin、Debug 和未签名 Release APK、lint 及包 CRC/原生库检查通过。使用 AGP 9.5.2、Gradle 9.9.2、Kotlin 2.4.21、Compose BOM 2026.11.01、SDK 37.2、NDK 30.0.16248370，最低 API 31。没有移动设备实机结果。
-- Linux GTK：此前在本次接续过程中于 Debian 13 原生构建，6 项 CTest、Go 客户端测试和 Xvfb 窗口创建/退出通过；没有物理桌面/Wayland 完整验收。
-- VPS：Debian 13 原生构建 frps 0.72.0 和 NetBird Relay 0.83.2，上游针对性测试通过。真实 systemd 安装、全部受管服务状态与 HTTP 健康检查、Relay TLS/域名验证、停 Relay 后拒绝健康状态、卸载、重复卸载、保留证书、重装及最终卸载通过。测试使用独立 loopback TLS 配置；原 SSH、Docker、局域网 NetGo 的状态与 PID 保持一致。
-- 安装工具：55 项本机 Python 工具测试通过，3 项因 POSIX 语义跳过；VPS 的 5 项测试另在 Debian 13 全部通过，含严格 umask、文件篡改拦截和生命周期模拟。PowerShell/Bash/Python 语法、安装计划和 actionlint 1.7.12 检查通过。
-- 服务端/共享身份：此前本次接续中的 Go race 检查通过。局域网服务器现有服务保持运行；本轮没有对其执行新 schema 初始化或完整重新部署。
+| 范围 | 结果与限制 |
+| --- | --- |
+| Windows | 单NetGo.exe，7,055,360字节（约6.73MiB）；8项CTest、TLS/候选/账号凭据回归、系统DLL白名单通过。Setup/绿色版只有一个日常入口，内部网络组件由程序调用。 |
+| 时钟 | 取消30秒客户端时差阻断，可信TLS服务端时间配合单调经过时间。Go ±24小时、Windows/前端 ±1小时回归通过；登录后更改本机日期也不能延长会话。证书有效期、签名、nonce、防重放及租约仍检查。 |
+| Go/前端 | 当前工作树归档到干净Debian13目录，先构建前端再执行Go测试/vet。全部通过；前端10项测试通过。Windows本机Go测试/vet和46项开发工具测试通过（1项POSIX跳过）。 |
+| Linux GTK | 原生GTK/FFmpeg构建、6项CTest通过，已有Xvfb启动/退出验证。运行包只含3个程序、desktop入口、摘要与许可证。 |
+| Linux网络安装 | 实机root安装、UID1000专属0600 IPC、其他用户隔离、控制socket capability通过；更新故障注入恢复旧程序/归属记录/能力/服务；卸载、重复卸载、保留状态重装和最终卸载通过。 |
+| LAN服务端 | 新schema2站点/CA初始化、真实IdP与28项TLS/API验证通过；Go菜单、证书/端口/旁路由/VPS配置已实测。受管卸载、重复卸载、保留配置/证书/数据重装、服务启动和开机启用复验通过。 |
+| VPS | frps和Relay仍是必要组件，分别提供备用控制隧道及VPN中继。Go节点包导入、doctor、受管卸载/重复卸载、保留证书/身份重装及服务启动通过；保留SSH、Docker和默认路由。 |
+| 旁路由/账号 | VPS隔离namespace中的真实Go客户端经公网辅助Relay连接LAN；授权账号通过192.168.19.254 DNS获得198.18.11.7，Fake-IP HTTPS、旁路由公网出口和授权LAN HTTPS通过。未授权账号启用互联网返回internet_forbidden；关闭该选项后授权LAN HTTPS通过。撤销互联网授权后TCP请求被阻断。 |
+| Android/Apple | 已有Android VPN AAR/JNI/Kotlin/APK/lint、macOS App、iOS模拟器和未签名设备构建成功记录。缺设备与有效Apple签名，不能标为实机通过。 |
 
-## 修复与边界
+## 本轮修复
 
-实机安装暴露并修复了严格 umask 导致程序/证书不可读、私有 CA 健康检查信任以及 TCP TIME_WAIT 被误判为活跃端口的问题。未解析的实验域名和不完整实验 TLS 证书曾触发失败，验证了服务停止与私有诊断保留；最终使用完整、专用测试证书通过。
+- 客户端从可信服务端取时间，使用单调经过时间进行签名、刷新和期限判断。
+- 设备种子和WireGuard profile按站点及规范化账号隔离，修复同站点切账号复用VPN身份导致的registered peer not found；保留服务端所有权校验。Go签名种子统一为32字节，远控使用当前连接的账号身份。
+- Linux/mobile/Windows控制socket避开VPN全局路由；macOS使用daemon维护的地址排除路由，修复互联网模式的控制回路。
+- 私有CA备用隧道读取trust.pem；身份/路由节点启动增加有期限的就绪等待；失败证书输入可重选，不静默替换CA。
+- 服务器本机LAN资源生成独立输入策略，互联网权限不额外授予本机LAN权限；server单元允许读取网卡所需AF_NETLINK。
+- Linux桌面网络模块与LAN/VPS维护分离，修复IPC改属后chmod失败、更新回滚和卸载重试；LAN重装后成功启动恢复开机启用。
+- GTK导入回调编译错误已修复；Linux包采用明确文件白名单。共享Go模块变化触发各相关客户端工作流。
 
-VPS 配置导出不包含控制私钥、管理员凭据、原始 secrets.json 或 CA 私钥。两份 Linux 安装入口支持最新正式发布包校验、确定源码 commit 的自动构建、本地包/源码和本机卸载。GitHub Actions 的执行结果应以实际运行记录为准，语法检查与本机构建不能代替云端构建成功。
+## 仓库与交付边界
 
-远端原 main 审查未发现缓存、构建目录、EXE/APK/AAR、数据库、压缩产物或私钥。Gradle wrapper JAR 属于必需的构建引导输入。重复历史日志属于带摘要的原始验证证据，保留其文件结构；生成的 Android AAR/APK、源码 JAR、签名文件和本地配置已忽略。两个根目录安装器临时文件移入项目 `.cache/cleanup-20261124`。
+七个平台工作流使用已查询的稳定版及固定SHA。GitHub最终运行结果单独记录；本机构建和旧CI不能代替新提交的云端检查。
 
-跨设备 overlay 音视频与输入、Windows UAC/锁屏/多屏、剪贴板与文件传输、Linux 主机采集与 Wayland、移动设备 VPN/远控和 72 小时验证仍未完成；当前构建包为开发交付，不标注为全部远控功能或全部设备验收完成。
+当前Git跟踪/待提交路径检查未发现缓存、工具链、node_modules、运行数据库、EXE/APK/AAR/IPA、ZIP或私钥；必要Gradle wrapper JAR保留。运行包只包含角色所需程序和许可证；LAN使用frpc，不携带VPS专用frps。开发构建/测试可用Python，终端用户维护使用Go。
 
-原始构建、失败诊断与实机日志保存在受保护项目缓存，不把运行配置、凭据或完整机器日志提交到仓库。
+原始失败记录、机器配置、SSH凭据、测试密码、证书私钥和受保护备份保存在忽略目录及测试机，未加入Git。旧开发部署已归档保留；测试namespace及带专用注释的规则按归属清理。
+
+完整跨设备远控音视频/输入、Windows UAC/锁屏/多屏、剪贴板/文件、Linux主机/Wayland、Android/Apple实机和72小时尚未完成。当前是开发交付，不能标注为五平台全部实机验收或生产发行完成。

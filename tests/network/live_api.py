@@ -105,7 +105,7 @@ def rejected(action,status=None,error=None):
     raise AssertionError('operation unexpectedly succeeded')
 
 
-def exercise(profile,alias,password,output):
+def exercise(profile,alias,password,output,resource_cidr='198.19.240.2/32'):
     records=[];admin=Session(profile);user=None;resource=None
     def check(name,action):
         started=time.monotonic();record={'name':name,'status':'FAIL'}
@@ -147,7 +147,7 @@ def exercise(profile,alias,password,output):
         check('normal_user_login',lambda:normal.login(test_alias,user_password))
         check('normal_user_admin_denied',lambda:rejected(lambda:normal.call('/netgo/v2/admin/state'),403))
         rid='lab'+suffix
-        resource={'id':rid,'name':'Isolated lab HTTP','cidr':'198.19.240.2/32','protocol':'tcp','ports':[18080],'enabled':True}
+        resource={'id':rid,'name':'Isolated lab HTTP','cidr':resource_cidr,'protocol':'tcp','ports':[18080],'enabled':True}
         check('resource_create',lambda:admin.call('/netgo/v2/admin/resources/'+rid,'PUT',resource))
         user['resources']=[rid];user['max_devices']=1
         check('grant_explicit_resource',lambda:admin.call('/netgo/v2/admin/users/'+user['id'],'PUT',user))
@@ -192,10 +192,11 @@ def main():
     parser.add_argument('--alias',required=True)
     parser.add_argument('--password-stdin',action='store_true')
     parser.add_argument('--output',type=Path,required=True)
+    parser.add_argument('--resource-cidr',default='198.19.240.2/32',help='Explicit resource within the configured LAN')
     args=parser.parse_args()
     if args.output.exists():parser.error('use a new evidence output file')
     password=sys.stdin.readline().rstrip('\r\n') if args.password_stdin else getpass.getpass('Administrator password: ')
-    try:exercise(json.loads(args.site.read_text(encoding='utf-8-sig')),args.alias,password,args.output)
+    try:exercise(json.loads(args.site.read_text(encoding='utf-8-sig')),args.alias,password,args.output,args.resource_cidr)
     except (OSError,ValueError,AssertionError,RuntimeError) as error:
         print('Live API test failed: '+str(error),file=sys.stderr);return 1
     return 0

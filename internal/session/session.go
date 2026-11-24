@@ -123,7 +123,7 @@ func (m *Manager) Acquire(ctx context.Context, c model.Credential, peer string, 
 		limit := u.MaxSessions
 		if limit == 0 {
 			limit = 1
-		} // Existing schema-1 users retain the single-session default.
+		} // Unspecified limits default to one active session.
 		if limit < 1 || limit > 100 {
 			return errors.New("invalid session limit")
 		}

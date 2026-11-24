@@ -2,7 +2,7 @@ name: Linux desktop client
 on:
   workflow_dispatch:
   push:
-    paths: ['apps/linux/**', 'packages/remote-*/**', 'internal/client/**', 'cmd/netgo-client-service/**', 'scripts/build-linux-client.sh', 'scripts/build-linux-native.sh', 'upstream/**', '.github/workflows/build-linux-client.yml']
+    paths: ['apps/linux/**', 'packages/remote-*/**', 'internal/**', 'go.mod', 'go.sum', 'cmd/netgo-client-service/**', 'scripts/build-linux-client.sh', 'scripts/build-linux-native.sh', 'upstream/**', '.github/workflows/build-linux-client.yml']
 permissions:
   contents: read
 jobs:

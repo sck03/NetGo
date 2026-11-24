@@ -1,6 +1,7 @@
 #include "connection.hpp"
 #include <openssl/ssl.h>
 #include <wincrypt.h>
+#include <iphlpapi.h>
 #undef X509_NAME
 #include <openssl/pem.h>
 #include <openssl/x509v3.h>
@@ -13,6 +14,30 @@
 
 namespace netgo {
 static std::string lower(std::string s){for(char& c:s)c=char(std::tolower(static_cast<unsigned char>(c)));return s;}
+static bool protectControlSocket(SOCKET socket,const sockaddr* target,const std::string& gatewayIP){
+ sockaddr_in gateway{};gateway.sin_family=AF_INET;
+ if(InetPtonA(AF_INET,gatewayIP.c_str(),&gateway.sin_addr)!=1)return true;
+ DWORD vpn=0,current=0;
+ if(GetBestInterfaceEx(reinterpret_cast<sockaddr*>(&gateway),&vpn)!=NO_ERROR||GetBestInterfaceEx(const_cast<sockaddr*>(target),&current)!=NO_ERROR||current!=vpn)return true;
+ MIB_IPFORWARD_TABLE2* raw=nullptr;
+ if(GetIpForwardTable2(target->sa_family,&raw)!=NO_ERROR)return false;
+ std::unique_ptr<MIB_IPFORWARD_TABLE2,decltype(&FreeMibTable)> routes(raw,FreeMibTable);
+ DWORD selected=0;int longest=-1;uint64_t cost=UINT64_MAX;
+ for(ULONG i=0;i<raw->NumEntries;++i){const auto& route=raw->Table[i];int bits=route.DestinationPrefix.PrefixLength;
+  if(route.InterfaceIndex==vpn||route.DestinationPrefix.Prefix.si_family!=target->sa_family)continue;
+  bool matches=false;
+  if(target->sa_family==AF_INET&&bits<=32){auto ip=ntohl(reinterpret_cast<const sockaddr_in*>(target)->sin_addr.s_addr),prefix=ntohl(route.DestinationPrefix.Prefix.Ipv4.sin_addr.s_addr);auto mask=bits?UINT32_MAX<<(32-bits):0;matches=(ip&mask)==(prefix&mask);}
+  if(target->sa_family==AF_INET6&&bits<=128){auto ip=reinterpret_cast<const uint8_t*>(&reinterpret_cast<const sockaddr_in6*>(target)->sin6_addr),prefix=reinterpret_cast<const uint8_t*>(&route.DestinationPrefix.Prefix.Ipv6.sin6_addr);matches=std::equal(ip,ip+bits/8,prefix);if(matches&&bits%8){auto mask=uint8_t(0xff<<(8-bits%8));matches=(ip[bits/8]&mask)==(prefix[bits/8]&mask);}}
+  if(!matches)continue;
+  MIB_IF_ROW2 iface{};iface.InterfaceLuid=route.InterfaceLuid;if(GetIfEntry2(&iface)!=NO_ERROR||iface.OperStatus!=IfOperStatusUp)continue;
+  MIB_IPINTERFACE_ROW metric{};InitializeIpInterfaceEntry(&metric);metric.Family=target->sa_family;metric.InterfaceLuid=route.InterfaceLuid;
+  uint64_t total=route.Metric;if(GetIpInterfaceEntry(&metric)==NO_ERROR)total+=metric.Metric;
+  if(bits>longest||(bits==longest&&total<cost)){selected=route.InterfaceIndex;longest=bits;cost=total;}
+ }
+ if(!selected)return true; // Before VPN startup there may be no separate VPN interface.
+ DWORD index=target->sa_family==AF_INET?htonl(selected):selected;
+ return setsockopt(socket,target->sa_family==AF_INET?IPPROTO_IP:IPPROTO_IPV6,target->sa_family==AF_INET?IP_UNICAST_IF:IPV6_UNICAST_IF,reinterpret_cast<const char*>(&index),sizeof(index))==0;
+}
 void validateHealth(const Json& h,const std::string& siteID) {
  if(h.value("site_id","")!=siteID)throw Error("site_identity_mismatch");
  if(h.value("protocol",0)!=2||!h.contains("capabilities")||!h["capabilities"].is_array())throw Error("protocol_incompatible");
@@ -21,8 +46,8 @@ void validateHealth(const Json& h,const std::string& siteID) {
  }
  if(h.contains("server_unix")){
   if(!h["server_unix"].is_number_integer())throw Error("invalid_control_health");
-  auto remote=h["server_unix"].get<int64_t>(),local=int64_t(std::time(nullptr));
-  if(remote<local-30||remote>local+30)throw Error("clock_out_of_sync");
+  auto remote=h["server_unix"].get<int64_t>();
+  if(remote<946684800||remote>4102444800)throw Error("invalid_control_health");
  }
 }
 HttpResponse decodeHttp(const std::string& raw) {
@@ -115,6 +140,7 @@ Json Transport::requestAt(size_t index,const std::string& method,const std::stri
  SOCKET raw=INVALID_SOCKET;
  for(auto a=list;a;a=a->ai_next) {
   SOCKET candidate=socket(a->ai_family,a->ai_socktype,a->ai_protocol);if(candidate==INVALID_SOCKET)continue;
+  if(!protectControlSocket(candidate,a->ai_addr,profile_.value("GatewayIP",""))){closesocket(candidate);continue;}
   u_long nonblock=1;ioctlsocket(candidate,FIONBIO,&nonblock);int e=::connect(candidate,a->ai_addr,int(a->ai_addrlen));
   if(e==SOCKET_ERROR&&WSAGetLastError()!=WSAEWOULDBLOCK){closesocket(candidate);continue;}
   auto remaining=std::chrono::duration_cast<std::chrono::microseconds>(deadline-Clock::now()).count();
@@ -170,11 +196,13 @@ Json Transport::requestAt(size_t index,const std::string& method,const std::stri
  return Json::parse(response.body);
 }
 bool Transport::probe(size_t i) {
- try{auto h=requestAt(i,"GET","/netgo/v2/health","","");validateHealth(h,profile_.at("ID"));return true;}
- catch(const std::exception& e){if(std::string(e.what())=="protocol_incompatible")incompatible_=true;if(std::string(e.what())=="clock_out_of_sync")clockSkew_=true;return false;}
+ try{auto h=requestAt(i,"GET","/netgo/v2/health","","");validateHealth(h,profile_.at("ID"));
+  if(h.contains("server_unix")){std::lock_guard lock(clockMutex_);clocks_.resize(profile_["Candidates"].size());clocks_[i]={std::chrono::system_clock::time_point(std::chrono::seconds(h["server_unix"].get<int64_t>())),Clock::now(),true};}
+  return true;}
+ catch(const std::exception& e){if(std::string(e.what())=="protocol_incompatible")incompatible_=true;return false;}
 }
 void Transport::select() {
- incompatible_=false;clockSkew_=false;
+ incompatible_=false;
  std::mutex mutex;std::condition_variable ready;size_t winner=SIZE_MAX,finished=0;
  std::vector<std::thread> probes;
  for(size_t i=0;i<profile_["Candidates"].size();++i)probes.emplace_back([&,i]{
@@ -186,7 +214,7 @@ void Transport::select() {
  });
  {std::unique_lock lock(mutex);ready.wait_for(lock,std::chrono::seconds(10),[&]{return winner!=SIZE_MAX||finished==probes.size();});}
  for(auto& thread:probes)thread.join();
- if(winner==SIZE_MAX)throw Error(clockSkew_?"clock_out_of_sync":incompatible_?"protocol_incompatible":"no_trusted_control_entry");
+ if(winner==SIZE_MAX)throw Error(incompatible_?"protocol_incompatible":"no_trusted_control_entry");
  selected_=winner;switched_=Clock::now();directSuccess_=0;directCandidate_=SIZE_MAX;
 }
 void Transport::recover() {
@@ -204,11 +232,16 @@ void Transport::recover() {
 }
 std::string Transport::kind() const{return profile_["Candidates"][selected_]["Kind"];}
 std::string Transport::candidate() const{return profile_["Candidates"][selected_]["ID"];}
+std::chrono::system_clock::time_point Transport::now() const {
+ std::lock_guard lock(clockMutex_);
+ if(selected_>=clocks_.size()||!clocks_[selected_].valid)return std::chrono::system_clock::now();
+ const auto& sample=clocks_[selected_];return sample.server+std::chrono::duration_cast<std::chrono::system_clock::duration>(Clock::now()-sample.received);
+}
 Json Transport::call(const std::string& method,const std::string& path,const Json& value,const std::string& seed,const std::string& token,const std::string& idem) {
  std::string body=value.is_null()?"":value.dump(),headers="X-NetGo-Protocol: 2\r\n";
  if(!idem.empty())headers+="Idempotency-Key: "+idem+"\r\n";
  if(!token.empty()){
-  auto stamp=std::to_string(std::time(nullptr)),nonce=randomID();
+  auto stamp=std::to_string(std::chrono::duration_cast<std::chrono::seconds>(now().time_since_epoch()).count()),nonce=randomID();
   headers+="Authorization: Bearer "+token+"\r\nX-NetGo-Time: "+stamp+"\r\nX-NetGo-Nonce: "+nonce+"\r\nX-NetGo-Signature: "+signature(seed,signedMessage(method,path,stamp,nonce,body,token))+"\r\n";
  }
  try{auto result=requestAt(selected_,method,path,body,headers);wipe(body);wipe(headers);return result;}catch(...){wipe(body);wipe(headers);throw;}

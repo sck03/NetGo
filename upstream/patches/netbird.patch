@@ -1242,10 +1242,10 @@ index 0000000..d7217a9
 +}
 diff --git a/client/grpc/netgo.go b/client/grpc/netgo.go
 new file mode 100644
-index 0000000..7bd1de9
+index 0000000..96839a8
 --- /dev/null
 +++ b/client/grpc/netgo.go
-@@ -0,0 +1,206 @@
+@@ -0,0 +1,210 @@
 +package grpc
 +
 +import (
@@ -1432,21 +1432,25 @@ index 0000000..7bd1de9
 +func probeNetGo(ctx context.Context, host, address string, roots *x509.CertPool) net.Conn {
 +	ctx, cancel := context.WithTimeout(ctx, 3*time.Second)
 +	defer cancel()
-+	dialer := tls.Dialer{NetDialer: &net.Dialer{Timeout: 3 * time.Second}, Config: &tls.Config{
-+		ServerName: host, RootCAs: roots, MinVersion: tls.VersionTLS12, NextProtos: []string{"h2"},
-+	}}
-+	probe, err := dialer.DialContext(ctx, "tcp", address)
++	raw, err := dialContext(ctx, address)
 +	if err != nil {
 +		return nil
 +	}
-+	negotiated := probe.(*tls.Conn).ConnectionState().NegotiatedProtocol
++	probe := tls.Client(raw, &tls.Config{
++		ServerName: host, RootCAs: roots, MinVersion: tls.VersionTLS12, NextProtos: []string{"h2"},
++	})
++	if err = probe.HandshakeContext(ctx); err != nil {
++		_ = probe.Close()
++		return nil
++	}
++	negotiated := probe.ConnectionState().NegotiatedProtocol
 +	_ = probe.Close()
 +	if negotiated != "h2" {
 +		return nil
 +	}
 +	// gRPC performs its own TLS handshake over this transport with the same
 +	// authority and trust roots; the probe never sends application credentials.
-+	connection, err := (&net.Dialer{Timeout: 3 * time.Second, KeepAlive: 30 * time.Second}).DialContext(ctx, "tcp", address)
++	connection, err := dialContext(ctx, address)
 +	if err != nil {
 +		return nil
 +	}

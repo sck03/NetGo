@@ -270,9 +270,10 @@ func RenderBypass(iface, lan, overlay string, local []string, bypass site.Bypass
 	// Replace memberships within this same atomic batch on every renewal/revoke.
 	fmt.Fprintln(&b, "flush set inet netgo active4")
 	fmt.Fprintln(&b, "add chain inet netgo input { type filter hook input priority -150; policy accept; }")
-	fmt.Fprintf(&b, "add rule inet netgo input iifname %q counter drop\n", iface)
 	fmt.Fprintln(&b, "add chain inet netgo forward { type filter hook forward priority -150; policy accept; }")
 	fmt.Fprintln(&b, "add chain inet netgo resources")
+	fmt.Fprintf(&b, "add rule inet netgo input iifname %q ip saddr @active4 jump resources\n", iface)
+	fmt.Fprintf(&b, "add rule inet netgo input iifname %q counter drop\n", iface)
 	if bypass.Enabled {
 		fmt.Fprintf(&b, "add set inet netgo nonpublic4 { type ipv4_addr; flags interval; auto-merge; }\nflush set inet netgo nonpublic4\nadd element inet netgo nonpublic4 { %s }\n", strings.Join(append(append([]string(nil), NonPublicIPv4...), local...), ", "))
 		fmt.Fprintln(&b, "add set inet netgo internet4 { type ipv4_addr; flags timeout; }\nflush set inet netgo internet4")

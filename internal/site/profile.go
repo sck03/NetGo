@@ -11,8 +11,8 @@ import (
 const MaxConfigRevision uint64 = 1<<53 - 1
 
 // CheckProfileUpdate never accepts a new trust root under an existing identity.
-// Revision zero reads old development exports; once versioned, it cannot return
-// to zero. Rollback republishes earlier content at a higher revision.
+// Revision zero is reserved for a locally created bootstrap profile. Once
+// versioned, rollback republishes earlier content at a higher revision.
 func CheckProfileUpdate(old, next Profile) error {
 	if err := next.Validate(); err != nil {
 		return err

@@ -141,7 +141,15 @@ func (m Manager) StartServer() error {
 	if err = wait("VPN TLS 服务", func() error { return m.health(c) }); err != nil {
 		return err
 	}
-	return m.connectRouter(c, state)
+	if err = wait("本机身份服务", func() error { var out any; return m.API(c, "/instance", "GET", nil, &out) }); err != nil {
+		return err
+	}
+	if err = m.connectRouter(c, state); err != nil {
+		return err
+	}
+	// Retained reinstall recreates service files after uninstall disabled them.
+	// A successful start must also survive the next system reboot.
+	return m.service("enable", wantedUnits(c)...)
 }
 func (m Manager) router(args ...string) ([]byte, error) {
 	prefix := []string{"--config", m.path("/var/lib/netgo-router/config.json"), "--daemon-addr", "unix://" + m.path("/run/netgo-router/netbird.sock")}
@@ -151,7 +159,10 @@ func (m Manager) connectRouter(c site.Config, state SetupState) error {
 	if state.RouterID == "" || state.RouterIP == "" {
 		return errors.New("路由节点身份缺失")
 	}
-	if _, err := m.router("up", "--management-url", c.Site.Origin, "--disable-auto-connect=false"); err != nil {
+	if err := wait("路由节点启动", func() error {
+		_, err := m.router("up", "--management-url", c.Site.Origin, "--disable-auto-connect=false")
+		return err
+	}); err != nil {
 		return err
 	}
 	return wait("路由节点连接", func() error {
@@ -226,46 +237,13 @@ func (m Manager) SetupServer(c site.Config, email, alias, password, tlsSource st
 		if err = m.saveSetup(state); err != nil {
 			return err
 		}
-		u, _ := url.Parse(c.Site.Origin)
-		files, err := m.certificates(map[string]string{"control": u.Hostname(), "relay": c.Site.LocalRelay}, tlsSource, generate)
-		if err != nil {
-			return err
-		}
-		for name, b := range files {
-			mode := os.FileMode(0640)
-			if name == "ca.key" {
-				mode = 0600
-			}
-			if err = m.write(filepath.Join(m.etc(), "tls", name), b, mode); err != nil {
-				return err
-			}
-		}
-		c.Site.CA = string(files["ca.crt"])
-		if err = m.writeConfig(c); err != nil {
-			return err
-		}
-		secrets, err := deployment.NewSecrets()
-		if err != nil {
-			return err
-		}
-		if err = m.renderConfig(c, secrets); err != nil {
-			return err
-		}
-		if err = m.write(m.path("/var/lib/netgo-router/config.json"), []byte(`{"DisableAutoConnect":true,"ManagementURL":{"Scheme":"https","Host":"127.0.0.1:1"}}`), 0600); err != nil {
-			return err
-		}
-		if err = m.dataDirectory(m.path("/var/lib/netgo"), "netgo"); err != nil {
-			return err
-		}
-		state.Phase = "configured"
-		if err = m.saveSetup(state); err != nil {
-			return err
-		}
 	} else {
 		return err
 	}
 	if state.Phase == "prepare" {
-		return errors.New("证书准备曾中断，保留诊断后重新执行证书设置")
+		if err = m.prepareServer(&c, &state, tlsSource, generate); err != nil {
+			return err
+		}
 	}
 	if state.AdminID == "" && (len([]byte(password)) < 8 || len([]byte(password)) > 72) {
 		return errors.New("管理员密码需要 8–72 UTF-8 字节")
@@ -386,4 +364,40 @@ func (m Manager) SetupServer(c site.Config, email, alias, password, tlsSource st
 	}
 	m.print("VPN 已初始化：%s\n管理员：%s\n客户端导入文件：%s", c.Site.Origin, state.AdminAlias, filepath.Join(m.etc(), "client-site.json"))
 	return nil
+}
+
+func (m Manager) prepareServer(c *site.Config, state *SetupState, source string, generate bool) error {
+	u, _ := url.Parse(c.Site.Origin)
+	files, err := m.certificates(map[string]string{"control": u.Hostname(), "relay": c.Site.LocalRelay}, source, generate)
+	if err != nil {
+		return err
+	}
+	for name, b := range files {
+		mode := os.FileMode(0640)
+		if name == "ca.key" {
+			mode = 0600
+		}
+		if err = m.write(filepath.Join(m.etc(), "tls", name), b, mode); err != nil {
+			return err
+		}
+	}
+	c.Site.CA = string(files["ca.crt"])
+	if err = m.writeConfig(*c); err != nil {
+		return err
+	}
+	secrets, err := deployment.NewSecrets()
+	if err != nil {
+		return err
+	}
+	if err = m.renderConfig(*c, secrets); err != nil {
+		return err
+	}
+	if err = m.write(m.path("/var/lib/netgo-router/config.json"), []byte(`{"DisableAutoConnect":true,"ManagementURL":{"Scheme":"https","Host":"127.0.0.1:1"}}`), 0600); err != nil {
+		return err
+	}
+	if err = m.dataDirectory(m.path("/var/lib/netgo"), "netgo"); err != nil {
+		return err
+	}
+	state.Phase = "configured"
+	return m.saveSetup(*state)
 }

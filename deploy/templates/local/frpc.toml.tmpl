@@ -5,7 +5,7 @@ auth.token = "@@FRP_SECRET@@"
 transport.tls.enable = true
 transport.tls.disableCustomTLSFirstByte = true
 transport.tls.serverName = "@@TUNNEL_HOST@@"
-transport.tls.trustedCaFile = "/etc/ssl/certs/ca-certificates.crt"
+transport.tls.trustedCaFile = "/etc/netgo/tls/trust.pem"
 [[proxies]]
 name = "netgo-control"
 type = "tcp"

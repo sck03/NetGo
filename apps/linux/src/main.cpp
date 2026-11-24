@@ -12,6 +12,8 @@
 #include <algorithm>
 #include <csignal>
 #include <cstring>
+#include <sys/stat.h>
+#include <unistd.h>
 
 using netgo::desktop_linux::Json;using netgo::desktop_linux::Frame;
 namespace {
@@ -32,6 +34,24 @@ struct MainAction {std::function<void()> action;};
 void mainThread(std::function<void()> action){g_main_context_invoke(nullptr,[](void* p)->gboolean{std::unique_ptr<MainAction> a(static_cast<MainAction*>(p));a->action();return G_SOURCE_REMOVE;},new MainAction{std::move(action)});}
 void status(std::string text){mainThread([text=std::move(text)]{if(state->alive)gtk_label_set_text(GTK_LABEL(state->notice),text.c_str());});}
 Json call(const std::string& method,const std::string& path,const Json& body=nullptr){return netgo::desktop_linux::ipc(state->socket,method,path,body,state->alive);}
+void startService(){
+ auto folder=std::filesystem::canonical("/proc/self/exe").parent_path();auto binary=folder/"netgo-client-service";
+ if(std::filesystem::exists("/opt/netgo-client/bin/netgo-client-service"))binary="/opt/netgo-client/bin/netgo-client-service";
+ GError* error=nullptr;state->service=g_subprocess_new(GSubprocessFlags(G_SUBPROCESS_FLAGS_STDOUT_SILENCE|G_SUBPROCESS_FLAGS_STDERR_SILENCE),&error,binary.c_str(),"--root",state->root.c_str(),"--socket",state->socket.c_str(),"--daemon","/run/netgo-client/netbird.sock",nullptr);
+ if(error){std::string message=error->message;g_error_free(error);throw std::runtime_error(message);}
+}
+void prepareNetwork(){
+ struct stat info{};
+ if(stat("/run/netgo-client/netbird.sock",&info)==0&&S_ISSOCK(info.st_mode)&&info.st_uid==getuid()&&std::filesystem::exists("/opt/netgo-client/bin/netgo-client-service"))return;
+ auto folder=std::filesystem::canonical("/proc/self/exe").parent_path();auto binary=folder/"netgo-client-service";auto owner=std::to_string(getuid());GError* error=nullptr;
+ auto setup=g_subprocess_new(GSubprocessFlags(G_SUBPROCESS_FLAGS_STDOUT_SILENCE|G_SUBPROCESS_FLAGS_STDERR_SILENCE),&error,"pkexec",binary.c_str(),"--network","install","--source",folder.c_str(),"--owner",owner.c_str(),nullptr);
+ if(!setup){if(error)g_error_free(error);throw std::runtime_error("无法打开系统管理员授权，请检查桌面系统的授权组件");}
+ auto ok=g_subprocess_wait_check(setup,nullptr,&error);g_object_unref(setup);if(!ok){if(error)g_error_free(error);throw std::runtime_error("网络组件安装未完成，请确认管理员授权后重试");}
+ if(state->service){g_subprocess_send_signal(state->service,SIGTERM);g_subprocess_wait(state->service,nullptr,nullptr);g_object_unref(state->service);state->service=nullptr;}
+ startService();
+ for(int i=0;i<100&&state->alive;++i){try{call("GET","/desktop/status");return;}catch(...){g_usleep(100000);}}
+ throw std::runtime_error("连接服务未就绪，请重新启动 NetGo");
+}
 std::string base64(const uint8_t* bytes,size_t size){std::string out(4*((size+2)/3),'\0');auto n=EVP_EncodeBlock(reinterpret_cast<uint8_t*>(out.data()),bytes,int(size));out.resize(size_t(n));for(auto& c:out){if(c=='+')c='-';else if(c=='/')c='_';}while(!out.empty()&&out.back()=='=')out.pop_back();return out;}
 std::vector<uint8_t> decode(std::string text,size_t expected){for(auto& c:text){if(c=='-')c='+';else if(c=='_')c='/';}while(text.size()%4)text+='=';std::vector<uint8_t> out(text.size()/4*3);auto n=EVP_DecodeBlock(out.data(),reinterpret_cast<const uint8_t*>(text.data()),int(text.size()));while(!text.empty()&&text.back()=='='){--n;text.pop_back();}if(n<0||size_t(n)!=expected)throw std::runtime_error("invalid_signature");out.resize(expected);return out;}
 void task(std::function<void()> action){
@@ -90,7 +110,8 @@ void chooseProfile(GObject* dialog,GAsyncResult* result,void*){
   bool changed=false;for(const auto& old:call("GET","/desktop/profiles"))if(old.at("ID")==profile.at("ID")&&(old.value("Origin","")!=profile.value("Origin","")||old.value("CA","")!=profile.value("CA","")))changed=true;
   if(!changed){call("POST","/desktop/import",profile);status("站点已导入");return;}
   mainThread([profile=std::move(profile)]{
-   if(!state->alive)return;auto dialog=gtk_alert_dialog_new("文件更改了站点地址或证书。请确认它来自你的服务器管理员后继续。");const char* buttons[]={"取消","确认导入",nullptr};gtk_alert_dialog_set_buttons(dialog,buttons);gtk_alert_dialog_set_cancel_button(dialog,0);
+   if(!state->alive)return;
+   auto dialog=gtk_alert_dialog_new("文件更改了站点地址或证书。请确认它来自你的服务器管理员后继续。");const char* buttons[]={"取消","确认导入",nullptr};gtk_alert_dialog_set_buttons(dialog,buttons);gtk_alert_dialog_set_cancel_button(dialog,0);
    gtk_alert_dialog_choose(dialog,GTK_WINDOW(state->window),nullptr,[](GObject* object,GAsyncResult* result,void* context){std::unique_ptr<Json> value(static_cast<Json*>(context));GError* error=nullptr;auto selected=gtk_alert_dialog_choose_finish(GTK_ALERT_DIALOG(object),result,&error);if(error){g_error_free(error);return;}if(selected==1)task([profile=std::move(*value)]{call("POST","/desktop/import-trusted",profile);status("站点已导入");});},new Json(std::move(profile)));g_object_unref(dialog);
   });
  });
@@ -112,7 +133,7 @@ void activate(GtkApplication* app,void*){
  state->internet=gtk_check_button_new_with_label("通过旁路由访问互联网（需要账号授权）");gtk_box_append(GTK_BOX(box),state->internet);
  state->connect=gtk_button_new_with_label("连接网络");gtk_box_append(GTK_BOX(row),state->connect);g_signal_connect(state->connect,"clicked",callback(+[](GtkButton*,void*){
   auto id=selected(state->profiles,state->profileList,"ID");if(id.empty()){status("请先导入并选择站点");return;}if(state->remoteActive){status("请先结束远程桌面");return;}state->site=id;
-  Json request={{"Site",state->site},{"Alias",gtk_editable_get_text(GTK_EDITABLE(state->alias))},{"Password",gtk_editable_get_text(GTK_EDITABLE(state->password))},{"Replace",false},{"Internet",bool(gtk_check_button_get_active(GTK_CHECK_BUTTON(state->internet)))}};gtk_editable_set_text(GTK_EDITABLE(state->password),"");task([request=std::move(request)]{call("POST","/desktop/connect",request);});
+  Json request={{"Site",state->site},{"Alias",gtk_editable_get_text(GTK_EDITABLE(state->alias))},{"Password",gtk_editable_get_text(GTK_EDITABLE(state->password))},{"Replace",false},{"Internet",bool(gtk_check_button_get_active(GTK_CHECK_BUTTON(state->internet)))}};gtk_editable_set_text(GTK_EDITABLE(state->password),"");task([request=std::move(request)]{prepareNetwork();call("POST","/desktop/connect",request);});
  }),nullptr);
  auto disconnect=gtk_button_new_with_label("断开网络");gtk_box_append(GTK_BOX(row),disconnect);g_signal_connect(disconnect,"clicked",callback(+[](GtkButton*,void*){stopRemote();task([]{call("POST","/desktop/disconnect");});}),nullptr);
  state->notice=gtk_label_new("导入站点后使用已有账号连接");gtk_label_set_xalign(GTK_LABEL(state->notice),0);gtk_box_append(GTK_BOX(box),state->notice);
@@ -131,7 +152,7 @@ void activate(GtkApplication* app,void*){
  g_signal_connect(state->window,"close-request",callback(+[](GtkWindow*,void*)->gboolean{stopRemote();state->alive=false;return FALSE;}),nullptr);
  gtk_window_present(GTK_WINDOW(state->window));
  if(state->smoke){g_timeout_add(1000,[](void*)->gboolean{g_application_quit(G_APPLICATION(state->app));return G_SOURCE_REMOVE;},nullptr);return;}
- if(!std::filesystem::exists(state->socket)){auto binary=std::filesystem::canonical("/proc/self/exe").parent_path()/"netgo-client-service";GError* error=nullptr;state->service=g_subprocess_new(G_SUBPROCESS_FLAGS_STDOUT_SILENCE,&error,binary.c_str(),"--root",state->root.c_str(),"--socket",state->socket.c_str(),nullptr);if(error){status("无法启动连接服务，请安装 NetGo 网络组件");g_error_free(error);}}
+ if(!std::filesystem::exists(state->socket)){try{startService();}catch(const std::exception& e){status(e.what());}}
  state->timer=g_timeout_add(1000,[](void*)->gboolean{if(!state->alive)return G_SOURCE_REMOVE;if(!state->jobBusy)task([]{auto value=call("GET","/desktop/status");status(value.value("state","")+"  "+value.value("error",""));});return G_SOURCE_CONTINUE;},nullptr);refresh();
 }
 }

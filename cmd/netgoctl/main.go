@@ -436,7 +436,7 @@ func run() error {
 		})
 	}
 	if cmd == "reconcile" {
-		r := netbird.Reconciler{Management: m, Store: s, SiteID: c.Site.ID, GatewayID: c.Site.GatewayPeerID, Bypass: c.Bypass}
+		r := netbird.Reconciler{Management: m, Store: s, SiteID: c.Site.ID, GatewayID: c.Site.GatewayPeerID, LANInterface: c.LANInterface, Bypass: c.Bypass}
 		return r.Apply(ctx)
 	}
 	return errors.New("unknown command")
@@ -453,6 +453,6 @@ func reconcileConfig(ctx context.Context, c site.Config) error {
 		return err
 	}
 	m := &netbird.Management{URL: c.ManagementURL, Token: token, Client: &http.Client{Timeout: 10 * time.Second, CheckRedirect: func(*http.Request, []*http.Request) error { return errors.New("management redirect forbidden") }}}
-	r := netbird.Reconciler{Management: m, Store: s, SiteID: c.Site.ID, GatewayID: c.Site.GatewayPeerID, Bypass: c.Bypass}
+	r := netbird.Reconciler{Management: m, Store: s, SiteID: c.Site.ID, GatewayID: c.Site.GatewayPeerID, LANInterface: c.LANInterface, Bypass: c.Bypass}
 	return r.Apply(ctx)
 }

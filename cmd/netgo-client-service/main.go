@@ -1,6 +1,6 @@
 //go:build !windows
 
-// Linux diagnostic client. The Windows product is native C++.
+// Linux/macOS connection service. The Windows product is native C++.
 package main
 
 import (
@@ -9,6 +9,7 @@ import (
 	"log"
 	"net/http"
 	"netgo/internal/client"
+	"netgo/internal/desktopinstall"
 	"netgo/internal/engine/netbird"
 	"netgo/internal/ipc"
 	"netgo/internal/process"
@@ -16,6 +17,7 @@ import (
 	"os"
 	"os/user"
 	"path/filepath"
+	"runtime"
 	"time"
 )
 
@@ -28,10 +30,22 @@ func main() {
 	root = filepath.Join(root, "NetGo")
 	socket := filepath.Join(root, "client.sock")
 	daemon := "/var/run/netbird.sock"
+	if runtime.GOOS == "linux" {
+		daemon = "/run/netgo-client/netbird.sock"
+	}
 	socketFlag := flag.String("socket", socket, "user IPC endpoint")
 	daemonFlag := flag.String("daemon", daemon, "NetBird IPC endpoint")
 	rootFlag := flag.String("root", root, "profile directory")
+	networkFlag := flag.String("network", "", "Linux desktop network: install, uninstall, socket")
+	sourceFlag := flag.String("source", "", "verified desktop package directory")
+	ownerFlag := flag.Uint("owner", 0, "desktop user UID")
 	flag.Parse()
+	if *networkFlag != "" {
+		if e = desktopinstall.Run(*networkFlag, *sourceFlag, *ownerFlag); e != nil {
+			log.Fatal(e)
+		}
+		return
+	}
 	d, e := netbird.OpenDaemon(*daemonFlag)
 	if e != nil {
 		log.Fatal(e)

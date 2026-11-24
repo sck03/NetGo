@@ -186,6 +186,27 @@ func (t terminal) setup() error {
 		if state.Complete {
 			return t.m.StartServer()
 		}
+		if state.Phase == "prepare" {
+			t.m.print("继续首次配置。证书：1) 自动生成  2) 导入已有证书")
+			choice, err := t.text("请选择", "1")
+			if err != nil {
+				return err
+			}
+			source := ""
+			if choice == "2" {
+				source, err = t.text("证书目录", "")
+				if err != nil {
+					return err
+				}
+			} else if choice != "1" {
+				return errors.New("无效选项")
+			}
+			password, err := t.password("管理员密码")
+			if err != nil {
+				return err
+			}
+			return t.m.SetupServer(site.Config{}, "", "", password, source, choice == "1")
+		}
 		password, err := t.password("管理员密码（身份已创建时可留空）")
 		if err != nil {
 			return err

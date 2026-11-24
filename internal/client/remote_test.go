@@ -5,6 +5,7 @@ import (
 	"crypto/ed25519"
 	"crypto/rand"
 	"encoding/base64"
+	"netgo/internal/site"
 	"netgo/internal/vault"
 	"runtime"
 	"strings"
@@ -52,8 +53,9 @@ func TestPossessionSignerRetainsDeviceKeyAndRejectsOtherDomains(t *testing.T) {
 	if e != nil {
 		t.Fatal(e)
 	}
-	c := &Controller{Vault: vault.Vault{Root: t.TempDir()}, remote: &remoteConnection{ctx: context.Background(), site: "s"}}
-	if e = c.Vault.Write("s", private.Seed()); e != nil {
+	scope := site.AccountScope("s", "alice")
+	c := &Controller{Vault: vault.Vault{Root: t.TempDir()}, remote: &remoteConnection{ctx: context.Background(), site: "s", scope: scope}}
+	if e = c.Vault.Write(scope, private.Seed()); e != nil {
 		t.Fatal(e)
 	}
 	message := "NetGo remote possession v1\x00" + strings.Repeat("x", 96)
@@ -72,5 +74,19 @@ func TestPossessionSignerRetainsDeviceKeyAndRejectsOtherDomains(t *testing.T) {
 	}
 	if _, e := c.SignPossession("another-site", message); e == nil {
 		t.Fatal("signed disconnected site")
+	}
+	otherPublic, otherKey, _ := ed25519.GenerateKey(rand.Reader)
+	otherScope := site.AccountScope("s", "bob")
+	if err := c.Vault.Write(otherScope, otherKey.Seed()); err != nil {
+		t.Fatal(err)
+	}
+	c.remote.scope = otherScope
+	signed, e = c.SignPossession("s", message)
+	if e != nil {
+		t.Fatal(e)
+	}
+	signature, e = base64.RawURLEncoding.DecodeString(signed)
+	if e != nil || !ed25519.Verify(otherPublic, []byte(message), signature) || ed25519.Verify(pub, []byte(message), signature) {
+		t.Fatal("account switch signed with the previous account's device")
 	}
 }

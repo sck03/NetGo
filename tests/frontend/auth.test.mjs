@@ -7,16 +7,9 @@ const unb64 = s => Buffer.from(s, 'base64url')
 const sha = s => createHash('sha256').update(s).digest('hex')
 const health = { protocol: 2, site_id: 'site', capabilities: ['native-auth-v1','device-signature-v1','leases-v1','profile-revision-v1','admin-v1','diagnostics-v1'] }
 
-test('clock skew is diagnosed before sending credentials or creating a transaction', async t => {
-  const original = globalThis.fetch, paths = []
-  globalThis.fetch = async path => { paths.push(path); return new Response(JSON.stringify({ ...health, server_unix: Math.floor(Date.now() / 1000) + 60 })) }
-  t.after(() => { globalThis.fetch = original })
-  await assert.rejects(new AdminSession().login('site', 'admin', 'password'), /时间相差/)
-  assert.deepEqual(paths, ['/netgo/v2/health'])
-})
-
-function server(t, role = 'admin') {
+function server(t, role = 'admin', clockOffset = 0) {
   const original = globalThis.fetch
+  const wallNow = Date.now
   let publicKey, begin, token = 'first-token', sawRefresh = false
   const paths = []
   globalThis.fetch = async (path, options) => {
@@ -24,7 +17,7 @@ function server(t, role = 'admin') {
     assert.equal(options.redirect, 'error')
     assert.equal(options.cache, 'no-store')
     assert.equal(options.headers['X-NetGo-Protocol'], '2')
-    if (path.endsWith('/health')) return new Response(JSON.stringify(health))
+    if (path.endsWith('/health')) return new Response(JSON.stringify({ ...health, server_unix: Math.floor((wallNow() + clockOffset) / 1000) }))
     const body = options.body || '', data = body ? JSON.parse(body) : {}
     if (path.endsWith('/transactions')) {
       begin = data
@@ -38,6 +31,7 @@ function server(t, role = 'admin') {
       assert(await webcrypto.subtle.verify('Ed25519', publicKey, unb64(data.Signature), enc.encode('netgo-native-v1\nsite\ntx\nnonce\nexchange\n' + data.Verifier)))
     } else {
       const h = options.headers
+      assert(Math.abs(Number(h['X-NetGo-Time']) * 1000 - wallNow() - clockOffset) < 2000)
       const proof = [options.method, path, h['X-NetGo-Time'], h['X-NetGo-Nonce'], sha(body), sha(token)].join('\n')
       assert.equal(h.Authorization, 'Bearer ' + token)
       assert(await webcrypto.subtle.verify('Ed25519', publicKey, unb64(h['X-NetGo-Signature']), enc.encode(proof)))
@@ -45,12 +39,24 @@ function server(t, role = 'admin') {
     }
     let result = { ok: true }
     if (path.endsWith('/transactions')) result = { id: 'tx', nonce: 'nonce' }
-    if (path.endsWith('/exchange') || path.endsWith('/refresh')) result = { token, refresh_token: 'refresh', expires_at: new Date(Date.now() + (sawRefresh ? 3600000 : 60000)).toISOString(), user: { role } }
+    if (path.endsWith('/exchange') || path.endsWith('/refresh')) result = { token, refresh_token: 'refresh', expires_at: new Date(wallNow() + clockOffset + (sawRefresh ? 3600000 : 60000)).toISOString(), user: { role } }
     return new Response(JSON.stringify(result), { status: 200 })
   }
   t.after(() => { globalThis.fetch = original })
   return { paths, refreshed: () => sawRefresh }
 }
+
+test('trusted server time signs requests despite skew and later client clock changes', async t => {
+  for (const offset of [-3600000, 3600000]) await t.test(String(offset), async t => {
+    const fixture = server(t, 'admin', offset), session = new AdminSession()
+    await session.login('site', 'admin', 'password')
+    const wallNow = Date.now
+    t.after(() => { Date.now = wallNow })
+    Date.now = () => wallNow() + 86400000
+    await session.request('/netgo/v2/admin/state')
+    assert(fixture.refreshed())
+  })
+})
 
 test('management login proves PKCE/key ownership and refresh signs the old token', async t => {
   const fixture = server(t)

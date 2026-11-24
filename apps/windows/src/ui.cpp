@@ -40,7 +40,6 @@ std::wstring errorText(const std::string& e) {
   {"no_trusted_control_entry",L"未找到可验证的服务器入口。请检查服务器地址、网络和证书。"},
   {"tls_certificate_failed",L"服务器证书验证失败。请核对域名、公共 CA 和系统时间。"},
   {"unauthorized",L"账号认证失败或已失效，请检查账号密码。"},
-  {"clock_out_of_sync",L"本机与服务器时间相差超过 30 秒。请核对两端校时状态后重试。"},
   {"forbidden",L"账号没有访问权限或已禁用。"},
   {"internet_forbidden",L"账号尚未获得互联网权限。请取消互联网选项，或联系管理员授权。"},
   {"internet_not_configured",L"服务器尚未设置旁路由和 DNS。请联系管理员设置。"},

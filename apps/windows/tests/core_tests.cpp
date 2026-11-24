@@ -88,7 +88,7 @@ int main(int argc,char** argv){
   validateHealth(health,"test");
   auto timed=health;timed["server_unix"]=int64_t(std::time(nullptr));validateHealth(timed,"test");
   timed["server_unix"]=int64_t(std::time(nullptr))+60;
-  try{validateHealth(timed,"test");throw Error("clock skew accepted");}catch(const Error& e){require(std::string(e.what())=="clock_out_of_sync","clock skew not diagnosed");}
+  validateHealth(timed,"test");timed["server_unix"]=-1;rejects([&]{validateHealth(timed,"test");},"invalid server clock accepted");
   auto incompatible=health;incompatible["capabilities"].erase(3);rejects([&]{validateHealth(incompatible,"test");},"missing capability accepted");
   incompatible=health;incompatible["protocol"]=3;rejects([&]{validateHealth(incompatible,"test");},"future protocol accepted");
   rejects([&]{validateHealth(health,"other");},"wrong health identity accepted");
@@ -101,6 +101,8 @@ int main(int argc,char** argv){
   require(sha256("abc")=="ba7816bf8f01cfea414140de5dae2223b00361a396177a9cb410ff61f20015ad","SHA256 fixture");
   require(sha256("abc",true)=="ungWv48Bz-pBQUDeXa4iI7ADYaOWF3qctBD_YfIAFa0","PKCE fixture");
   require(sha256("")=="e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855","empty SHA256 fixture");
+  require(accountScope("site"," ALICE \t")==accountScope("site","alice"),"account normalization");
+  require(accountScope("site","alice")!=accountScope("site","bob")&&accountScope("site","alice")!=accountScope("another","alice"),"account identity isolation");
   const unsigned char binary[]={0xfb,0xff,0xff};
   require(base64url(binary,0).empty()&&base64url(binary,1)=="-w"&&base64url(binary,2)=="-_8"&&base64url(binary,3)=="-___","binary URL-safe encoding and padding");
   auto random=randomID();require(random.size()==43&&random.find_first_not_of("ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789-_")==std::string::npos&&random!=randomID(),"OS random ID format");
@@ -126,6 +128,8 @@ int main(int argc,char** argv){
   rejects([]{decodeHttp("HTTP/1.1 200 OK\r\nTransfer-Encoding: chunked\r\n\r\n2\r\n{}\r\n0\r\n");},"missing chunk terminator");
   require(decodeHttp("HTTP/1.1 200 OK\r\nTransfer-Encoding: chunked\r\n\r\n2\r\n{}\r\n0\r\nX-Trace: done\r\n\r\n").body=="{}","legal chunk trailer");
   auto target="test/"+randomID();credentialWrite(target,"native-fixture");require(credentialRead(target)=="native-fixture","Credential Manager roundtrip");credentialDelete(target);require(credentialRead(target).empty(),"credential deletion");
+  auto prefix="test/"+randomID()+"/";credentialWrite(prefix+"a","fixture-a");credentialWrite(prefix+"b","fixture-b");
+  require(credentialTargets(prefix).size()==2,"account credential enumeration");for(const auto& name:credentialTargets(prefix))credentialDelete(name);require(credentialTargets(prefix).empty(),"account credential cleanup");
   auto root=std::filesystem::temp_directory_path()/wide("netgo-test-"+randomID());secureDirectory(root);
   {
    Controller c(root);c.importProfile(p);require(c.profiles().size()==1,"profile persistence");

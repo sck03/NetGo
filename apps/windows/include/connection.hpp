@@ -24,7 +24,9 @@ class Transport {
  std::chrono::milliseconds cooldown_ = std::chrono::seconds(30);
  Clock::time_point switched_ = Clock::now();
  std::atomic_bool incompatible_{false};
- std::atomic_bool clockSkew_{false};
+ struct ClockSample {std::chrono::system_clock::time_point server{};Clock::time_point received{};bool valid=false;};
+ std::vector<ClockSample> clocks_;
+ mutable std::mutex clockMutex_;
  Json requestAt(size_t index,const std::string& method,const std::string& path,const std::string& body,const std::string& headers);
  bool probe(size_t index);
 public:
@@ -33,6 +35,7 @@ public:
  void recover();
  std::string kind() const;
  std::string candidate() const;
+ std::chrono::system_clock::time_point now() const;
  Json call(const std::string& method,const std::string& path,const Json& body,const std::string& seed = {},const std::string& token = {},const std::string& idempotency = {});
 };
 

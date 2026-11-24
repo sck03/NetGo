@@ -263,3 +263,57 @@ func TestIdentityErrorsNeverExposeResponseSecrets(t *testing.T) {
 		t.Fatal("private identity response exposed", err)
 	}
 }
+
+func TestCertificateGenerationNeverReplacesIncompleteCA(t *testing.T) {
+	m := Manager{Role: "server", Root: physicalTemp(t)}
+	source := filepath.Join(m.etc(), "tls")
+	if err := os.MkdirAll(source, 0700); err != nil {
+		t.Fatal(err)
+	}
+	original := []byte("existing incomplete CA")
+	if err := os.WriteFile(filepath.Join(source, "ca.crt"), original, 0600); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := m.certificates(map[string]string{"control": "site.example"}, "", true); err == nil {
+		t.Fatal("incomplete CA was silently replaced")
+	}
+	saved, _ := os.ReadFile(filepath.Join(source, "ca.crt"))
+	if !bytes.Equal(saved, original) {
+		t.Fatal("existing CA modified")
+	}
+	if _, err := m.certificates(map[string]string{"control": "site.example"}, "", false); err == nil {
+		t.Fatal("empty import directory accepted")
+	}
+}
+
+func TestFailedInstallCanRetryWithoutRemovingForeignShortcut(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("POSIX symlink lifecycle")
+	}
+	m := Manager{Role: "vps", Root: physicalTemp(t), Out: &bytes.Buffer{}, Run: func(context.Context, string, []string, []byte, []string) ([]byte, error) { return nil, nil }}
+	path := m.path("/usr/local/bin/ngv")
+	if err := os.MkdirAll(filepath.Dir(path), 0755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(path, []byte("foreign shortcut"), 0600); err != nil {
+		t.Fatal(err)
+	}
+	source := fakePackage(t)
+	if err := m.Install(source); err == nil {
+		t.Fatal("foreign shortcut overwritten")
+	}
+	saved, _ := os.ReadFile(path)
+	if string(saved) != "foreign shortcut" {
+		t.Fatal("foreign shortcut was removed")
+	}
+	if err := os.Remove(path); err != nil {
+		t.Fatal(err)
+	}
+	if err := m.Install(source); err != nil {
+		t.Fatal("clean retry blocked by failed installation", err)
+	}
+	state, err := m.installation()
+	if err != nil || state.Status != "installed" {
+		t.Fatal(state.Status, err)
+	}
+}

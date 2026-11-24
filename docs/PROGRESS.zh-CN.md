@@ -6,17 +6,20 @@
 
 ## 当前接续（2026-11-24）
 
-继承「完成远程桌面与五平台交付」的未提交源码。用户确认暂时没有 Apple 签名/设备和移动测试设备，继续当前环境可完成的代码与验证；同时明确 Windows 应只有一个普通使用入口。
+继承「完成远程桌面与五平台交付」。当前采用 API v2 / schema 2，不提供旧数据/接口兼容。Windows 日常只有 NetGo.exe；LAN/VPS 维护统一为 Go，五个客户端和两种节点各有独立构建脚本/工作流。Apple 客户端已推进实现与云端构建，设备签名和实机验收仍缺环境。
 
 | 实现 | 当前事实 | 未完成边界 |
 | --- | --- | --- |
-| API/存储 | 0.3.0-dev、协议 2、规范化 schema 2；主机/授权/会话/nonce/幂等/审计持久化 | 新版跨设备部署及完整回退演练 |
+| API/存储 | 0.3.0-dev、协议 2、规范化 schema 2；主机/授权/会话/nonce/幂等/审计持久化；Debian 13 新站点初始化与 28 项真实 API/IdP 验证通过 | 完整故障矩阵与长期运行 |
 | 远控身份 | 双方 VPN 租约、主机启动实例、Ed25519 绑定、TLS exporter 持钥证明、原子一次消费、撤权/重启测试 | 实际 overlay 直连/中继媒体及非合作客户端实测 |
 | Windows | 单个 NetGo.exe；内部主界面/后台/远控模式；图标、Setup/绿色版打包逻辑；系统 H.264、输入、文本及 WASAPI 音频接入 | 安装卸载终检、Win11、锁屏/UAC、多屏、音频和画面跨设备实测、剪贴板/文件 |
-| 共享查看器 | packages/remote-client 纯 C ABI，权限交集、验签/持钥证明、单调期限、控制重验、取消及平台解码回调；真实 TLS 正反测试通过 | Android JNI 与 Apple 桥接及设备适配 |
-| Linux GTK | 原生站点/账号/网络/主机选择/查看器、FFmpeg 解码和 IME 文本；Debian 13 编译与 Xvfb 窗口启动通过 | 物理桌面 VPN/远控、Linux 主机/X11/Wayland、音频和桌面安装器 |
+| 共享查看器 | packages/remote-client 纯 C ABI；权限交集、验签/持钥证明、单调期限、取消及平台解码回调；Android JNI、Apple 桥接已接入 | 各设备 VPN/远控/输入/恢复实测 |
+| Linux GTK | 原生站点/账号/网络/主机选择/查看器、FFmpeg 解码和 IME 文本；独立 Go 网络安装模块；Debian 13 编译、6 项 CTest 和 Xvfb 验证通过 | 物理桌面 VPN/远控、Linux 主机/X11/Wayland、音频 |
+| Android/Apple | Android APK/AAR/JNI 构建与 lint、macOS App、iOS 模拟器和未签名设备构建已有成功记录 | Android/iPhone/iPad/macOS 实机与有效签名 |
+| LAN/VPS 与旁路由 | ng/ngv 独立 Go 菜单、新站点/CA、VPS 导入与真实公网辅助 Relay；Fake-IP HTTPS、旁路由出口与显式 LAN HTTPS 已实测 | 最终生命周期复验及完整网络场景 |
+| 时间/账号隔离 | 取消 30 秒客户端时差阻断；可信服务端时间 + 单调经过时间；设备密钥和 WireGuard profile 按站点/账号隔离 | 全平台设备恢复与休眠验证 |
 
-Windows 统一 EXE 当前 7,030,272 字节（6.70 MiB），系统 DLL 白名单通过。该数字包括连接/远控代码，不能与旧独立 UI 的体积直接比较。八项原生 CTest 和 Go race 已通过；构建/安装包验证报告继续绑定当前源码，历史报告不能复用到新代码。Android SDK 正在项目目录准备；macOS/iOS 环境缺项保留。五平台总交付和 RD-A01–A14 尚未完成。
+Windows 统一 EXE 本轮验证为 7,055,360 字节（约 6.73 MiB），8 项原生 CTest、TLS 夹具、时钟偏差与系统 DLL 白名单通过。Go/前端在干净 Linux 源码目录完成测试、静态检查与构建；客户端时钟相差 ±24 小时的 Go 回归、±1 小时的 Windows/前端回归通过。新版本报告见 [当前验证](evidence/2026-11-24-platforms/REPORT.zh-CN.md)。历史报告不能作为新包的通过依据；完整五平台实机交付、RD-A01–A14 和 72 小时仍未全部完成。
 
 ## 历史接续（2026-11-23，方案 v2.2）
 

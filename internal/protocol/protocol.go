@@ -5,13 +5,11 @@ import (
 	"errors"
 	"netgo/internal/model"
 	"slices"
-	"time"
 )
 
 const Header = "X-NetGo-Protocol"
 
 var ErrIncompatible = errors.New("protocol_incompatible")
-var ErrClockSkew = errors.New("clock_out_of_sync")
 
 type Health struct {
 	Protocol     int      `json:"protocol"`
@@ -36,11 +34,8 @@ func (h Health) Validate(siteID string) error {
 			return ErrIncompatible
 		}
 	}
-	if h.ServerUnix != 0 {
-		age := time.Since(time.Unix(h.ServerUnix, 0))
-		if age > 30*time.Second || age < -30*time.Second {
-			return ErrClockSkew
-		}
+	if h.ServerUnix != 0 && (h.ServerUnix < 946684800 || h.ServerUnix > 4102444800) {
+		return errors.New("invalid_control_health")
 	}
 	return nil
 }

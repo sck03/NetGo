@@ -85,6 +85,25 @@ void credentialWrite(const std::string& target,const std::string& value) {
 void credentialDelete(const std::string& target) {
  if(!CredDeleteW(credentialTarget(target).c_str(),CRED_TYPE_GENERIC,0)&&GetLastError()!=ERROR_NOT_FOUND) throw Error("credential_delete_failed");
 }
+std::vector<std::string> credentialTargets(const std::string& prefix) {
+ auto base=credentialTarget("");auto filter=credentialTarget(prefix)+L"*";
+ DWORD count=0;PCREDENTIALW* entries=nullptr;
+ if(!CredEnumerateW(filter.c_str(),0,&count,&entries)){
+  if(GetLastError()==ERROR_NOT_FOUND)return {};
+  throw Error("credential_read_failed");
+ }
+ std::unique_ptr<void,decltype(&CredFree)> owner(entries,CredFree);
+ std::vector<std::string> result;
+ for(DWORD i=0;i<count;++i){std::wstring target=entries[i]->TargetName;if(entries[i]->Type==CRED_TYPE_GENERIC&&target.starts_with(base))result.push_back(utf8(target.substr(base.size())));}
+ return result;
+}
+std::string accountPrefix(const std::string& site) {return "acct-"+sha256(site).substr(0,16)+"-";}
+std::string accountScope(const std::string& site,const std::string& alias) {
+ auto normalized=alias;auto first=normalized.find_first_not_of(" \t\r\n\v\f"),last=normalized.find_last_not_of(" \t\r\n\v\f");
+ normalized=first==std::string::npos?"":normalized.substr(first,last-first+1);
+ for(auto& c:normalized)if(c>='A'&&c<='Z')c=char(c-'A'+'a');
+ return accountPrefix(site)+sha256(normalized).substr(0,40);
+}
 std::string base64url(const unsigned char* data,size_t size) {
  if(size==0)return {};
  if(size>MAXDWORD)throw Error("encoding_too_large");

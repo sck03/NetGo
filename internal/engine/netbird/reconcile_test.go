@@ -2,8 +2,33 @@ package netbird
 
 import (
 	"encoding/json"
+	"net/netip"
+	"netgo/internal/model"
 	"testing"
 )
+
+func TestGatewayHostPolicyRequiresAnExplicitLocalResource(t *testing.T) {
+	addresses := []netip.Addr{netip.MustParseAddr("192.168.18.220")}
+	resource := model.Resource{CIDR: "192.168.18.220/32", Protocol: "tcp", Ports: []uint16{10443}, Enabled: true}
+	if !targetsGateway(resource, addresses) {
+		t.Fatal("explicit local host resource not projected")
+	}
+	resource.CIDR = "192.168.18.221/32"
+	if targetsGateway(resource, addresses) {
+		t.Fatal("different LAN host gained gateway policy")
+	}
+	resource.CIDR = "0.0.0.0/0"
+	resource.Protocol = "internet"
+	if targetsGateway(resource, addresses) {
+		t.Fatal("Internet permission gained gateway input policy")
+	}
+	resource.CIDR = "192.168.18.0/23"
+	resource.Protocol = "tcp"
+	resource.Enabled = false
+	if targetsGateway(resource, addresses) {
+		t.Fatal("disabled resource gained host policy")
+	}
+}
 
 func TestReconcileReadModelMatchesOnlyExactDesiredPolicy(t *testing.T) {
 	var current object

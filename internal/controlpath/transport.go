@@ -26,6 +26,21 @@ type Selector struct {
 	successID     string
 	ProbeTimeout  time.Duration
 	FallbackDelay time.Duration
+	clocks        map[string]clockSample
+}
+
+type clockSample struct{ server, received time.Time }
+
+// Now advances the authenticated server clock using monotonic elapsed time.
+// Changing the client's wall clock does not extend an existing lease.
+func (s *Selector) Now() time.Time {
+	s.mu.RLock()
+	sample := s.clocks[s.selected.ID]
+	s.mu.RUnlock()
+	if sample.received.IsZero() {
+		return time.Now()
+	}
+	return sample.server.Add(time.Since(sample.received))
 }
 
 func New(p site.Profile) (*Selector, error) {
@@ -48,7 +63,7 @@ func (s *Selector) Current() site.Candidate { s.mu.RLock(); defer s.mu.RUnlock()
 func (s *Selector) transport(c site.Candidate, budget time.Duration) *http.Transport {
 	u, _ := url.Parse(s.Profile.Origin)
 	return &http.Transport{Proxy: nil, ForceAttemptHTTP2: true, TLSClientConfig: &tls.Config{MinVersion: tls.VersionTLS12, ServerName: u.Hostname(), RootCAs: s.Roots}, DialContext: func(ctx context.Context, network, _ string) (net.Conn, error) {
-		return (&net.Dialer{Timeout: budget, KeepAlive: 30 * time.Second}).DialContext(ctx, network, c.Address)
+		return dialControl(ctx, network, c.Address, budget)
 	}, TLSHandshakeTimeout: budget, ResponseHeaderTimeout: budget}
 }
 func (s *Selector) probe(ctx context.Context, c site.Candidate) error {
@@ -67,7 +82,18 @@ func (s *Selector) probe(ctx context.Context, c site.Candidate) error {
 	if resp.StatusCode != 200 || json.NewDecoder(http.MaxBytesReader(nil, resp.Body, 4096)).Decode(&h) != nil {
 		return errors.New("invalid control health response")
 	}
-	return h.Validate(s.Profile.ID)
+	if e = h.Validate(s.Profile.ID); e != nil {
+		return e
+	}
+	if h.ServerUnix != 0 {
+		s.mu.Lock()
+		if s.clocks == nil {
+			s.clocks = map[string]clockSample{}
+		}
+		s.clocks[c.ID] = clockSample{time.Unix(h.ServerUnix, 0), time.Now()}
+		s.mu.Unlock()
+	}
+	return nil
 }
 func (s *Selector) Select(ctx context.Context) (site.Candidate, error) {
 	ctx, cancel := context.WithTimeout(ctx, 10*time.Second)
@@ -77,7 +103,7 @@ func (s *Selector) Select(ctx context.Context) (site.Candidate, error) {
 		e error
 	}
 	out := make(chan result, len(s.Profile.Candidates))
-	incompatible, clockSkew := false, false
+	incompatible := false
 	for _, c := range s.Profile.Candidates {
 		go func(c site.Candidate) {
 			if c.Kind == "auxiliary" {
@@ -97,7 +123,6 @@ func (s *Selector) Select(ctx context.Context) (site.Candidate, error) {
 		select {
 		case r := <-out:
 			incompatible = incompatible || errors.Is(r.e, protocol.ErrIncompatible)
-			clockSkew = clockSkew || errors.Is(r.e, protocol.ErrClockSkew)
 			if r.e == nil {
 				s.mu.Lock()
 				if s.selected.ID != r.c.ID {
@@ -109,17 +134,11 @@ func (s *Selector) Select(ctx context.Context) (site.Candidate, error) {
 				return r.c, nil
 			}
 		case <-ctx.Done():
-			if clockSkew {
-				return site.Candidate{}, protocol.ErrClockSkew
-			}
 			if incompatible {
 				return site.Candidate{}, protocol.ErrIncompatible
 			}
 			return site.Candidate{}, errors.New("no reachable trusted control entry")
 		}
-	}
-	if clockSkew {
-		return site.Candidate{}, protocol.ErrClockSkew
 	}
 	if incompatible {
 		return site.Candidate{}, protocol.ErrIncompatible
@@ -228,5 +247,5 @@ func (s *Selector) Dial(ctx context.Context) (net.Conn, error) {
 			return nil, e
 		}
 	}
-	return (&net.Dialer{Timeout: 3 * time.Second, KeepAlive: 30 * time.Second}).DialContext(ctx, "tcp", c.Address)
+	return dialControl(ctx, "tcp", c.Address, 3*time.Second)
 }

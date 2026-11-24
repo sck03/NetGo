@@ -2,7 +2,7 @@ name: macOS client
 on:
   workflow_dispatch:
   push:
-    paths: ['apps/apple/**', 'internal/client/**', 'internal/vault/**', 'packages/remote-*/**', 'scripts/build-macos-client.py', 'scripts/apple_*.py', 'upstream/**', '.github/workflows/build-macos-client.yml']
+    paths: ['apps/apple/**', 'internal/**', 'go.mod', 'go.sum', 'internal/vault/**', 'packages/remote-*/**', 'scripts/build-macos-client.py', 'scripts/apple_*.py', 'upstream/**', '.github/workflows/build-macos-client.yml']
 permissions:
   contents: read
 jobs:

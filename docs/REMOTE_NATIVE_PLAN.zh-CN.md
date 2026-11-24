@@ -2,7 +2,7 @@
 
 版本：2.2。日期：2026-11-23（Asia/Shanghai）。与 EXECUTION_PLAN v2.2 同时生效。
 
-2026-11-24 范围修订：用户明确暂缓 macOS/iOS 实现及付费签名；当前交付为 Windows、Android、Linux 桌面客户端与 Linux 服务端，各自使用独立构建脚本/GitHub 工作流。Apple 保留平台能力标识、纯 C ABI、安全存储/媒体回调等扩展边界，不生成占位客户端。原五平台表中 Apple 行记录未来适配要求。
+2026-11-24 范围修订：用户已要求同时推进可运行的 macOS/iOS 客户端。SwiftUI、Keychain、原生媒体桥接和 iOS Packet Tunnel 已实现并通过 GitHub 构建；设备签名和实机 VPN/媒体仍需相应环境。五个客户端、LAN 服务端和 VPS 使用七个独立脚本/工作流，见 BUILD_CLIENTS。共享核心、平台网络/媒体适配和节点维护分模块，最终节点维护无需 Python。
 
 v2.2 增加 [统一集成契约](INTEGRATION_CONTRACT.zh-CN.md)：单客户端体验、三套独立状态机、共享身份/传输、主机侧撤权和有界媒体工作者。I01–I10 必须覆盖跨模块组合，不能以每个模块各自通过推断整体融合。若候选媒体引擎无法复用 NetGo 身份/传输或不能移除重复依赖，替换媒体适配，不复制一套账号与信令系统。
 

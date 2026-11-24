@@ -5,6 +5,8 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"net"
+	"net/netip"
 	"netgo/internal/model"
 	"netgo/internal/site"
 	"netgo/internal/store"
@@ -19,6 +21,7 @@ type Reconciler struct {
 	Management        *Management
 	Store             *store.Store
 	SiteID, GatewayID string
+	LANInterface      string
 	Bypass            site.Bypass
 }
 type object struct {
@@ -27,6 +30,22 @@ type object struct {
 	Enabled     bool           `json:"enabled"`
 	Description string         `json:"description"`
 	Raw         map[string]any `json:"-"`
+}
+
+func targetsGateway(resource model.Resource, addresses []netip.Addr) bool {
+	if !resource.Enabled || resource.Protocol == "internet" {
+		return false
+	}
+	prefix, err := netip.ParsePrefix(resource.CIDR)
+	if err != nil {
+		return false
+	}
+	for _, address := range addresses {
+		if prefix.Contains(address) {
+			return true
+		}
+	}
+	return false
 }
 
 func (o *object) UnmarshalJSON(data []byte) error {
@@ -176,6 +195,26 @@ func (r *Reconciler) apply(ctx context.Context, st model.State) error {
 	if r.GatewayID == "" {
 		return errors.New("gateway peer ID required")
 	}
+	localAddresses := []netip.Addr{}
+	if r.LANInterface != "" {
+		iface, err := net.InterfaceByName(r.LANInterface)
+		if err != nil {
+			return err
+		}
+		addresses, err := iface.Addrs()
+		if err != nil {
+			return err
+		}
+		for _, address := range addresses {
+			if prefix, e := netip.ParsePrefix(address.String()); e == nil && prefix.Addr().Is4() {
+				localAddresses = append(localAddresses, prefix.Addr())
+			}
+		}
+	}
+	gatewayGroup, e := upsert("/groups", prefix+"gateway", map[string]any{"peers": []string{r.GatewayID}}, groups)
+	if e != nil {
+		return e
+	}
 	var routers []struct {
 		ID         string `json:"id"`
 		Peer       string `json:"peer"`
@@ -273,6 +312,17 @@ func (r *Reconciler) apply(ctx context.Context, st model.State) error {
 				return e
 			}
 			desiredPolicies[name] = true
+			if targetsGateway(v, localAddresses) {
+				hostName := prefix + "host:" + model.Hash(u.ID + ":" + rid)[:24]
+				hostRule := map[string]any{"name": hostName, "enabled": true, "action": "accept", "bidirectional": false, "protocol": protocol, "sources": []string{gid}, "destinations": []string{gatewayGroup}}
+				if len(ports) > 0 {
+					hostRule["ports"] = ports
+				}
+				if _, e = upsert("/policies", hostName, map[string]any{"description": "NetGo gateway service; exact address and live lease enforced by local gate", "enabled": !u.Disabled, "rules": []any{hostRule}}, policies); e != nil {
+					return e
+				}
+				desiredPolicies[hostName] = true
+			}
 		}
 	}
 	if e := r.reconcileDNS(ctx, prefix, dnsGroups); e != nil {

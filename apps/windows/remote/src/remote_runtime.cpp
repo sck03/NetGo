@@ -1,4 +1,5 @@
 #include "remote_runtime.hpp"
+#include "connection.hpp"
 #include "remote_transport.hpp"
 #include "netgo_remote_ticket.h"
 #include "netgo_remote_client.h"
@@ -133,7 +134,7 @@ void closeSession(const std::string& site,const std::string& id){auto deadline=C
 Json inventory(const std::string& site){return call(site,"GET",base);}
 
 void host(const std::string& site,Callbacks cb){
- auto ctx=context(site,cb.running);std::string raw=credentialRead("device/"+site);if(raw.size()!=32)throw Error("remote_device_key_missing");Key seed{};std::copy(raw.begin(),raw.end(),seed.begin());wipe(raw);
+ auto ctx=context(site,cb.running);std::string raw=credentialRead("device/"+ctx.at("credential_scope").get<std::string>());if(raw.size()!=32||publicKey(raw)!=ctx.at("public_key").get<std::string>()){wipe(raw);throw Error("remote_device_key_missing");}Key seed{};std::copy(raw.begin(),raw.end(),seed.begin());wipe(raw);
  Key random{};if(RAND_bytes(random.data(),16)!=1)throw Error("remote_random_failed");auto boot=base64url(random.data(),16);
  std::string ip=ctx.at("lease").at("ip"),device=ctx.at("device_id");
  remote::Listener listener(ip,29990,seed,cb.running);SecureZeroMemory(seed.data(),seed.size());
@@ -147,7 +148,7 @@ void host(const std::string& site,Callbacks cb){
    std::unique_ptr<Connection> connection;
    try{connection=listener.accept(100);}catch(...){if(!monitor.live())break;Sleep(100);continue;}
    if(!connection)continue;
-   std::string id;bool consumed=false;
+   std::string id;
    try{
     auto hello=json(receive(*connection,Kind::hello,[&]{return monitor.live();}));id=hello.at("id");
     auto a=call(site,"GET",std::string(base)+"/sessions/"+id,nullptr,{},cb.running);auto& session=a.at("session");
@@ -159,7 +160,7 @@ void host(const std::string& site,Callbacks cb){
     if(!cb.consent(session.at("user_id"),session.at("capabilities").get<uint32_t>()))throw Error("remote_consent_denied");
     if(ng_remote_gate_consent(gate.value,1)!=NG_REMOTE_OK||!gate.check())throw Error("remote_ticket_expired");
     call(site,"POST",std::string(base)+"/sessions/"+id+"/consume",{{"sequence",session.at("sequence")},{"boot",boot},{"proof",{{"challenge",base64url(challenge.data(),challenge.size())},{"channel",base64url(channel.data(),channel.size())},{"signature",base64url(proof.body.data(),proof.body.size())}}}});
-    consumed=true;connection->authorize([&]{return monitor.live()&&gate.check();});
+    connection->authorize([&]{return monitor.live()&&gate.check();});
     monitor.bind(id);connection->send(message(Kind::accepted,{{"width",width},{"height",height},{"fps",fps},{"capabilities",session.at("capabilities")}}));cb.status("正在共享桌面；关闭此窗口立即停止");
     capture::DesktopCapture capture;if(capture.open()!=capture::Result::frame)throw Error("remote_capture_unavailable");video::Codec encoder(video::Codec::Mode::encode,width,height,fps,2'000'000);Input input;
     Capture pixels{{},{},&gate,&input,{},[&]{return monitor.live();}};auto started=Clock::now(),next=started;
@@ -197,7 +198,7 @@ void view(const std::string& site,const std::string& hostID,Callbacks cb){
   auto& b=*static_cast<Bridge*>(p);auto value=std::string(method)=="CONTEXT"?context(b.site,b.cb.running):call(b.site,method,path,*body?Json::parse(body):Json(),idem,b.cb.running);auto text=value.dump();if(text.size()>capacity)return -1;std::copy(text.begin(),text.end(),output);*length=text.size();return 0;
  }catch(...){return -1;}};
  options.sign=[](void* p,const uint8_t* bytes,size_t size,uint8_t output[64])->int32_t{try{
-  auto& b=*static_cast<Bridge*>(p);auto seed=credentialRead("device/"+b.site);if(seed.size()!=32){wipe(seed);return -1;}
+  auto& b=*static_cast<Bridge*>(p);auto ctx=context(b.site,b.cb.running);auto seed=credentialRead("device/"+ctx.at("credential_scope").get<std::string>());if(seed.size()!=32||publicKey(seed)!=ctx.at("public_key").get<std::string>()){wipe(seed);return -1;}
   auto privateKey=std::unique_ptr<EVP_PKEY,decltype(&EVP_PKEY_free)>(EVP_PKEY_new_raw_private_key(EVP_PKEY_ED25519,nullptr,reinterpret_cast<const uint8_t*>(seed.data()),seed.size()),EVP_PKEY_free);wipe(seed);
   auto signer=std::unique_ptr<EVP_MD_CTX,decltype(&EVP_MD_CTX_free)>(EVP_MD_CTX_new(),EVP_MD_CTX_free);size_t n=64;return privateKey&&signer&&EVP_DigestSignInit(signer.get(),nullptr,nullptr,nullptr,privateKey.get())==1&&EVP_DigestSign(signer.get(),output,&n,bytes,size)==1&&n==64?0:-1;
  }catch(...){return -1;}};

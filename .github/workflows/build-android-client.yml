@@ -2,7 +2,7 @@ name: Android client
 on:
   workflow_dispatch:
   push:
-    paths: ['apps/android/**', 'mobile/**', 'internal/client/**', 'packages/remote-*/**', 'scripts/build-android-client.py', 'scripts/prepare-mobile-inputs.py', 'upstream/**', '.github/workflows/build-android-client.yml']
+    paths: ['apps/android/**', 'mobile/**', 'internal/**', 'go.mod', 'go.sum', 'packages/remote-*/**', 'scripts/build-android-client.py', 'scripts/prepare-mobile-inputs.py', 'upstream/**', '.github/workflows/build-android-client.yml']
 permissions:
   contents: read
 jobs:

@@ -9,8 +9,7 @@ export function validateHealth(health: any, expectedSite = '') {
   if (!health || health.protocol !== 2 || !Array.isArray(health.capabilities) || !required.every(x => health.capabilities.includes(x))) throw Error('服务端协议不兼容，请使用匹配版本的客户端和服务端')
   if (typeof health.site_id !== 'string' || !health.site_id || (expectedSite && health.site_id !== expectedSite)) throw Error('站点身份不一致')
   if (health.server_unix !== undefined) {
-    if (!Number.isSafeInteger(health.server_unix) || health.server_unix <= 0) throw Error('服务端时间格式无效')
-    if (Math.abs(Date.now() / 1000 - health.server_unix) > 30) throw Error('本机与服务器时间相差超过 30 秒，请核对两端校时状态')
+    if (!Number.isSafeInteger(health.server_unix) || health.server_unix < 946684800 || health.server_unix > 4102444800) throw Error('服务端时间格式无效')
   }
   return health.site_id as string
 }
@@ -23,6 +22,9 @@ export class AdminSession {
   private generation = 0
   private refreshing: Promise<void> | null = null
   private pending = new Set<AbortController>()
+  private serverTime = 0
+  private observedAt = 0
+  private now() { return this.serverTime ? this.serverTime + performance.now() - this.observedAt : Date.now() }
   get active() { return !!this.token && !!this.key }
 
   private async send(path: string, method: string, input?: unknown) {
@@ -32,7 +34,7 @@ export class AdminSession {
     const body = input === undefined ? '' : JSON.stringify(input)
     const headers: Record<string, string> = { 'Content-Type': 'application/json', 'X-NetGo-Protocol': '2' }
     if (token && key) {
-      const stamp = String(Math.floor(Date.now() / 1000)), nonce = random()
+      const stamp = String(Math.floor(this.now() / 1000)), nonce = random()
       const message = [method, path, stamp, nonce, hex(await digest(body)), hex(await digest(token))].join('\n')
       headers.Authorization = 'Bearer ' + token
       headers['X-NetGo-Time'] = stamp
@@ -76,7 +78,7 @@ export class AdminSession {
 
   async request(path: string, method = 'GET', input?: unknown) {
     const generation = this.generation
-    if (this.token && this.refreshToken && this.expiresAt - Date.now() < 120000) {
+    if (this.token && this.refreshToken && this.expiresAt - this.now() < 120000) {
       await this.refresh()
     }
     if (generation !== this.generation) throw Error('管理登录已取消')
@@ -86,8 +88,10 @@ export class AdminSession {
   async login(siteID: string, alias: string, password: string) {
     this.logout()
     const generation = this.generation
-    siteID = validateHealth(await this.send('/netgo/v2/health', 'GET'), siteID)
+    const health = await this.send('/netgo/v2/health', 'GET')
+    siteID = validateHealth(health, siteID)
     if (generation !== this.generation) throw Error('管理登录已取消')
+    if (health.server_unix !== undefined) { this.serverTime = health.server_unix * 1000; this.observedAt = performance.now() }
     const key = await crypto.subtle.generateKey({ name: 'Ed25519' }, false, ['sign', 'verify']) as CryptoKeyPair
     if (generation !== this.generation) throw Error('管理登录已取消')
     this.key = key
@@ -122,5 +126,6 @@ export class AdminSession {
     this.refreshToken = ''
     this.expiresAt = 0
     this.key = null
+    this.serverTime = this.observedAt = 0
   }
 }

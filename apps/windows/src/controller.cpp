@@ -92,10 +92,11 @@ void Controller::connect(const Json& r) {
 void Controller::run(uint64_t gen,Json p,std::string alias,std::string password,bool replace,bool remember,bool internet) {
  std::string seed,token,refresh,jwt;Json lease=Json::object();std::unique_ptr<Transport> transport;
  bool prepared=false;
+ const auto scope=accountScope(p.at("ID"),alias);
  auto check=[&]{if(cancel_)throw Error("cancelled");};
  auto engine=[&](const std::string& action,const Json& fields=Json::object()){
   if(!engineEnabled_)throw Error("engine_disabled_in_test");
-  check();Json request={{"action",action},{"profile",p},{"internet",internet}};request.update(fields);return engineCall(request,cancel_);
+  check();auto profile=p;profile["ID"]=scope;Json request={{"action",action},{"profile",profile},{"internet",internet}};request.update(fields);return engineCall(request,cancel_);
  };
  auto cleanup=[&]{
   closeRemote();
@@ -107,8 +108,8 @@ void Controller::run(uint64_t gen,Json p,std::string alias,std::string password,
  try {
   transport=std::make_unique<Transport>(p);transport->select();check();
   state(gen,"authenticating","",{{"control",transport->kind()},{"control_candidate",transport->candidate()}});
-  std::string id=p.at("ID");seed=credentialRead("device/"+id);
-  if(seed.empty()){seed.resize(32);if(RAND_bytes(reinterpret_cast<unsigned char*>(seed.data()),32)!=1)throw Error("random_failed");credentialWrite("device/"+id,seed);}
+  std::string id=p.at("ID");seed=credentialRead("device/"+scope);
+  if(seed.empty()){seed.resize(32);if(RAND_bytes(reinterpret_cast<unsigned char*>(seed.data()),32)!=1)throw Error("random_failed");credentialWrite("device/"+scope,seed);}
   // Prepare disconnects old engine state before producing this profile's WireGuard key.
   prepared=true;auto wg=engine("prepare").at("wireguard_key");
   auto verifier=randomID();
@@ -140,7 +141,7 @@ void Controller::run(uint64_t gen,Json p,std::string alias,std::string password,
   engine("routes",{{"resources",resources}});
   if(remember){auto saved=Json({{"alias",alias},{"password",password}}).dump();credentialWrite("password/"+id,saved);wipe(saved);}else credentialDelete("password/"+id);
   wipe(password);state(gen,"negotiating","",{{"lease",lease},{"internet",internet}});
-  {std::lock_guard lock(mutex_);remoteReady_=true;remoteContext_={{"site_id",id},{"user_id",userID},{"device_id",deviceID},{"generation",gen},{"lease",lease},{"public_key",publicKey(seed)}};}
+  {std::lock_guard lock(mutex_);remoteReady_=true;remoteContext_={{"site_id",id},{"credential_scope",scope},{"user_id",userID},{"device_id",deviceID},{"generation",gen},{"lease",lease},{"public_key",publicKey(seed)}};}
   auto remoteWork=[&]{
    std::shared_ptr<RemoteJob> job;
    {std::lock_guard lock(mutex_);if(!remoteJobs_.empty()){job=remoteJobs_.front();remoteJobs_.pop_front();}}
@@ -159,15 +160,15 @@ void Controller::run(uint64_t gen,Json p,std::string alias,std::string password,
   while(!cancel_) {
    for(int i=0;i<25&&!cancel_;++i){remoteWork();Sleep(200);}
    check();
-   if(std::chrono::system_clock::now()>=parseTime(lease.at("expires_at")))throw Error("lease_expired");
+   if(transport->now()>=parseTime(lease.at("expires_at")))throw Error("lease_expired");
    try{
     transport->recover();check();
-    if(authExpires-std::chrono::system_clock::now()<std::chrono::minutes(2)&&!refresh.empty()){
+    if(authExpires-transport->now()<std::chrono::minutes(2)&&!refresh.empty()){
      auto authNew=transport->call("POST","/netgo/v2/auth/refresh",{{"refresh_token",refresh}},seed,token);
      wipe(token);wipe(refresh);wipe(jwt);token=authNew.at("token");refresh=authNew.value("refresh_token","");jwt=authNew.at("id_token");authExpires=parseTime(authNew.at("expires_at"));
      engine("login",{{"id_token",jwt}});engine("up");engine("routes",{{"resources",selectedResources(lease.at("resources"),internet)}});
     }
-    if(Clock::now()-renewed>=std::chrono::seconds(30)||parseTime(lease.at("expires_at"))-std::chrono::system_clock::now()<std::chrono::seconds(40)){
+    if(Clock::now()-renewed>=std::chrono::seconds(30)||parseTime(lease.at("expires_at"))-transport->now()<std::chrono::seconds(40)){
      lease=transport->call("POST","/netgo/v2/sessions/"+lease.at("id").get<std::string>()+"/renew",{{"Generation",gen}},seed,token);renewed=Clock::now();
      engine("routes",{{"resources",selectedResources(lease.at("resources"),internet)}});
      {std::lock_guard lock(mutex_);remoteContext_["lease"]=lease;}
@@ -213,11 +214,14 @@ Json Controller::dispatch(const Json& r) {
     auto file=root_/wide(id+".json");
     if(std::filesystem::exists(file)){
      auto p=Json::parse(readFile(file));std::atomic_bool stop=false;
-     try{engineCall({{"action","remove"},{"profile",p}},stop);}catch(const Error& e){if(std::string(e.what())!="engine_missing")throw;}
+     for(const auto& target:credentialTargets("device/"+accountPrefix(id))){
+      auto profile=p;profile["ID"]=target.substr(7);
+      try{engineCall({{"action","remove"},{"profile",profile}},stop);}catch(const Error& e){if(std::string(e.what())!="engine_missing")throw;}
+     }
     }
    }
    credentialDelete("password/"+id);
-   if(action=="delete"){credentialDelete("device/"+id);std::filesystem::remove(root_/wide(id+".json"));}
+   if(action=="delete"){for(const auto& target:credentialTargets("device/"+accountPrefix(id)))credentialDelete(target);std::filesystem::remove(root_/wide(id+".json"));}
    return {{"done",true}};
   }
   throw Error("unsupported_action");

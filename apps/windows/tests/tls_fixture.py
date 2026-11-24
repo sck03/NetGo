@@ -35,15 +35,17 @@ def run(binary):
         def do_GET(self):
             events.append(("health",self.headers["Host"]))
             self.reply({"protocol":2,"site_id":"unavailable" if getattr(self.server,"wan",False) and not wan_ready.is_set() else "fixture",
-                        "capabilities":["native-auth-v1","device-signature-v1","leases-v1","profile-revision-v1","admin-v1","diagnostics-v1"]})
+                        "capabilities":["native-auth-v1","device-signature-v1","leases-v1","profile-revision-v1","admin-v1","diagnostics-v1"],
+                        "server_unix":int(time.time())+getattr(self.server,"clock_skew",0)})
         def do_POST(self):
             body=self.rfile.read(int(self.headers["Content-Length"]))
             token="fixture-token";stamp=self.headers["X-NetGo-Time"];nonce=self.headers["X-NetGo-Nonce"]
+            assert abs(int(stamp)-int(time.time())-getattr(self.server,"clock_skew",0)) <= 3
             message="\n".join(["POST",self.path,stamp,nonce,hashlib.sha256(body).hexdigest(),hashlib.sha256(token.encode()).hexdigest()])
             ed25519.Ed25519PrivateKey.from_private_bytes(b"a"*32).public_key().verify(unb64(self.headers["X-NetGo-Signature"]),message.encode())
             assert self.headers["Authorization"]=="Bearer "+token
             assert self.headers["X-NetGo-Protocol"]=="2"
-            assert len(nonce)>=32 and abs(int(stamp)-now.timestamp())<60
+            assert len(nonce)>=32 and abs(int(stamp)-now.timestamp()-getattr(self.server,"clock_skew",0))<60
             assert self.headers["Host"]==expected_host and self.path in ("/fixture","/enable-wan")
             if self.path=="/enable-wan": wan_ready.set()
             if getattr(self.server,'response_delay',0):time.sleep(self.server.response_delay)
@@ -67,6 +69,11 @@ def run(binary):
                 file.write_text(json.dumps(p),encoding="utf-8");subprocess.run([binary,"--tls-reject",str(file)],check=True,timeout=30)
             else:
                 file.write_text(json.dumps(p),encoding="utf-8");subprocess.run([binary,"--tls",str(file)],check=True,timeout=30)
+                for skew in (-3600,3600):
+                    server.clock_skew=skew
+                    subprocess.run([binary,"--tls",str(file)],check=True,timeout=30)
+                server.clock_skew=0
+                print('PASS authenticated server clock: both one-hour offsets sign correctly')
                 server.response_delay=3.5
                 try:
                     subprocess.run([binary,"--tls",str(file)],check=True,timeout=30)

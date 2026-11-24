@@ -54,6 +54,8 @@ ngv uninstall --yes
 
 ## 验证与参考
 
+客户端不再要求本机与服务端时间差小于 30 秒。通过 TLS 和站点身份校验后，客户端采用服务端时间，并用单调时钟计算经过时间；请求签名、凭据刷新和租约期限使用这一时间基准。管理网页也采用相同方法。普通用户不需要为秒或分钟级偏差手动校时；证书验证、防重放、撤权和租约到期仍然有效。
+
 构建、单元测试和模拟器检查不等于跨设备 VPN/远控、UAC/锁屏、多屏或长期运行验收。Apple 构建已独立接入；设备安装需要签名，实机 VPN/媒体需要设备环境。
 
 菜单体验参考 [sing-box-yg](https://github.com/yonggekkk/sing-box-yg/tree/b13f9435c4792fccf04d4fbc73e24a1948abff1b) 与 [sing-box-vpn](https://github.com/sck03/sing-box-vpn/tree/2a046930fdad1d49823f5dd75495b1c91e152802) 的快捷命令、证书、端口和卸载流程，代码独立实现。构建入口见 [独立构建说明](BUILD_CLIENTS.zh-CN.md)。
