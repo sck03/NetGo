@@ -115,6 +115,16 @@ class ReleaseTests(unittest.TestCase):
         with mock.patch.object(api,'request',side_effect=page) as request:
             self.assertEqual(publisher.find_release(api,'v0.3.1'),api.release)
             self.assertEqual(request.call_count,2)
+    def test_artifact_download_uses_supported_api_media_type(self):
+        api=publisher.GitHub('example/repo','fake-token')
+        def response(request,**kwargs):
+            if '/actions/artifacts/' in request.full_url and request.get_header('Accept')!='application/vnd.github+json':
+                raise publisher.urllib.error.HTTPError(request.full_url,415,'Unsupported Media Type',{},None)
+            handle=mock.MagicMock();handle.__enter__.return_value.read.return_value=b'archive';return handle
+        with mock.patch.object(api.opener,'open',side_effect=response) as request:
+            self.assertEqual(api.binary('/actions/artifacts/123/zip'),b'archive')
+            self.assertEqual(api.binary('/releases/assets/456'),b'archive')
+            self.assertEqual(request.call_args.args[0].get_header('Accept'),'application/octet-stream')
     def test_no_publish_permission_without_manual_switch(self):
         with environment({'GITHUB_EVENT_NAME':'push','NETGO_PUBLISH':'false'}),mock.patch.object(sys,'argv',['publish-release.py']),mock.patch('sys.stderr'),self.assertRaises(SystemExit):publisher.main()
 

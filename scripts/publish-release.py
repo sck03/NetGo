@@ -34,7 +34,10 @@ class GitHub:
             with self.opener.open(req,timeout=600) as response:raw=response.read();return json.loads(raw) if raw else None
         except urllib.error.HTTPError as error:raise APIError(error.code) from None
     def binary(self,path):
-        req=urllib.request.Request('https://api.github.com/repos/'+self.repo+path,headers={'Authorization':'Bearer '+self.token,'User-Agent':'NetGo-release','Accept':'application/octet-stream'})
+        # Artifact ZIP endpoints redirect using the JSON media type. The
+        # octet-stream type is only accepted for individual Release assets.
+        accept='application/vnd.github+json' if path.startswith('/actions/') else 'application/octet-stream'
+        req=urllib.request.Request('https://api.github.com/repos/'+self.repo+path,headers={'Authorization':'Bearer '+self.token,'User-Agent':'NetGo-release','Accept':accept,'X-GitHub-Api-Version':'2022-11-28'})
         try:
             with self.opener.open(req,timeout=60) as response:raw=response.read(512*1024*1024+1)
         except urllib.error.HTTPError as error:
