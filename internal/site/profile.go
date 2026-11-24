@@ -2,7 +2,9 @@ package site
 
 import (
 	"errors"
+	"net/url"
 	"reflect"
+	"strings"
 )
 
 // JSON revisions must remain exact in both native clients and browser tooling.
@@ -15,7 +17,9 @@ func CheckProfileUpdate(old, next Profile) error {
 	if err := next.Validate(); err != nil {
 		return err
 	}
-	if old.ID != next.ID || old.Origin != next.Origin || old.CA != next.CA || old.Protocol != next.Protocol {
+	a, _ := url.Parse(old.Origin)
+	b, _ := url.Parse(next.Origin)
+	if old.ID != next.ID || !strings.EqualFold(a.Hostname(), b.Hostname()) || old.CA != next.CA || old.Protocol != next.Protocol {
 		return errors.New("site_trust_changed_use_new_id")
 	}
 	if next.ConfigRevision < old.ConfigRevision {

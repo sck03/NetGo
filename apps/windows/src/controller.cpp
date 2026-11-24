@@ -44,14 +44,14 @@ Json Controller::profiles() {
   try{auto p=Json::parse(readFile(f.path()));validateProfile(p);result.push_back(p);}catch(const std::exception&){}
  }return result;
 }
-void Controller::importProfile(const Json& p) {
+void Controller::importProfile(const Json& p,bool replaceTrust) {
  std::lock_guard op(operation_);validateProfile(p);auto s=status();
  if(cleanupFailed_)throw Error("engine_cleanup_failed");
  if(s["state"]!="disconnected"&&s["state"]!="failed")throw Error("disconnect_before_edit");
  std::string id=p.at("ID");auto file=root_/wide(id+".json");
  if(std::filesystem::exists(file)){
   auto old=Json::parse(readFile(file));
-  validateProfileUpdate(old,p);
+  try{validateProfileUpdate(old,p);}catch(const Error&){if(!replaceTrust||old.at("ID")!=p.at("ID")||old.at("Protocol")!=p.at("Protocol")||p.value("ConfigRevision",uint64_t(0))<=old.value("ConfigRevision",uint64_t(0)))throw;}
  }atomicFile(file,p.dump(2));
 }
 void Controller::disconnectLocked() {
@@ -198,7 +198,7 @@ Json Controller::dispatch(const Json& r) {
   if(action=="status")return status();
   if(action=="remote-context"||action=="remote-call")return remoteCall(r);
   if(action=="profiles")return profiles();
-  if(action=="import"){importProfile(r.at("profile"));return {{"imported",true}};}
+  if(action=="import"){importProfile(r.at("profile"),r.value("replace_trust",false));return {{"imported",true}};}
   if(action=="connect"){connect(r);return status();}
   if(action=="disconnect"){disconnect();return status();}
   if(action=="logs"){std::lock_guard lock(mutex_);return logs_;}

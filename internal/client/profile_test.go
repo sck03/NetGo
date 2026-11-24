@@ -84,3 +84,50 @@ func TestAuthenticatedProfileSyncProbesBeforePersisting(t *testing.T) {
 		})
 	}
 }
+
+func TestExplicitImportTrustAndRevision(t *testing.T) {
+	old := site.Profile{ID: "site", Name: "Site", Protocol: 2, ConfigRevision: 2, Origin: "https://old.example:10443", Candidates: []site.Candidate{{ID: "wan", Kind: "direct", Address: "old.example:10443"}}}
+	for _, tc := range []struct {
+		name     string
+		trusted  bool
+		revision uint64
+		origin   string
+		accept   bool
+	}{
+		{"automatic host change", false, 3, "https://new.example:10443", false},
+		{"confirmed host change", true, 3, "https://new.example:10443", true},
+		{"confirmed stale change", true, 1, "https://new.example:10443", false},
+		{"confirmed same revision", true, 2, "https://new.example:10443", false},
+		{"versioned port change", false, 3, "https://old.example:11443", true},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			c := &Controller{Root: t.TempDir()}
+			if err := c.Import(old); err != nil {
+				t.Fatal(err)
+			}
+			next := old
+			next.ConfigRevision = tc.revision
+			next.Origin = tc.origin
+			var err error
+			if tc.trusted {
+				err = c.ImportTrusted(next)
+			} else {
+				err = c.Import(next)
+			}
+			if (err == nil) != tc.accept {
+				t.Fatalf("accepted=%v want=%v error=%v", err == nil, tc.accept, err)
+			}
+			profiles, e := c.Profiles()
+			if e != nil || len(profiles) != 1 {
+				t.Fatal(profiles, e)
+			}
+			want := old.Origin
+			if tc.accept {
+				want = next.Origin
+			}
+			if profiles[0].Origin != want {
+				t.Fatal("failed import replaced the saved profile")
+			}
+		})
+	}
+}

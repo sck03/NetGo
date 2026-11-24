@@ -61,7 +61,7 @@ public:
  Json dispatch(const Json& request);
  Json status();
  Json profiles();
- void importProfile(const Json& p);
+ void importProfile(const Json& p,bool replaceTrust=false);
  void disconnect();
  void connect(const Json& request);
 };

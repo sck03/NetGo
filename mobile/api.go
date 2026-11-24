@@ -47,6 +47,16 @@ func (c *Client) ImportProfile(text string) error {
 	}
 	return c.controller.Import(profile)
 }
+func (c *Client) ImportProfileTrusted(text string) error {
+	if len(text) > 65536 {
+		return errors.New("profile_too_large")
+	}
+	var p site.Profile
+	if err := site.Decode(bytes.NewBufferString(text), &p); err != nil {
+		return err
+	}
+	return c.controller.ImportTrusted(p)
+}
 func (c *Client) Profiles() (string, error) {
 	p, err := c.controller.Profiles()
 	if err != nil {

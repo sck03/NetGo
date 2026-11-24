@@ -38,14 +38,16 @@ final class DesktopRuntime {
                 return String(decoding:output.prefix(size).map{UInt8(bitPattern:$0)},as:UTF8.self)
             }
             let request = model.request
-            model.connectAction = { [weak model] site, alias, password in
+            model.importAction = { _, raw, approved in
+                guard let request = request else { throw NSError(domain:"NetGo",code:1) }
+                _ = try request("POST",approved ? "/desktop/import-trusted" : "/desktop/import",raw)
+            }
+            model.connectAction = { [weak model] site, alias, password, internet in
                 DispatchQueue.global().async {
                     do {
                         try DesktopRuntime.prepareNetwork()
-                        let importBody = site.raw
                         guard let request = request else { return }
-                        _ = try request("POST","/desktop/import",importBody)
-                        let body = String(decoding:try JSONSerialization.data(withJSONObject:["Site":site.id,"Alias":alias,"Password":password,"Replace":false]),as:UTF8.self)
+                        let body = String(decoding:try JSONSerialization.data(withJSONObject:["Site":site.id,"Alias":alias,"Password":password,"Replace":false,"Internet":internet]),as:UTF8.self)
                         _ = try request("POST","/desktop/connect",body)
                         Task { @MainActor in model?.refresh() }
                     } catch { Task { @MainActor in model?.message = error.localizedDescription } }

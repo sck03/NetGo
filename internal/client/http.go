@@ -32,6 +32,15 @@ func (c *Controller) Handler() http.Handler {
 		}
 		write(w, map[string]bool{"imported": true}, c.Import(p))
 	})
+	m.HandleFunc("POST /desktop/import-trusted", func(w http.ResponseWriter, r *http.Request) {
+		var p site.Profile
+		r.Body = http.MaxBytesReader(w, r.Body, 1<<20)
+		if e := site.Decode(r.Body, &p); e != nil {
+			write(w, nil, e)
+			return
+		}
+		write(w, map[string]bool{"imported": true}, c.ImportTrusted(p))
+	})
 	m.HandleFunc("POST /desktop/connect", func(w http.ResponseWriter, r *http.Request) {
 		var b struct {
 			Site, Alias, Password string

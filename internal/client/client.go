@@ -123,6 +123,13 @@ func (c *Controller) Status() Status {
 	return s
 }
 func (c *Controller) Import(p site.Profile) error {
+	return c.importProfile(p, false)
+}
+
+// ImportTrusted is only used after an explicit local user confirms a new host/CA.
+// Automatic updates continue to use CheckProfileUpdate.
+func (c *Controller) ImportTrusted(p site.Profile) error { return c.importProfile(p, true) }
+func (c *Controller) importProfile(p site.Profile, replaceTrust bool) error {
 	c.op.Lock()
 	defer c.op.Unlock()
 	if e := p.Validate(); e != nil {
@@ -147,7 +154,9 @@ func (c *Controller) Import(p site.Profile) error {
 			return errors.New("site trust changed; create a new site ID")
 		}
 		if e := site.CheckProfileUpdate(prev, p); e != nil {
-			return e
+			if !replaceTrust || prev.Protocol != p.Protocol || prev.ID != p.ID || p.ConfigRevision <= prev.ConfigRevision {
+				return e
+			}
 		}
 	}
 	b, _ := json.MarshalIndent(p, "", "  ")

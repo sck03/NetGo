@@ -32,6 +32,10 @@ struct ClientView: View {
                 model.importSite(try Data(contentsOf:url))
             } catch { model.message = error.localizedDescription }
         }
+        .alert("确认新的站点身份",isPresented:$model.confirmTrust) {
+            Button("取消",role:.cancel) { model.cancelImport() }
+            Button("确认管理员提供的配置") { model.approveImport() }
+        } message: { Text("导入文件更改了站点地址或证书。请确认文件来自你的服务器管理员后继续。") }
     }
 }
 

@@ -54,6 +54,7 @@ class MainActivity : ComponentActivity() {
     var site by remember { mutableStateOf(NetGoRuntime.selectedSite) }; var alias by remember { mutableStateOf("") }; var password by remember { mutableStateOf("") }
     var select by remember { mutableStateOf(false) }; var target by remember { mutableStateOf("") }
     var internet by remember { mutableStateOf(false) }
+    var pendingImport by remember { mutableStateOf<String?>(null) }
     val context = androidx.compose.ui.platform.LocalContext.current
     LaunchedEffect(profiles) { if (site.isEmpty() && profiles.isNotEmpty()) { site = profiles.first().first; NetGoRuntime.selectedSite = site } }
     val importer = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocument()) { uri ->
@@ -63,10 +64,14 @@ class MainActivity : ComponentActivity() {
                     val output = java.io.ByteArrayOutputStream(); val buffer = ByteArray(4096)
                     while (true) { val count = stream.read(buffer); if (count < 0) break; require(output.size() + count <= 65536); output.write(buffer, 0, count) }
                     output.toByteArray().toString(Charsets.UTF_8)
-                }; NetGoRuntime.importProfile(text)
+                }
+                val next = JSONObject(text); val previous = org.json.JSONArray(NetGoRuntime.ready().profiles())
+                val old = (0 until previous.length()).map { previous.getJSONObject(it) }.firstOrNull { it.getString("ID") == next.getString("ID") }
+                if (old != null && (old.optString("Origin") != next.optString("Origin") || old.optString("CA") != next.optString("CA"))) pendingImport = text else NetGoRuntime.importProfile(text)
             } catch (_: Exception) { NetGoRuntime.message.value = "无法读取有效站点配置" }
         }
     }
+    if (pendingImport != null) AlertDialog(onDismissRequest = { pendingImport = null }, title = { Text("确认新的站点身份") }, text = { Text("文件更改了站点地址或证书。请确认它来自你的服务器管理员后继续。") }, confirmButton = { TextButton(onClick = { pendingImport?.let { NetGoRuntime.importProfile(it, true) }; pendingImport = null }) { Text("确认导入") } }, dismissButton = { TextButton(onClick = { pendingImport = null }) { Text("取消") } })
     Surface(Modifier.fillMaxSize()) { Column(Modifier.safeDrawingPadding().padding(16.dp).verticalScroll(rememberScrollState()), verticalArrangement = Arrangement.spacedBy(12.dp)) {
         Text("NetGo", style = MaterialTheme.typography.headlineMedium)
         Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {

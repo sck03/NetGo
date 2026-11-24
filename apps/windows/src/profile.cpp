@@ -1,6 +1,7 @@
 #include "common.hpp"
 #include <wincrypt.h>
 #include <algorithm>
+#include <cctype>
 #include <regex>
 
 namespace netgo {
@@ -14,7 +15,7 @@ std::string originHost(const std::string& s) {
  static const std::regex r(R"(^https://(\[[0-9a-fA-F:.]+\]|[a-zA-Z0-9.-]+)(:[0-9]{1,5})?$)");
  std::smatch m;if(!std::regex_match(s,m,r))throw Error("invalid_https_origin");
  if(m[2].matched)address(m[1].str()+m[2].str());
- std::string host=m[1];if(host.front()=='[')host=host.substr(1,host.size()-2);return host;
+ std::string host=m[1];if(host.front()=='[')host=host.substr(1,host.size()-2);std::transform(host.begin(),host.end(),host.begin(),[](unsigned char c){return char(std::tolower(c));});return host;
 }
 void validateProfile(const Json& p) {
  static const std::vector<std::string> allowed={"Protocol","ConfigRevision","ID","Name","Origin","Candidates","CA","GatewayPeerID","GatewayIP","LocalRelay","AuxiliaryRelay","InternetDNS"};
@@ -52,12 +53,13 @@ void validateProfile(const Json& p) {
 }
 void validateProfileUpdate(const Json& old,const Json& next) {
  validateProfile(next);
- for(const auto& key:{"ID","Origin","Protocol"})if(old.at(key)!=next.at(key))throw Error("site_trust_changed_use_new_id");
+ for(const auto& key:{"ID","Protocol"})if(old.at(key)!=next.at(key))throw Error("site_trust_changed_use_new_id");
+ if(originHost(old.at("Origin"))!=originHost(next.at("Origin")))throw Error("site_trust_changed_use_new_id");
  if(old.value("CA","")!=next.value("CA",""))throw Error("site_trust_changed_use_new_id");
  auto previous=old.value("ConfigRevision",uint64_t(0)),revision=next.value("ConfigRevision",uint64_t(0));
  if(revision<previous)throw Error("profile_revision_stale");
  if(previous&&revision==previous){
-  for(const auto& key:{"Candidates","GatewayPeerID","GatewayIP","LocalRelay","AuxiliaryRelay","InternetDNS"})if(old.value(key,Json(""))!=next.value(key,Json("")))throw Error("profile_revision_conflict");
+  for(const auto& key:{"Origin","Candidates","GatewayPeerID","GatewayIP","LocalRelay","AuxiliaryRelay","InternetDNS"})if(old.value(key,Json(""))!=next.value(key,Json("")))throw Error("profile_revision_conflict");
  }
 }
 std::chrono::system_clock::time_point parseTime(const std::string& s) {

@@ -12,7 +12,8 @@
  self.fd=fd;self.interface=name;NSError *error=nil;
  self.client=MobileNewClient(root,self,17,[[NSProcessInfo processInfo] hostName],&error);
  if(error||!self.client)return error.localizedDescription?:@"客户端启动失败";
- if(![self.client importProfile:profile error:&error])return error.localizedDescription?:@"站点导入失败";
+ // The main app has already confirmed a changed trust root during file import.
+ if(![self.client importProfileTrusted:profile error:&error])return error.localizedDescription?:@"站点导入失败";
  NSDictionary *site=[NSJSONSerialization JSONObjectWithData:[profile dataUsingEncoding:NSUTF8StringEncoding] options:0 error:&error];
  if(!site||![self.client connectMode:site[@"ID"] alias:alias password:password replace:NO internet:internet error:&error])return error.localizedDescription?:@"VPN 连接失败";
  return @"";

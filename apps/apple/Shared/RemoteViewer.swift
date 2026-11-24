@@ -13,15 +13,17 @@ final class RemoteViewer {
     private var hostPointer: UnsafeMutablePointer<CChar>?
     private let queue = DispatchQueue(label: "org.netgo.viewer")
     var control: ((String,String,String,String) throws -> String)?
+    private var sessionControl: ((String,String,String,String) throws -> String)?
     var changed: ((String) -> Void)?
     private(set) var site = ""
     private(set) var capabilities: UInt32 = 0
 
     func start(site: String, host: String, audio: Bool = true) {
-        stop(); self.site = site
+        stop(); let selectedControl = control
         lock.lock(); let requested = generation; lock.unlock()
         queue.async { [self] in
             lock.lock(); guard generation == requested else { lock.unlock(); return }; running = true; inputs.removeAll(); lock.unlock()
+            self.site = site; sessionControl = selectedControl
             sitePointer = strdup(site); hostPointer = strdup(host)
             var options = ng_remote_client_options()
             options.struct_size = UInt32(MemoryLayout<ng_remote_client_options>.size); options.abi_version = UInt32(NG_REMOTE_CLIENT_ABI)
@@ -40,7 +42,7 @@ final class RemoteViewer {
                 let v = Unmanaged<RemoteViewer>.fromOpaque(ctx!).takeUnretainedValue()
                 do {
                     let body = try v.json(["Site":v.site,"Message":Data(bytes:message!,count:size).base64url])
-                    let result = try v.control?("LOCAL_SIGN","",body,"") ?? ""
+                    let result = try v.sessionControl?("LOCAL_SIGN","",body,"") ?? ""
                     guard let object = try JSONSerialization.jsonObject(with: Data(result.utf8)) as? [String:Any], let text = object["signature"] as? String, let data = Data(base64url:text), data.count == 64 else { return -1 }
                     data.withUnsafeBytes { memcpy(signature!,$0.baseAddress!,64) }; return 0
                 } catch { return -1 }
@@ -66,7 +68,7 @@ final class RemoteViewer {
         }
     }
     private func call(_ method: String,_ path: String,_ body: String,_ key: String) throws -> String {
-        guard let control = control else { throw NSError(domain:"NetGo",code:1) }
+        guard let control = sessionControl else { throw NSError(domain:"NetGo",code:1) }
         if method == "CONTEXT" { return try control("LOCAL_CONTEXT","",try json(["Site":site]),"") }
         return try control("LOCAL_CALL","",try json(["Site":site,"Method":method,"Path":path,"Body":(try? JSONSerialization.jsonObject(with:Data(body.utf8))) ?? NSNull(),"Idempotency":key]),"")
     }

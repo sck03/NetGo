@@ -85,7 +85,15 @@ void refresh(){task([]{
  });}
 void chooseProfile(GObject* dialog,GAsyncResult* result,void*){
  GError* error=nullptr;auto file=gtk_file_dialog_open_finish(GTK_FILE_DIALOG(dialog),result,&error);if(!file){if(error)g_error_free(error);return;}auto path=g_file_get_path(file);std::string name=path?path:"";g_free(path);g_object_unref(file);
- task([name]{std::ifstream input(name,std::ios::binary);if(!input||std::filesystem::file_size(name)>1048576)throw std::runtime_error("invalid_site_profile");Json profile;input>>profile;call("POST","/desktop/import",profile);status("站点已导入");});
+ task([name]{
+  std::ifstream input(name,std::ios::binary);if(!input||std::filesystem::file_size(name)>1048576)throw std::runtime_error("invalid_site_profile");Json profile;input>>profile;
+  bool changed=false;for(const auto& old:call("GET","/desktop/profiles"))if(old.at("ID")==profile.at("ID")&&(old.value("Origin","")!=profile.value("Origin","")||old.value("CA","")!=profile.value("CA","")))changed=true;
+  if(!changed){call("POST","/desktop/import",profile);status("站点已导入");return;}
+  mainThread([profile=std::move(profile)]{
+   if(!state->alive)return;auto dialog=gtk_alert_dialog_new("文件更改了站点地址或证书。请确认它来自你的服务器管理员后继续。");const char* buttons[]={"取消","确认导入",nullptr};gtk_alert_dialog_set_buttons(dialog,buttons);gtk_alert_dialog_set_cancel_button(dialog,0);
+   gtk_alert_dialog_choose(dialog,GTK_WINDOW(state->window),nullptr,[](GObject* object,GAsyncResult* result,void* context){std::unique_ptr<Json> value(static_cast<Json*>(context));GError* error=nullptr;auto selected=gtk_alert_dialog_choose_finish(GTK_ALERT_DIALOG(object),result,&error);if(error){g_error_free(error);return;}if(selected==1)task([profile=std::move(*value)]{call("POST","/desktop/import-trusted",profile);status("站点已导入");});},new Json(std::move(profile)));g_object_unref(dialog);
+  });
+ });
 }
 uint32_t virtualKey(guint key){
  if(key>=GDK_KEY_a&&key<=GDK_KEY_z)return key-GDK_KEY_a+'A';

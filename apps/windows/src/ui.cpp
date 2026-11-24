@@ -186,7 +186,14 @@ void command(int id) {
   pending=true;wipe(password);set(Password,L"");drawStatus(currentStatus);preferences["selected"]=chosen;persist();break;}
  case MenuDisconnect:if(!pending){pending=true;submit({{"action","disconnect"}});drawStatus(currentStatus);}break;
  case ShowPassword:SendMessageW(controls[Password],EM_SETPASSWORDCHAR,SendMessageW(controls[ShowPassword],BM_GETCHECK,0,0)==BST_CHECKED?0:L'●',0);InvalidateRect(controls[Password],nullptr,TRUE);break;
- case Import:case MenuImport:{auto file=fileDialog(false,L"导入管理员提供的站点");if(!file.empty()){auto p=Json::parse(readFile(file));validateProfile(p);chosen=p["ID"];submit({{"action","import"},{"profile",p}});}break;}
+ case Import:case MenuImport:{auto file=fileDialog(false,L"导入管理员提供的站点");if(!file.empty()){
+  auto p=Json::parse(readFile(file));validateProfile(p);bool trust=false;
+  for(const auto& old:sites)if(old.at("ID")==p.at("ID")&&(originHost(old.at("Origin"))!=originHost(p.at("Origin"))||old.value("CA","")!=p.value("CA",""))){
+   auto warning=L"管理员提供的文件更改了本站点的地址或证书。\n\n原地址："+wide(old.at("Origin"))+L"\n新地址："+wide(p.at("Origin"))+L"\n证书摘要："+wide(sha256(p.value("CA","")).substr(0,16))+L"\n\n确认此文件来自你的服务器管理员后继续。";
+   if(MessageBoxW(window,warning.c_str(),L"确认新的站点身份",MB_YESNO|MB_ICONQUESTION)!=IDYES)return;trust=true;
+  }
+  chosen=p["ID"];submit({{"action","import"},{"profile",p},{"replace_trust",trust}});
+ }break;}
  case Export:case MenuExport:{if(!selected())break;auto file=fileDialog(true,L"导出公共站点配置");if(!file.empty())atomicFile(file,selected()->dump(2));break;}
  case Edit:case MenuEdit:editProfile(false);break;
  case MenuNew:editProfile(true);break;

@@ -32,7 +32,7 @@ object NetGoRuntime {
         profiles.value = (0 until data.length()).map { data.getJSONObject(it).let { p -> p.getString("ID") to p.getString("Name") } }
         if (selectedSite.isEmpty() && profiles.value.isNotEmpty()) selectedSite = profiles.value.first().first
     }
-    fun importProfile(text: String) = execute { it.importProfile(text); refreshProfiles(it); message.value = "站点已导入" }
+    fun importProfile(text: String, approved: Boolean = false) = execute { if (approved) it.importProfileTrusted(text) else it.importProfile(text); refreshProfiles(it); message.value = "站点已导入" }
     fun connect(site: String, alias: String, password: String, internet: Boolean) = execute { selectedSite = site; it.connectMode(site, alias, password, false, internet) }
     fun disconnect() = execute { NativeRemote.stopCurrent(); it.disconnect(); hosts.value = emptyList() }
     fun refreshHosts() = execute {

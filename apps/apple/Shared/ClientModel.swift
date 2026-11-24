@@ -18,8 +18,11 @@ struct HostItem: Identifiable { let id: String; let name: String }
     @Published var message = "未连接"
     @Published var connected = false
 	@Published var internet = false
+	@Published var confirmTrust = false
+	private var pendingImport: Data?
     let viewer = RemoteViewer()
     var request: ((String,String,String) throws -> String)?
+    var importAction: ((String,String,Bool) throws -> Void)?
     var connectAction: ((SiteItem,String,String,Bool) -> Void)?
     var disconnectAction: (() -> Void)?
     private var timer: Timer?
@@ -30,15 +33,37 @@ struct HostItem: Identifiable { let id: String; let name: String }
         viewer.changed = { [weak self] text in Task { @MainActor in self?.message = text } }
         timer = Timer.scheduledTimer(withTimeInterval: 2,repeats: true) { [weak self] _ in Task { @MainActor in self?.refresh() } }
     }
-    func importSite(_ data: Data) {
+    func importSite(_ data: Data, approved: Bool = false) {
         do {
             guard data.count <= 65536, let object = try JSONSerialization.jsonObject(with:data) as? [String:Any], let id = object["ID"] as? String, let name = object["Name"] as? String, object["Protocol"] as? Int == 2 else { throw NSError(domain:"NetGo",code:1,userInfo:[NSLocalizedDescriptionKey:"请选择有效的站点配置文件"]) }
             let raw = String(decoding:data,as:UTF8.self)
-            if connectAction == nil { operation("POST","/desktop/import",raw) }
-            sites.removeAll { $0.id == id }; sites.append(SiteItem(id:id,name:name,raw:raw)); selected = id; message = "站点已导入"
-            UserDefaults.standard.set(sites.map(\.raw),forKey:"sites")
+            if !approved, let previous = sites.first(where:{$0.id == id}), let old = try? JSONSerialization.jsonObject(with:Data(previous.raw.utf8)) as? [String:Any], (old["Origin"] as? String != object["Origin"] as? String || old["CA"] as? String != object["CA"] as? String) { pendingImport = data; confirmTrust = true; return }
+            let previous = sites.first(where:{$0.id == id})?.raw ?? ""
+            if let old = try? JSONSerialization.jsonObject(with:Data(previous.utf8)) as? [String:Any] {
+                let oldRevision = old["ConfigRevision"] as? UInt64 ?? 0
+                let revision = object["ConfigRevision"] as? UInt64 ?? 0
+                guard revision >= oldRevision, !approved || revision > oldRevision else { throw NSError(domain:"NetGo",code:1,userInfo:[NSLocalizedDescriptionKey:"配置版本过旧，请重新从服务器导出"]) }
+                if oldRevision > 0 && revision == oldRevision {
+                    var a = old, b = object; a.removeValue(forKey:"Name"); b.removeValue(forKey:"Name")
+                    guard NSDictionary(dictionary:a).isEqual(to:b) else { throw NSError(domain:"NetGo",code:1,userInfo:[NSLocalizedDescriptionKey:"同一版本的配置内容不一致"]) }
+                }
+            }
+            let item = SiteItem(id:id,name:name,raw:raw)
+            if let action = importAction {
+                message = "导入中…"
+                DispatchQueue.global().async { [weak self] in
+                    do { try action(previous,raw,approved); Task { @MainActor in self?.saveSite(item,message:"站点已导入") } }
+                    catch { Task { @MainActor in self?.message = error.localizedDescription } }
+                }
+            } else { saveSite(item,message:"站点已保存，连接时验证") }
         } catch { message = error.localizedDescription }
     }
+    private func saveSite(_ item: SiteItem,message: String) {
+        sites.removeAll { $0.id == item.id }; sites.append(item); selected = item.id; self.message = message
+        UserDefaults.standard.set(sites.map(\.raw),forKey:"sites")
+    }
+    func approveImport() { if let data = pendingImport { pendingImport = nil; importSite(data,approved:true) } }
+    func cancelImport() { pendingImport = nil }
     func connect() {
         guard let site = sites.first(where:{$0.id == selected}), !alias.isEmpty, !password.isEmpty else { message = "请选择站点并填写账号密码"; return }
         let secret = password; password = ""; message = "连接中…"
