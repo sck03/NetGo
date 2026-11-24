@@ -88,11 +88,25 @@ def download_payload(api,run_id,name,directory):
         if archive.testzip() is not None:raise ValueError('发布产物 CRC 不符')
     return directory
 
+def find_release(api,tag):
+    release=api.maybe('/releases/tags/'+urllib.parse.quote(tag,safe=''))
+    if release is not None:return release
+    # The tag endpoint only returns published releases. With contents:write,
+    # the list endpoint also includes drafts created by other platform jobs.
+    page=1
+    while True:
+        entries=api.request('/releases?per_page=100&page='+str(page))
+        matches=[item for item in entries if item['tag_name']==tag]
+        if len(matches)>1:raise ValueError('同一标签存在多个 Release，请先在 Releases 页面处理重复草稿')
+        if matches:return matches[0]
+        if len(entries)<100:return None
+        page+=1
+
 def ensure_release(api,manifest,channel):
-    tag='v'+manifest['version'];path='/releases/tags/'+urllib.parse.quote(tag,safe='')
+    tag='v'+manifest['version']
     flags={'draft':channel=='draft','prerelease':channel=='prerelease'}
     if channel=='stable' and '-' in manifest['version'].split('+',1)[0]:raise ValueError('正式 Release 版本不可含预发布后缀')
-    release=api.maybe(path)
+    release=find_release(api,tag)
     if release is None:
         existing=api.maybe('/commits/'+urllib.parse.quote(tag,safe=''))
         if existing and existing['sha']!=manifest['commit']:raise ValueError('同版本标签已指向其他提交，请使用新版本号')
@@ -104,7 +118,7 @@ def ensure_release(api,manifest,channel):
             if error.status!=422:raise
             # Independent platforms may create the same tag concurrently.
             for _ in range(6):
-                release=api.maybe(path)
+                release=find_release(api,tag)
                 if release is not None:break
                 time.sleep(1)
             if release is None:raise ValueError('并行创建 Release 后仍不可读取') from None

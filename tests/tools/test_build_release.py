@@ -39,10 +39,11 @@ def environment(values=None):
 class FakeAPI:
     def __init__(self,race=False):self.release=None;self.tag=SHA;self.assets=[];self.writes=[];self.race=race
     def maybe(self,path):
-        if path.startswith('/releases/tags/'):return self.release
+        if path.startswith('/releases/tags/'):return self.release if self.release and not self.release['draft'] else None
         if path.startswith('/commits/'):return {'sha':self.tag}
         raise AssertionError(path)
     def request(self,path,method='GET',data=None,upload=False):
+        if method=='GET' and path.startswith('/releases?'):return [self.release] if self.release else []
         if path=='/releases' and method=='POST':
             self.writes.append(path);self.release={'id':1,'draft':data['draft'],'prerelease':data['prerelease'],'target_commitish':SHA,'tag_name':data['tag_name'],'html_url':'https://github.com/example/repo/releases/tag/'+data['tag_name']}
             if self.race:self.race=False;raise publisher.APIError(422)
@@ -97,6 +98,23 @@ class ReleaseTests(unittest.TestCase):
             api.tag=SHA;publisher.publish(api,output,'stable');api.assets[0]['digest']='sha256:'+'0'*64;count=len(api.writes)
             with self.assertRaises(ValueError):publisher.publish(api,output,'stable')
             self.assertEqual(len(api.writes),count)
+    def test_draft_creation_race_and_repeat_reuse_unpublished_release(self):
+        with tempfile.TemporaryDirectory() as temporary,environment():
+            output=self.payload(Path(temporary));api=FakeAPI(race=True)
+            publisher.publish(api,output,'draft');count=len(api.writes)
+            self.assertIsNone(api.maybe('/releases/tags/v0.3.1'))
+            publisher.publish(api,output,'draft')
+            self.assertEqual(len(api.writes),count)
+            self.assertEqual(api.writes.count('/releases'),1)
+            with self.assertRaises(ValueError):publisher.publish(api,output,'stable')
+            self.assertTrue(api.release['draft'])
+    def test_draft_lookup_follows_release_pages(self):
+        api=FakeAPI();api.release={'tag_name':'v0.3.1','draft':True}
+        def page(path,*args,**kwargs):
+            return [{'tag_name':'v0.0.'+str(i),'draft':False} for i in range(100)] if path.endswith('page=1') else [api.release]
+        with mock.patch.object(api,'request',side_effect=page) as request:
+            self.assertEqual(publisher.find_release(api,'v0.3.1'),api.release)
+            self.assertEqual(request.call_count,2)
     def test_no_publish_permission_without_manual_switch(self):
         with environment({'GITHUB_EVENT_NAME':'push','NETGO_PUBLISH':'false'}),mock.patch.object(sys,'argv',['publish-release.py']),mock.patch('sys.stderr'),self.assertRaises(SystemExit):publisher.main()
 
