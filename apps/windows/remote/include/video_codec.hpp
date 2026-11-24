@@ -8,6 +8,9 @@ namespace netgo::video {
 // private. This synchronous MF adapter is the explicit software fallback.
 struct Frame { std::uint32_t width{},height{};std::vector<std::uint8_t> nv12; };
 struct Packet { std::int64_t timestamp{}; bool keyframe{};std::vector<std::uint8_t> h264; };
+struct Size {std::uint32_t width{},height{};};
+// Keep the native aspect ratio, round to NV12's even dimensions, never upscale.
+Size fit_size(std::uint32_t width,std::uint32_t height,std::uint32_t max_width=1280,std::uint32_t max_height=720);
 class Codec final {
 public:
  enum class Mode { encode,decode };

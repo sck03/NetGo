@@ -1,6 +1,7 @@
 #include "netgo_remote_client.h"
 #include "remote_transport.hpp"
 #include "netgo_remote_ticket.h"
+#include "netgo_remote_clock.hpp"
 #include <nlohmann/json.hpp>
 #include <openssl/evp.h>
 #include <openssl/rand.h>
@@ -36,8 +37,9 @@ Message message(Kind kind,const Json& value){auto text=value.dump();return {kind
 Json json(const Message& value){require(value.body.size()<=65536,"remote_invalid_message");return Json::parse(value.body);}
 ng_remote_ticket_id id(const std::string& value){return {reinterpret_cast<const uint8_t*>(value.data()),value.size()};}
 struct Gate {
+ netgo::remote::ServerClock clock;
  ng_remote_ticket_verifier* verifier=nullptr;ng_remote_gate* handle=nullptr;
- Gate(const Json& a,const Json& ctx,const Key& site,uint32_t caps){
+ Gate(const Json& a,const Json& ctx,const Key& site,uint32_t caps,uint64_t requested):clock(a.value("server_unix_ms",uint64_t(0)),requested){
   const auto& s=a.at("session");std::string siteID=ctx.at("site_id"),user=s.at("user_id"),controllerID=s.at("controller_id"),hostID=s.at("host_id");
   require(ctx.at("device_id")==controllerID&&ctx.at("public_key")==a.at("controller_key")&&key(a.at("site_key"))==site,"remote_authorization_mismatch");
   auto controller=key(a.at("controller_key")),host=key(a.at("host_key"));auto boot=decode(s.at("host_boot"),16),binding=decode(s.at("binding"),32);
@@ -46,6 +48,7 @@ struct Gate {
   Key digest{};require(ng_remote_ticket_binding_digest(&fields,digest.data())==NG_REMOTE_OK&&std::equal(digest.begin(),digest.end(),binding.begin()),"remote_binding_mismatch");
   require(ng_remote_ticket_verifier_create(site.data(),site.size(),&verifier)==NG_REMOTE_OK,"remote_site_key_invalid");
   ng_remote_options options{};options.struct_size=sizeof(options);options.abi_version=NG_REMOTE_ABI;std::copy(binding.begin(),binding.end(),options.binding_digest);options.allowed_capabilities=caps;options.consent_mode=NG_REMOTE_LOCAL_CONSENT;options.verify=ng_remote_ticket_verify;options.verify_context=verifier;
+  clock.configure(options);
   if(ng_remote_gate_create(&options,&handle)!=NG_REMOTE_OK){ng_remote_ticket_verifier_destroy(verifier);verifier=nullptr;throw std::runtime_error("remote_gate_failed");}
  }
  ~Gate(){ng_remote_gate_destroy(handle);ng_remote_ticket_verifier_destroy(verifier);}
@@ -96,11 +99,12 @@ void run(ng_remote_client& c){
  for(const auto& g:inventory.at("grants"))if(g.at("host_id")==c.host&&g.at("user_id")==ctx.at("user_id"))grantCaps=g.at("capabilities").get<uint32_t>();
  auto requested=c.options.capabilities&hostCaps&grantCaps;require((requested&NG_REMOTE_VIEW)!=0,"remote_view_forbidden");
  auto site=key(c.call("GET",std::string(base)+"/key").at("public_key"));Key nonce{};require(RAND_bytes(nonce.data(),nonce.size())==1,"remote_random_failed");
- auto generation=uint64_t(std::chrono::duration_cast<std::chrono::microseconds>(std::chrono::system_clock::now().time_since_epoch()).count());
+ auto next=inventory.find("next_generation");require(next!=inventory.end()&&next->is_number_unsigned(),"remote_generation_invalid");auto generation=next->get<uint64_t>();require(generation>0&&generation<=uint64_t(INT64_MAX),"remote_generation_invalid");
+ auto requestedAt=netgo::remote::monotonic_time_ms();
  auto a=c.call("POST",std::string(base)+"/sessions",{{"host_id",c.host},{"generation",generation},{"capabilities",requested}},encode(nonce.data(),nonce.size()));
  auto session=a.at("session").at("id").get<std::string>();
  try{
-  require(a.at("session").at("host_id")==c.host,"remote_host_mismatch");Gate gate(a,ctx,site,c.options.capabilities);auto ticket=decode(a.at("ticket"),NG_REMOTE_TICKET_SIZE);gate.begin(ticket);
+  require(a.at("session").at("host_id")==c.host,"remote_host_mismatch");Gate gate(a,ctx,site,c.options.capabilities,requestedAt);auto ticket=decode(a.at("ticket"),NG_REMOTE_TICKET_SIZE);gate.begin(ticket);
   Monitor monitor(c,session);auto endpoint=a.at("endpoint").get<std::string>();auto colon=endpoint.rfind(':');require(colon!=std::string::npos,"remote_invalid_endpoint");auto ip=endpoint.substr(0,colon);if(ip.size()>2&&ip.front()=='['&&ip.back()==']')ip=ip.substr(1,ip.size()-2);
   auto port=std::stoul(endpoint.substr(colon+1));require(port>0&&port<=65535,"remote_invalid_endpoint");
   auto connection=netgo::remote::Connection::connect(ip,uint16_t(port),key(a.at("host_key")),[&]{return monitor.live()&&gate.check();});

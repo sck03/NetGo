@@ -3,6 +3,7 @@
 #include "remote_transport.hpp"
 #include "netgo_remote_ticket.h"
 #include "netgo_remote_client.h"
+#include "netgo_remote_clock.hpp"
 #include "desktop_capture.hpp"
 #include "video_codec.hpp"
 #include "audio.hpp"
@@ -19,7 +20,7 @@ namespace netgo::desktop {
 namespace {
 using remote::Connection;using remote::Message;using remote::Kind;using remote::Key;
 using Bytes=std::vector<unsigned char>;
-constexpr unsigned width=640,height=360,fps=15;
+constexpr unsigned fps=20;
 constexpr char base[]="/netgo/v2/remote";
 Json call(const std::string& site,const std::string& method,const std::string& path,const Json& body=nullptr,const std::string& idem={},const std::function<bool()>& active={}){
  return pipeCall({{"action","remote-call"},{"site",site},{"method",method},{"path",path},{"body",body},{"idempotency",idem}},active);
@@ -43,8 +44,9 @@ Message receive(Connection& c,Kind expected,const std::function<bool()>& allowed
  throw Error("remote_handshake_timeout");
 }
 struct Gate {
+ remote::ServerClock clock;
  ng_remote_ticket_verifier* verifier=nullptr;ng_remote_gate* value=nullptr;
- Gate(const Json& a,const Json& authenticated){
+ Gate(const Json& a,const Json& authenticated,uint64_t requested):clock(a.value("server_unix_ms",uint64_t(0)),requested){
   auto site=key(a.at("site_key"));auto binding=decode(a.at("session").at("binding"),32);
   const auto& session=a.at("session");
   std::string siteID=authenticated.at("site_id"),userID=session.at("user_id"),controllerID=session.at("controller_id"),hostID=session.at("host_id");
@@ -57,6 +59,7 @@ struct Gate {
   Key digest{};if(ng_remote_ticket_binding_digest(&fields,digest.data())!=NG_REMOTE_OK||!std::equal(digest.begin(),digest.end(),binding.begin()))throw Error("remote_binding_mismatch");
   if(ng_remote_ticket_verifier_create(site.data(),site.size(),&verifier)!=NG_REMOTE_OK)throw Error("remote_invalid_site_key");
   ng_remote_options options{};options.struct_size=sizeof(options);options.abi_version=NG_REMOTE_ABI;std::copy(binding.begin(),binding.end(),options.binding_digest);options.allowed_capabilities=NG_REMOTE_VIEW|NG_REMOTE_INPUT|NG_REMOTE_AUDIO;options.consent_mode=NG_REMOTE_LOCAL_CONSENT;options.verify=ng_remote_ticket_verify;options.verify_context=verifier;
+  clock.configure(options);
   if(ng_remote_gate_create(&options,&value)!=NG_REMOTE_OK){ng_remote_ticket_verifier_destroy(verifier);verifier=nullptr;throw Error("remote_gate_failed");}
  }
  ~Gate(){ng_remote_gate_destroy(value);ng_remote_ticket_verifier_destroy(verifier);}
@@ -119,11 +122,13 @@ struct Capture {
   auto& c=*static_cast<Capture*>(ctx);try{
    if(!c.allowed()||!c.gate->check())throw Error("remote_closed");
    if(s.clockwise_rotation||s.protected_content_masked)throw Error("remote_display_unavailable");
+   auto size=video::fit_size(s.width,s.height);
+   if(c.frame.width&&(c.frame.width!=size.width||c.frame.height!=size.height))throw Error("remote_display_changed");
    D3D11_TEXTURE2D_DESC desc{};s.texture->GetDesc(&desc);
    if(c.texture){D3D11_TEXTURE2D_DESC prior{};c.texture->GetDesc(&prior);if(prior.Width!=desc.Width||prior.Height!=desc.Height)c.texture.Reset();}
    if(!c.texture){desc.BindFlags=0;desc.MiscFlags=0;desc.Usage=D3D11_USAGE_STAGING;desc.CPUAccessFlags=D3D11_CPU_ACCESS_READ;if(FAILED(s.device->CreateTexture2D(&desc,nullptr,c.texture.GetAddressOf())))throw Error("remote_capture_failed");}
    s.context->CopyResource(c.texture.Get(),s.texture);D3D11_MAPPED_SUBRESOURCE map{};if(FAILED(s.context->Map(c.texture.Get(),0,D3D11_MAP_READ,0,&map)))throw Error("remote_capture_failed");
-   try{c.frame=video::bgra_to_nv12(static_cast<const unsigned char*>(map.pData),s.width,s.height,map.RowPitch,width,height);}catch(...){s.context->Unmap(c.texture.Get(),0);throw;}s.context->Unmap(c.texture.Get(),0);
+   try{c.frame=video::bgra_to_nv12(static_cast<const unsigned char*>(map.pData),s.width,s.height,map.RowPitch,size.width,size.height);}catch(...){s.context->Unmap(c.texture.Get(),0);throw;}s.context->Unmap(c.texture.Get(),0);
    c.input->left=s.desktop_left;c.input->top=s.desktop_top;c.input->screenWidth=s.width;c.input->screenHeight=s.height;
   }catch(const std::exception& e){c.error=e.what();}
  }
@@ -131,7 +136,7 @@ struct Capture {
 void closeSession(const std::string& site,const std::string& id){auto deadline=Clock::now()+std::chrono::seconds(3);try{call(site,"DELETE",std::string(base)+"/sessions/"+id,nullptr,{},[&]{return Clock::now()<deadline;});}catch(...){}}
 }
 
-Json inventory(const std::string& site){return call(site,"GET",base);}
+Json inventory(const std::string& site,const std::function<bool()>& active){return call(site,"GET",base,nullptr,{},active);}
 
 void host(const std::string& site,Callbacks cb){
  auto ctx=context(site,cb.running);std::string raw=credentialRead("device/"+ctx.at("credential_scope").get<std::string>());if(raw.size()!=32||publicKey(raw)!=ctx.at("public_key").get<std::string>()){wipe(raw);throw Error("remote_device_key_missing");}Key seed{};std::copy(raw.begin(),raw.end(),seed.begin());wipe(raw);
@@ -151,9 +156,9 @@ void host(const std::string& site,Callbacks cb){
    std::string id;
    try{
     auto hello=json(receive(*connection,Kind::hello,[&]{return monitor.live();}));id=hello.at("id");
-    auto a=call(site,"GET",std::string(base)+"/sessions/"+id,nullptr,{},cb.running);auto& session=a.at("session");
+    auto requestedAt=remote::monotonic_time_ms();auto a=call(site,"GET",std::string(base)+"/sessions/"+id,nullptr,{},cb.running);auto& session=a.at("session");
     if(session.at("host_id")!=device||session.at("host_boot")!=boot||session.at("state")!="issued"||hello.at("ticket")!=a.at("ticket"))throw Error("remote_authorization_mismatch");
-    auto wire=decode(a.at("ticket"),NG_REMOTE_TICKET_SIZE);Gate gate(a,ctx);gate.begin(wire);
+    auto wire=decode(a.at("ticket"),NG_REMOTE_TICKET_SIZE);Gate gate(a,ctx,requestedAt);gate.begin(wire);
     Key challenge{};if(RAND_bytes(challenge.data(),challenge.size())!=1)throw Error("remote_random_failed");auto channel=connection->exporter();
     connection->send({Kind::challenge,{challenge.begin(),challenge.end()}});auto proof=receive(*connection,Kind::proof,[&]{return monitor.live();});auto controller=key(a.at("controller_key"));
     if(proof.body.size()!=64||ng_remote_possession_verify(controller.data(),wire.data(),wire.size(),challenge.data(),channel.data(),proof.body.data())!=NG_REMOTE_OK)throw Error("remote_proof_invalid");
@@ -161,10 +166,19 @@ void host(const std::string& site,Callbacks cb){
     if(ng_remote_gate_consent(gate.value,1)!=NG_REMOTE_OK||!gate.check())throw Error("remote_ticket_expired");
     call(site,"POST",std::string(base)+"/sessions/"+id+"/consume",{{"sequence",session.at("sequence")},{"boot",boot},{"proof",{{"challenge",base64url(challenge.data(),challenge.size())},{"channel",base64url(channel.data(),channel.size())},{"signature",base64url(proof.body.data(),proof.body.size())}}}});
     connection->authorize([&]{return monitor.live()&&gate.check();});
-    monitor.bind(id);connection->send(message(Kind::accepted,{{"width",width},{"height",height},{"fps",fps},{"capabilities",session.at("capabilities")}}));cb.status("正在共享桌面；关闭此窗口立即停止");
-    capture::DesktopCapture capture;if(capture.open()!=capture::Result::frame)throw Error("remote_capture_unavailable");video::Codec encoder(video::Codec::Mode::encode,width,height,fps,2'000'000);Input input;
+    monitor.bind(id);
+    capture::DesktopCapture capture;if(capture.open()!=capture::Result::frame)throw Error("remote_capture_unavailable");Input input;
     Capture pixels{{},{},&gate,&input,{},[&]{return monitor.live();}};auto started=Clock::now(),next=started;
+    auto captureDeadline=Clock::now()+std::chrono::seconds(3);
+    while(pixels.frame.nv12.empty()&&Clock::now()<captureDeadline&&monitor.live()&&gate.check()){
+     auto result=capture.next(Capture::read,&pixels,16);
+     if(!pixels.error.empty())throw Error(pixels.error);
+     if(result!=capture::Result::frame&&result!=capture::Result::timeout)throw Error("remote_capture_lost");
+    }
+    if(pixels.frame.nv12.empty())throw Error("remote_capture_unavailable");
+    video::Codec encoder(video::Codec::Mode::encode,pixels.frame.width,pixels.frame.height,fps,3'000'000);
     std::unique_ptr<audio::Stream> sound;if(gate.check(NG_REMOTE_AUDIO))sound=std::make_unique<audio::Stream>(true);
+    connection->send(message(Kind::accepted,{{"width",pixels.frame.width},{"height",pixels.frame.height},{"fps",fps},{"capabilities",session.at("capabilities")}}));cb.status("正在共享桌面；点击“停止”结束共享");
     while(monitor.live()&&gate.check()){
      Message m;if(connection->receive(m,0)){
       if(m.kind==Kind::close)break;
@@ -195,7 +209,11 @@ void view(const std::string& site,const std::string& hostID,Callbacks cb){
  ng_remote_client_options options{};options.struct_size=sizeof(options);options.abi_version=NG_REMOTE_CLIENT_ABI;options.site_id=site.c_str();options.host_id=hostID.c_str();options.capabilities=NG_REMOTE_VIEW|NG_REMOTE_INPUT|NG_REMOTE_AUDIO;options.context=&bridge;
  options.active=[](void* p)->int32_t{return static_cast<Bridge*>(p)->cb.running()?1:0;};
  options.control=[](void* p,const char* method,const char* path,const char* body,const char* idem,char* output,size_t capacity,size_t* length)->int32_t{try{
-  auto& b=*static_cast<Bridge*>(p);auto value=std::string(method)=="CONTEXT"?context(b.site,b.cb.running):call(b.site,method,path,*body?Json::parse(body):Json(),idem,b.cb.running);auto text=value.dump();if(text.size()>capacity)return -1;std::copy(text.begin(),text.end(),output);*length=text.size();return 0;
+  auto& b=*static_cast<Bridge*>(p);auto active=b.cb.running;
+  // Cancelling the viewer must still close its issued/active server session.
+  // This borrows the existing VPN identity with a separate cleanup deadline.
+  if(std::string(method)=="DELETE"){auto end=Clock::now()+std::chrono::seconds(3);active=[end]{return Clock::now()<end;};}
+  auto value=std::string(method)=="CONTEXT"?context(b.site,active):call(b.site,method,path,*body?Json::parse(body):Json(),idem,active);auto text=value.dump();if(text.size()>capacity)return -1;std::copy(text.begin(),text.end(),output);*length=text.size();return 0;
  }catch(...){return -1;}};
  options.sign=[](void* p,const uint8_t* bytes,size_t size,uint8_t output[64])->int32_t{try{
   auto& b=*static_cast<Bridge*>(p);auto ctx=context(b.site,b.cb.running);auto seed=credentialRead("device/"+ctx.at("credential_scope").get<std::string>());if(seed.size()!=32||publicKey(seed)!=ctx.at("public_key").get<std::string>()){wipe(seed);return -1;}
@@ -203,10 +221,19 @@ void view(const std::string& site,const std::string& hostID,Callbacks cb){
   auto signer=std::unique_ptr<EVP_MD_CTX,decltype(&EVP_MD_CTX_free)>(EVP_MD_CTX_new(),EVP_MD_CTX_free);size_t n=64;return privateKey&&signer&&EVP_DigestSignInit(signer.get(),nullptr,nullptr,nullptr,privateKey.get())==1&&EVP_DigestSign(signer.get(),output,&n,bytes,size)==1&&n==64?0:-1;
  }catch(...){return -1;}};
  options.input=[](void* p,char* output,size_t capacity,size_t* length)->int32_t{try{auto text=Json(static_cast<Bridge*>(p)->cb.inputs()).dump();if(text.size()>capacity)return -1;std::copy(text.begin(),text.end(),output);*length=text.size();return 0;}catch(...){return -1;}};
- options.format=[](void* p,uint32_t w,uint32_t h,uint32_t rate,uint32_t caps)->int32_t{try{auto& b=*static_cast<Bridge*>(p);b.decoder=std::make_unique<video::Codec>(video::Codec::Mode::decode,w,h,rate);if(caps&NG_REMOTE_AUDIO)b.sound=std::make_unique<audio::Stream>(false);return 0;}catch(...){return -1;}};
+ options.format=[](void* p,uint32_t w,uint32_t h,uint32_t rate,uint32_t caps)->int32_t{try{auto& b=*static_cast<Bridge*>(p);b.decoder=std::make_unique<video::Codec>(video::Codec::Mode::decode,w,h,rate);if(caps&NG_REMOTE_AUDIO)b.sound=std::make_unique<audio::Stream>(false);if(b.cb.permissions)b.cb.permissions(caps);return 0;}catch(...){return -1;}};
  options.audio=[](void* p,const uint8_t* bytes,size_t size)->int32_t{try{static_cast<Bridge*>(p)->sound->play(bytes,size);return 0;}catch(...){return -1;}};
  options.video=[](void* p,const uint8_t* bytes,size_t size,int64_t stamp)->int32_t{try{auto& b=*static_cast<Bridge*>(p);for(auto& frame:b.decoder->decode({stamp,false,Bytes(bytes,bytes+size)}))b.cb.present({frame.width,frame.height,video::nv12_to_bgra(frame)});return 0;}catch(...){return -1;}};
- options.status=[](void* p,const char* code){auto& b=*static_cast<Bridge*>(p);try{b.cb.status(std::string(code)=="remote_connected"?"已连接；关闭窗口结束远程桌面":std::string(code)=="remote_waiting_consent"?"等待对方确认…":code);}catch(...){}};
+ options.status=[](void* p,const char* code){auto& b=*static_cast<Bridge*>(p);try{
+  std::string text=code;
+  if(text=="remote_connected")text="已连接；点击“停止”结束远程桌面";
+  else if(text=="remote_waiting_consent")text="等待对方确认…";
+  else if(text=="remote_clock_invalid"||text=="remote_generation_invalid")text="服务端远控信息不完整，请同步更新局域网服务端与客户端";
+  else if(text=="remote_view_forbidden")text="当前账号未获该主机的观看授权";
+  else if(text=="remote_disconnected")text="远程桌面已结束";
+  else if(text=="remote_decoder_unavailable")text="当前系统无法解码此远程画面";
+  b.cb.status(std::move(text));
+ }catch(...){}};
  ng_remote_client* raw=nullptr;if(ng_remote_client_create(&options,&raw)!=NG_REMOTE_CLIENT_OK)throw Error("remote_client_failed");std::unique_ptr<ng_remote_client,decltype(&ng_remote_client_destroy)> client(raw,ng_remote_client_destroy);ng_remote_client_run(client.get());
 }
 }

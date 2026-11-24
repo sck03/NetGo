@@ -1,6 +1,8 @@
 # 远程桌面与原生多平台实施方案
 
-版本：2.2。日期：2026-11-23（Asia/Shanghai）。与 EXECUTION_PLAN v2.2 同时生效。
+版本：2.3。日期：2026-11-24（Asia/Shanghai）。继承 EXECUTION_PLAN v2.2 的授权与功能范围。
+
+本轮远控修复：服务端返回 server_unix_ms / next_generation，双方票据门禁使用可信服务端时间与包含休眠的系统单调时钟。共享 TLS 接收改为有总期限的分片读取；Windows 采用保持比例的最高720p软件配置、独立停止按钮与按实际画面映射的输入。详见 [本轮记录](evidence/2026-11-24-remote/REPORT.zh-CN.md)。这些实现不代替跨设备与全部平台验收。
 
 2026-11-24 范围修订：用户已要求同时推进可运行的 macOS/iOS 客户端。SwiftUI、Keychain、原生媒体桥接和 iOS Packet Tunnel 已实现并通过 GitHub 构建；设备签名和实机 VPN/媒体仍需相应环境。五个客户端、LAN 服务端和 VPS 使用七个独立脚本/工作流，见 BUILD_CLIENTS。共享核心、平台网络/媒体适配和节点维护分模块，最终节点维护无需 Python。
 
@@ -143,8 +145,8 @@ C ABI 使用 opaque handle、定宽整数、结构体 size/version 与明确的�
 | RD1b | RD1a；对应 SDK | 固定候选/许可证；系统采集、真实编码/传输/解码、Win32/JNI | 两控制端实际看/控/音频；直连与中继；撤权停止；选型 ADR | Windows DXGI/H.264 本地编解码及真实 TLS/持钥证明通过；音频已接入，跨设备媒体与 JNI 未验 |
 | RD2 | RD1a 后领域/契约可先行；媒体网络待 RD1b 冻结 | schema 2、v2 API、主机注册/ACL/票据/租约、peer 拓扑；管理 UI | 空库初始化，重放/跨设备/越权/过期/并发拒绝；非合作主机门禁；旧版拒绝/恢复 | 源码及正反/并发测试已实现；完整实机切换/恢复待验 |
 | RD3 | RD2 | Windows 原生查看器与主机服务、会话代理、安装卸载 | Win10/11 桌面、锁屏/UAC、多屏/休眠；剪贴板文件边界；输入/媒体撤销 | 单 NetGo.exe、图形安装与绿色版逻辑、交互主机/查看器已接入；完整平台退出条件未满足 |
-| RD4 | RD1/RD2，Android 工具链和设备 | Kotlin App、VpnService、JNI、凭据、触摸/IME/音频 | APK 构建与安装；真实 VPN/远控、后台/杀进程/换网/中文输入与取消 | 未实现 |
-| RD5 | RD2，Apple SDK/签名/设备，Linux 桌面 | Swift/NE/ObjC++；GTK/X11/Wayland；平台打包 | macOS/iOS 签名安装与 VPN/远控，Linux 两显示协议；权限拒绝及重授予 | GTK 查看器已实现/编译，物理桌面、Linux 主机和 Apple 适配/签名待完成 |
+| RD4 | RD1/RD2，Android 工具链和设备 | Kotlin App、VpnService、JNI、凭据、触摸/IME/音频 | APK 构建与安装；真实 VPN/远控、后台/杀进程/换网/中文输入与取消 | APK/VpnService/JNI 查看器已实现并构建，实机功能验收待完成 |
+| RD5 | RD2，Apple SDK/签名/设备，Linux 桌面 | Swift/NE/ObjC++；GTK/X11/Wayland；平台打包 | macOS/iOS 签名安装与 VPN/远控，Linux 两显示协议；权限拒绝及重授予 | GTK/Apple 查看器与 iOS Tunnel 已实现并构建；签名、实机和 macOS/Linux 主机适配待完成 |
 | RD6 | RD0–RD5 满足各自退出条件 | 统一测试、性能、72h、许可、签名、开发/正式包、清理与 main | 对应源码/日志/产物指纹；逐平台验收表；下载可用；仓库无凭据；本地/远端提交一致 | 未完成 |
 
 持续记录到 PROGRESS；按 RD 依赖继续推进，不因阶段切换重复请示。RD1 未能编译时先缩到最小依赖复现；不把模板/占位方法标成客户端完成。签名/设备确实不可用时列具体缺项，继续能完成的代码与构建，不发布“全部平台完成”。

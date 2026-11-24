@@ -26,8 +26,9 @@ public:
  Key exporter() const;
  void authorize(Continue allowed);
  void send(const Message& message);
- // False means no bytes have arrived yet. Partial messages still have a bounded
- // deadline; permission/cancellation is checked at least every 100 milliseconds.
+ // False means no complete message is ready; the caller's message is unchanged.
+ // Partial reads retain their state and share a 3-second total deadline across
+ // polls. idle_ms bounds waiting; cancellation is checked at least every 100ms.
  bool receive(Message& message,std::uint32_t idle_ms=100);
 private:
  struct Impl;std::unique_ptr<Impl> impl_;

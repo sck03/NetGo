@@ -13,7 +13,9 @@ typedef struct ng_remote_client ng_remote_client;
  * control("CONTEXT", "", ...) returns the authenticated site/device snapshot.
  * sign signs the exact possession message using the existing device identity.
  * input writes a JSON array of events, or [] when none are pending.
- * All IO callbacks must honor cancellation and a bounded deadline. */
+ * All IO callbacks must honor cancellation and a bounded deadline. DELETE is
+ * final session cleanup: allow it after viewer cancellation with a separate
+ * bounded deadline while its authenticated VPN connection remains available. */
 typedef struct ng_remote_client_options {
  uint32_t struct_size, abi_version;
  const char *site_id, *host_id;

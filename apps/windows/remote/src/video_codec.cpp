@@ -86,6 +86,14 @@ std::vector<Frame> Codec::decode(const Packet& packet){
 }
 void Codec::reset(){check(impl_->transform->ProcessMessage(MFT_MESSAGE_COMMAND_FLUSH,0),"flush");check(impl_->transform->ProcessMessage(MFT_MESSAGE_NOTIFY_START_OF_STREAM,0),"restart stream");}
 
+Size fit_size(std::uint32_t w,std::uint32_t h,std::uint32_t maxw,std::uint32_t maxh){
+ dimensions(maxw,maxh);if(w<16||h<16||w>16384||h>16384)throw std::invalid_argument("invalid display dimensions");
+ auto ow=std::min(w,maxw),oh=std::min(h,maxh);
+ if(std::uint64_t(ow)*h>std::uint64_t(oh)*w)ow=std::uint32_t(std::uint64_t(oh)*w/h);
+ else oh=std::uint32_t(std::uint64_t(ow)*h/w);
+ ow&=~1u;oh&=~1u;dimensions(ow,oh);return {ow,oh};
+}
+
 Frame bgra_to_nv12(const std::uint8_t* data,std::uint32_t w,std::uint32_t h,std::uint32_t stride,std::uint32_t ow,std::uint32_t oh){
  dimensions(ow,oh);if(!data||w<ow||h<oh||w>16384||h>16384||stride<w*4)throw std::invalid_argument("BGRA input bounds");Frame out{ow,oh,std::vector<std::uint8_t>(size_t(ow)*oh*3/2)};auto clip=[](int v){return std::uint8_t(std::clamp(v,0,255));};
  for(std::uint32_t y=0;y<oh;y++)for(std::uint32_t x=0;x<ow;x++){const auto* p=data+size_t(y*h/oh)*stride+size_t(x*w/ow)*4;int b=p[0],g=p[1],r=p[2];out.nv12[size_t(y)*ow+x]=clip(((66*r+129*g+25*b+128)>>8)+16);if(!(y&1)&&!(x&1)){size_t uv=size_t(ow)*oh+size_t(y/2)*ow+x;out.nv12[uv]=clip(((-38*r-74*g+112*b+128)>>8)+128);out.nv12[uv+1]=clip(((112*r-94*g-18*b+128)>>8)+128);}}

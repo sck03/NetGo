@@ -217,6 +217,7 @@ type Authorization struct {
 	HostKey       string              `json:"host_key"`
 	ControllerKey string              `json:"controller_key"`
 	Endpoint      string              `json:"endpoint"`
+	ServerUnixMS  int64               `json:"server_unix_ms"`
 }
 
 // verifyPeers runs outside SQLite transactions; the transaction rechecks all
@@ -400,7 +401,7 @@ func (m *Manager) authorization(st *model.State, r model.RemoteSession) (Authori
 	wire, e := ticket.Sign(m.Key, ticket.Claims{Binding: [32]byte(b), Session: [16]byte(id), Generation: r.Generation, PolicyRevision: r.PolicyRevision, Sequence: r.Sequence, IssuedMS: uint64(r.IssuedAt.UnixMilli()), ExpiresMS: uint64(r.ExpiresAt.UnixMilli()), Capabilities: r.Capabilities, Consent: r.RequireConsent})
 	public := r
 	public.ControllerAuth = ""
-	return Authorization{Session: public, Ticket: base64.RawURLEncoding.EncodeToString(wire), SiteKey: m.PublicKey(), HostKey: st.Devices[r.HostID].PublicKey, ControllerKey: st.Devices[r.ControllerID].PublicKey, Endpoint: net.JoinHostPort(st.Devices[r.HostID].IP, strconv.Itoa(int(st.Hosts[r.HostID].Port)))}, e
+	return Authorization{Session: public, Ticket: base64.RawURLEncoding.EncodeToString(wire), SiteKey: m.PublicKey(), HostKey: st.Devices[r.HostID].PublicKey, ControllerKey: st.Devices[r.ControllerID].PublicKey, Endpoint: net.JoinHostPort(st.Devices[r.HostID].IP, strconv.Itoa(int(st.Hosts[r.HostID].Port))), ServerUnixMS: m.now().UnixMilli()}, e
 }
 
 func (m *Manager) Consume(c model.Credential, id string, sequence uint64, boot string, proof Possession) (Authorization, error) {
@@ -514,9 +515,10 @@ func (m *Manager) Revoke(c model.Credential, id string) error {
 }
 
 type Inventory struct {
-	Hosts    []model.Host          `json:"hosts"`
-	Grants   []model.RemoteGrant   `json:"grants"`
-	Sessions []model.RemoteSession `json:"sessions"`
+	Hosts          []model.Host          `json:"hosts"`
+	Grants         []model.RemoteGrant   `json:"grants"`
+	Sessions       []model.RemoteSession `json:"sessions"`
+	NextGeneration uint64                `json:"next_generation"`
 }
 
 func (m *Manager) List(c model.Credential) (Inventory, error) {
@@ -540,11 +542,18 @@ func (m *Manager) List(c model.Credential) (Inventory, error) {
 				out.Hosts = append(out.Hosts, h)
 			}
 		}
+		var lastGeneration uint64
 		for _, r := range st.RemoteSessions {
+			if r.ControllerID == c.DeviceID && r.Generation > lastGeneration {
+				lastGeneration = r.Generation
+			}
 			if admin || r.ControllerID == c.DeviceID || r.HostID == c.DeviceID {
 				r.ControllerAuth = ""
 				out.Sessions = append(out.Sessions, r)
 			}
+		}
+		if lastGeneration < math.MaxInt64 {
+			out.NextGeneration = lastGeneration + 1
 		}
 		return nil
 	})

@@ -1,5 +1,6 @@
 #include "netgo_remote_client.h"
 #include "netgo_remote_ticket.h"
+#include "netgo_remote_clock.hpp"
 #include "remote_transport.hpp"
 #include <nlohmann/json.hpp>
 #include <openssl/evp.h>
@@ -24,17 +25,19 @@ void put(uint8_t* bytes,uint64_t value,unsigned size){for(unsigned i=0;i<size;++
 Message message(Kind kind,const Json& value){auto text=value.dump();return {kind,{text.begin(),text.end()}};}
 struct Fixture {
  Key siteSeed{},hostSeed{},controllerSeed{},siteKey{},hostKey{},controllerKey{},binding{};Bytes wire;Json authorization;std::mutex mutex;
- std::atomic_bool active=true,serverActive=true,accepted=false;std::atomic_uint connections=0,frames=0,inputCalls=0;
- bool wrongDevice=false,badProof=false;uint16_t port=0;std::thread server;std::atomic_bool proofVerified=false;
+ std::atomic_bool active=true,serverActive=true,accepted=false;std::atomic_uint connections=0,frames=0,inputCalls=0,deletes=0;
+ bool wrongDevice=false,badProof=false,cancelOnIssue=false,missingClock=false;int64_t serverOffsetMS=0;uint16_t port=0;std::thread server;std::atomic_bool proofVerified=false;
  Fixture(){siteSeed.fill(1);hostSeed.fill(2);controllerSeed.fill(3);siteKey=publicKey(siteSeed);hostKey=publicKey(hostSeed);controllerKey=publicKey(controllerSeed);
   std::string site="site",user="user",controller="controller",host="host";ng_remote_ticket_binding fields{};fields.struct_size=sizeof(fields);fields.abi_version=NG_REMOTE_ABI;
   auto id=[](const std::string& s){return ng_remote_ticket_id{reinterpret_cast<const uint8_t*>(s.data()),s.size()};};fields.site_id=id(site);fields.user_id=id(user);fields.controller_id=id(controller);fields.host_id=id(host);std::copy(siteKey.begin(),siteKey.end(),fields.site_key);std::copy(hostKey.begin(),hostKey.end(),fields.host_key);std::copy(controllerKey.begin(),controllerKey.end(),fields.controller_key);std::fill(std::begin(fields.host_boot),std::end(fields.host_boot),4);check(ng_remote_ticket_binding_digest(&fields,binding.data())==0,"binding");
  }
  void issue(uint64_t generation,uint64_t sequence){
   wire.assign(168,0);std::memcpy(wire.data(),"NGRMTK01",8);std::copy(binding.begin(),binding.end(),wire.begin()+8);std::fill(wire.begin()+40,wire.begin()+56,5);put(wire.data()+56,generation,8);put(wire.data()+64,1,8);put(wire.data()+72,sequence,8);
-  auto now=uint64_t(std::chrono::duration_cast<std::chrono::milliseconds>(std::chrono::system_clock::now().time_since_epoch()).count());put(wire.data()+80,now,8);put(wire.data()+88,now+30000,8);put(wire.data()+96,1,4);put(wire.data()+100,1,4);sign(siteSeed,wire.data(),104,wire.data()+104);
+  auto now=uint64_t(std::chrono::duration_cast<std::chrono::milliseconds>(std::chrono::system_clock::now().time_since_epoch()).count()+serverOffsetMS);put(wire.data()+80,now,8);put(wire.data()+88,now+30000,8);put(wire.data()+96,1,4);put(wire.data()+100,1,4);sign(siteSeed,wire.data(),104,wire.data()+104);
   uint8_t boot[16];std::fill(std::begin(boot),std::end(boot),4);uint8_t session[16];std::fill(std::begin(session),std::end(session),5);
   authorization={{"session",{{"id",encode(session,16)},{"user_id","user"},{"controller_id","controller"},{"host_id","host"},{"host_boot",encode(boot,16)},{"binding",encode(binding.data(),32)},{"generation",generation},{"sequence",sequence},{"state",accepted?"active":"issued"},{"capabilities",1}}},{"ticket",encode(wire.data(),wire.size())},{"site_key",encode(siteKey.data(),32)},{"host_key",encode(hostKey.data(),32)},{"controller_key",encode(controllerKey.data(),32)},{"endpoint","127.0.0.1:"+std::to_string(port)}};
+  authorization["server_unix_ms"]=now;
+  if(missingClock)authorization.erase("server_unix_ms");
  }
  void listen(){
   auto listener=std::make_shared<netgo::remote::Listener>("127.0.0.1",0,hostSeed,[this]{return serverActive.load();});port=listener->port();
@@ -50,10 +53,10 @@ struct Fixture {
   o.control=[](void* p,const char* method,const char* path,const char* body,const char*,char* output,size_t capacity,size_t* length)->int32_t{try{
    auto& f=*static_cast<Fixture*>(p);std::lock_guard lock(f.mutex);Json value;
    if(std::string(method)=="CONTEXT")value={{"site_id","site"},{"user_id","user"},{"device_id",f.wrongDevice?"other":"controller"},{"public_key",encode(f.controllerKey.data(),32)}};
-   else if(std::string(path)=="/netgo/v2/remote")value={{"hosts",Json::array({{{"id","host"},{"enabled",true},{"capabilities",3}}})},{"grants",Json::array({{{"host_id","host"},{"user_id","user"},{"capabilities",1}}})}};
+   else if(std::string(path)=="/netgo/v2/remote")value={{"next_generation",uint64_t(17)},{"hosts",Json::array({{{"id","host"},{"enabled",true},{"capabilities",3}}})},{"grants",Json::array({{{"host_id","host"},{"user_id","user"},{"capabilities",1}}})}};
    else if(std::string(path)=="/netgo/v2/remote/key")value={{"public_key",encode(f.siteKey.data(),32)}};
-   else if(std::string(path)=="/netgo/v2/remote/sessions"){auto request=Json::parse(body);check(request.at("capabilities")==1,"view-only negotiation");f.issue(request.at("generation"),1);value=f.authorization;}
-   else if(std::string(method)=="DELETE")value={{"revoked",true}};
+   else if(std::string(path)=="/netgo/v2/remote/sessions"){auto request=Json::parse(body);check(request.at("capabilities")==1,"view-only negotiation");check(request.at("generation")==17,"server generation ignored");f.issue(request.at("generation"),1);value=f.authorization;if(f.cancelOnIssue)f.active=false;}
+   else if(std::string(method)=="DELETE"){++f.deletes;value={{"revoked",true}};}
    else {if(std::string(path).find("/renew")!=std::string::npos)f.issue(f.authorization.at("session").at("generation"),f.authorization.at("session").at("sequence").get<uint64_t>()+1);value=f.authorization;}
    auto text=value.dump();if(text.size()>capacity)return -1;std::copy(text.begin(),text.end(),output);*length=text.size();return 0;
   }catch(...){return -1;}};
@@ -68,10 +71,12 @@ int main(){try{
 #ifdef _WIN32
  WSADATA ws{};check(WSAStartup(MAKEWORD(2,2),&ws)==0,"winsock");
 #endif
- for(int scenario=0;scenario<3;++scenario){Fixture f;f.wrongDevice=scenario==1;f.badProof=scenario==2;f.listen();auto options=f.options();ng_remote_client* client=nullptr;check(ng_remote_client_create(&options,&client)==0,"create");auto result=ng_remote_client_run(client);ng_remote_client_cancel(client);ng_remote_client_destroy(client);
-  if(scenario==0)check(result==0&&f.proofVerified&&f.frames==1&&f.inputCalls==0,"authenticated view-only session");
+ for(int scenario=0;scenario<7;++scenario){Fixture f;f.wrongDevice=scenario==1;f.badProof=scenario==2;f.cancelOnIssue=scenario==5;f.missingClock=scenario==6;f.serverOffsetMS=scenario==3?86400000:scenario==4?-86400000:0;f.listen();auto options=f.options();ng_remote_client* client=nullptr;check(ng_remote_client_create(&options,&client)==0,"create");auto result=ng_remote_client_run(client);ng_remote_client_cancel(client);ng_remote_client_destroy(client);
+  if(scenario==0||scenario==3||scenario==4)check(result==0&&f.proofVerified&&f.frames==1&&f.inputCalls==0,"authenticated view-only session and clock offset");
   else check(result==NG_REMOTE_CLIENT_FAILED&&f.frames==0&&!f.proofVerified,"unauthorized media");
-  if(scenario==1)check(f.connections==0,"wrong device reached transport");
+  if(scenario==1||scenario>=5)check(f.connections==0,"invalid/cancelled client reached transport");
+  check(f.deletes==1,"issued session leaked after cancellation/failure");
  }
+ {auto now=netgo::remote::monotonic_time_ms();check(now>=31000,"test requires 31s uptime");netgo::remote::ServerClock delayed(100000,now-31000);check(delayed.now()>=131000,"slow response extended lease");}
  ng_remote_client* invalid=nullptr;check(ng_remote_client_create(nullptr,&invalid)==NG_REMOTE_CLIENT_INVALID&&invalid==nullptr,"ABI validation");std::cout<<"PASS shared client TLS pin, possession, view-only negotiation, cancellation and unauthorized media rejection\n";return 0;
  }catch(const std::exception& e){std::cerr<<"FAIL "<<e.what()<<'\n';return 1;}}

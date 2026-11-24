@@ -1,0 +1,59 @@
+{
+  "schema": 1,
+  "checked_at": "2026-11-24T21:35:45+08:00",
+  "baseline_commit": "cf39cf928724c16b64a3649d425712d4da4e9bc1",
+  "source_files_sha256": {
+    "apps/windows/remote/CMakeLists.txt": "6e05ade50b095fb2c511cb0545c95b3c8e821871fd0d566a6c60e37dca46d6ef",
+    "apps/windows/remote/include/display_layout.hpp": "2288f32b6ff1a8664a16f590a848e54c0dd034ac3eae664d2ab853944c860977",
+    "apps/windows/remote/include/remote_runtime.hpp": "ce780651554f6d05be4fc0890444c0633e9a59fca6e7a1bca46c1735bd2f91c9",
+    "apps/windows/remote/include/video_codec.hpp": "6c36d7035a764c890d074b9164a8a2f7ca866db14e4d072670ebd28eb1e9f933",
+    "apps/windows/remote/src/remote_runtime.cpp": "5b271f8f3d34f5372a078ecfbaab807cd59ed7107e278c570376231af5e533ef",
+    "apps/windows/remote/src/remote_window.cpp": "a99b777d5b6fbb2db93a2bfe3c667f536d2fc4c37acf283bbd57ac5b592a6f5d",
+    "apps/windows/remote/src/video_codec.cpp": "3905b0b07d86b9bb1d93f16bffd7de04b1539da9aca043abf1115f536ccef16a",
+    "apps/windows/remote/tests/layout_tests.cpp": "fd8e4b8cde332d14cf15cc368b81810af2c393bda51878fd90d150b67e28a1ca",
+    "apps/windows/remote/tests/video_probe.cpp": "c96859a832aca6d35819ff1cdef3dcc3c732ec73aadb73bbc384c4929d02dedd",
+    "internal/remote/manager.go": "453e0cc6324783f3ad8fd87b0e79e301783107f2fe6608d4520cb8f921d1b1dd",
+    "internal/remote/manager_test.go": "cc4afb19438b4a4d6c8a2c029c3c7e60ab8afcc0e5c7a3c94984c5456a16733b",
+    "packages/remote-client/include/netgo_remote_client.h": "23c6a4d6f4e33a68595fd3987d1b44c383107a5afc33620dcf668f0e6968ff28",
+    "packages/remote-client/src/client.cpp": "564c8908900b36a37d966b8444e27ee95262642080bfe37923e64e1165351753",
+    "packages/remote-client/tests/client_tests.cpp": "0bab5f9bcfd5b57d02677698f9e1cf020861272b28f4fabffd70c53ad1bc4f57",
+    "packages/remote-core/include/netgo_remote_clock.hpp": "231f0db6cf893c4ef49efe5a68dbe2b5c8bb7ca255379b0ac3bec1f3a2458e57",
+    "packages/remote-transport/CMakeLists.txt": "ab3deb638ab6d391147290f5c0336635095bcd1544035196a4c9b699b4e68569",
+    "packages/remote-transport/include/remote_transport.hpp": "6209e23e105e9e0ec83408ba746229b0e53b86df88857e193d5a87d4483bd8ba",
+    "packages/remote-transport/src/transport.cpp": "99573ba4ea0c39d7dbe1681f92c749473e1c02e45b41eabcce8d1e2283b35178",
+    "packages/remote-transport/tests/transport_tests.cpp": "959ff48a37b1e3d2dc3acea05773685cc1c0e5389c8cc35dbd790b32e2f97543"
+  },
+  "local_checks": {
+    "windows_native_tests": 11,
+    "debian_sanitizer_tests": 6,
+    "go_tests_and_vet": "passed",
+    "live_video": {
+      "width": 1280,
+      "height": 720,
+      "encoded_frames": 30,
+      "decoded_frames": 30,
+      "saved_images": false
+    },
+    "tls_regression": [
+      "server time +/-24h",
+      "closed-session generation",
+      "partial header/body",
+      "3s total deadline",
+      "closed peer SIGPIPE",
+      "POSIX fd >1024",
+      "cancelled session cleanup"
+    ]
+  },
+  "workspace_log_sha256": {
+    "remote-improvement-native-final-verified3.txt": "82efe8092eca4896b0268cdf664aefb50767d890e031ec83dbf7f7e6b3466e8b",
+    "remote-improvement-go-all.txt": "92bbe36845c241ca9f1ee87a7d14cec7d1e92f976adbb3a684ba8a3396c65d3c",
+    "remote-improvement-go-vet.txt": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+    "remote-improvement-live-video.txt": "e8bcf590340210cf327b5f937798b31e507786cbde32cbf38ef032a05c58bc60",
+    "remote-improvement-linux-sanitizers-final4.txt": "58796d12889a28f9a34031e8b47301d55a48e857f16a6e8ba06031c4de01a6c5",
+    "remote-improvement-linux-transport-proof.txt": "694ca22d13b06b3c2990ee0fc6a455b1e41e9302c18f5d2bc7010979bf3ce5f0"
+  },
+  "cloud_runs": [],
+  "cloud_status": "pending",
+  "release_created": false,
+  "scope": "Implementation and bounded regression validation; no full cross-device/native-device remote desktop acceptance."
+}

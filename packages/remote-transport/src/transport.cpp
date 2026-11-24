@@ -6,11 +6,22 @@
 #ifdef _WIN32
 #include <winsock2.h>
 #include <ws2tcpip.h>
+#include <mstcpip.h>
 #else
 #include <sys/socket.h>
 #include <arpa/inet.h>
 #include <unistd.h>
 #include <fcntl.h>
+#include <poll.h>
+#include <netinet/tcp.h>
+#include <time.h>
+#if defined(__APPLE__)
+#include <mach/mach_time.h>
+#endif
+#if defined(__linux__)
+#include <pthread.h>
+#include <signal.h>
+#endif
 #include <cerrno>
 #endif
 #include <algorithm>
@@ -20,8 +31,43 @@
 #include <utility>
 
 namespace netgo::remote {
+std::uint64_t monotonic_time_ms() noexcept {
+#ifdef _WIN32
+ return GetTickCount64();
+#elif defined(__APPLE__)
+ static const auto scale=[](){mach_timebase_info_data_t value{};mach_timebase_info(&value);return value;}();
+ if(!scale.denom||!scale.numer)return UINT64_MAX;
+ auto ticks=mach_continuous_time(),whole=ticks/scale.denom;
+ if(whole>UINT64_MAX/scale.numer)return UINT64_MAX;
+ auto nanos=whole*scale.numer,part=(ticks%scale.denom)*scale.numer/scale.denom;
+ if(part>UINT64_MAX-nanos)return UINT64_MAX;
+ return (nanos+part)/1000000;
+#else
+ timespec now{};if(clock_gettime(CLOCK_BOOTTIME,&now)!=0||now.tv_sec<0)return UINT64_MAX;
+ return std::uint64_t(now.tv_sec)*1000+std::uint64_t(now.tv_nsec)/1000000;
+#endif
+}
 namespace {
 using Clock=std::chrono::steady_clock;
+struct SignalGuard {
+#if defined(__linux__)
+ sigset_t blocked{},previous{};bool pendingBefore=false;
+ SignalGuard(){
+  sigemptyset(&blocked);sigaddset(&blocked,SIGPIPE);
+  if(pthread_sigmask(SIG_BLOCK,&blocked,&previous)!=0)throw std::runtime_error("remote_signal_mask_failed");
+  sigset_t pending{};sigpending(&pending);pendingBefore=sigismember(&pending,SIGPIPE)==1;
+ }
+ ~SignalGuard(){
+  // Suppress only a new SIGPIPE produced by this thread's TLS operation. Keep
+  // preexisting pending signals and the caller's mask; never change a process
+  // global signal handler from a reusable transport library.
+  if(!pendingBefore){sigset_t pending{};sigpending(&pending);if(sigismember(&pending,SIGPIPE)==1){timespec zero{};while(sigtimedwait(&blocked,nullptr,&zero)<0&&errno==EINTR){}}}
+  pthread_sigmask(SIG_SETMASK,&previous,nullptr);
+ }
+#else
+ SignalGuard()=default;
+#endif
+};
 #ifdef _WIN32
 using Socket=SOCKET;
 constexpr Socket invalid=INVALID_SOCKET;
@@ -53,10 +99,18 @@ sockaddr_storage address(const std::string& ip,std::uint16_t port,int& length){
 bool ready(Socket s,bool write,std::uint32_t ms,const Continue& allowed){
  auto until=Clock::now()+std::chrono::milliseconds(ms);
  do{
-  permission(allowed);fd_set f;FD_ZERO(&f);FD_SET(s,&f);
+  permission(allowed);
   auto left=std::chrono::duration_cast<std::chrono::milliseconds>(until-Clock::now()).count();
-  auto wait=std::max<std::int64_t>(0,std::min<std::int64_t>(left,100));timeval tv{};tv.tv_usec=static_cast<decltype(tv.tv_usec)>(wait*1000);
-  int result=select(int(s)+1,write?nullptr:&f,write?&f:nullptr,nullptr,&tv);
+  auto wait=std::max<std::int64_t>(0,std::min<std::int64_t>(left,100));
+#ifdef _WIN32
+  fd_set f;FD_ZERO(&f);FD_SET(s,&f);timeval tv{};tv.tv_usec=static_cast<decltype(tv.tv_usec)>(wait*1000);
+  int result=select(0,write?nullptr:&f,write?&f:nullptr,nullptr,&tv);
+  if(result<0&&WSAGetLastError()==WSAEINTR)continue;
+#else
+  pollfd f{s,short(write?POLLOUT:POLLIN),0};int result=poll(&f,1,int(wait));
+  if(result<0&&errno==EINTR)continue;
+  require(!(f.revents&POLLNVAL),"remote_socket_failed");
+#endif
   require(result>=0,"remote_socket_failed");if(result>0){permission(allowed);return true;}
  }while(Clock::now()<until);
  return false;
@@ -86,8 +140,14 @@ std::uint32_t get(const std::uint8_t* p){return (std::uint32_t(p[0])<<24)|(std::
 }
 struct Connection::Impl {
  SocketOwner socket;std::shared_ptr<SSL_CTX> context;std::unique_ptr<SSL,decltype(&SSL_free)> tls{nullptr,SSL_free};Continue allowed;
+ std::array<std::uint8_t,12> header{};std::size_t headerBytes=0,bodyBytes=0;Message incoming{};
+ bool headerReady=false,reading=false;Clock::time_point readDeadline;
  Impl(SocketOwner&& s,std::shared_ptr<SSL_CTX> ctx,Continue check):socket(s.release()),context(std::move(ctx)),tls(SSL_new(context.get()),SSL_free),allowed(std::move(check)){
   require(bool(tls)&&SSL_set_fd(tls.get(),int(socket.value))==1,"remote_tls_failed");nonblock(socket.value);
+  int one=1;require(setsockopt(socket.value,IPPROTO_TCP,TCP_NODELAY,reinterpret_cast<const char*>(&one),sizeof(one))==0,"remote_socket_failed");
+#ifdef SO_NOSIGPIPE
+  require(setsockopt(socket.value,SOL_SOCKET,SO_NOSIGPIPE,reinterpret_cast<const char*>(&one),sizeof(one))==0,"remote_socket_failed");
+#endif
  }
  void wait(int result,Clock::time_point deadline){
   auto error=SSL_get_error(tls.get(),result);require(error==SSL_ERROR_WANT_READ||error==SSL_ERROR_WANT_WRITE,"remote_connection_failed");
@@ -95,11 +155,13 @@ struct Connection::Impl {
   require(ready(socket.value,error==SSL_ERROR_WANT_WRITE,std::uint32_t(left),allowed),"remote_transport_timeout");
  }
  void handshake(bool server){
+  [[maybe_unused]] SignalGuard signals;
   auto deadline=Clock::now()+std::chrono::seconds(5);
   for(;;){permission(allowed);int r=server?SSL_accept(tls.get()):SSL_connect(tls.get());if(r==1)return;wait(r,deadline);}
  }
- void transfer(void* data,std::size_t count,bool write){
-  auto p=static_cast<unsigned char*>(data);auto deadline=Clock::now()+std::chrono::seconds(3);
+ void transfer(void* data,std::size_t count,bool write,Clock::time_point deadline){
+  [[maybe_unused]] SignalGuard signals;
+  auto p=static_cast<unsigned char*>(data);
   while(count){permission(allowed);std::size_t n=0;int r=write?SSL_write_ex(tls.get(),p,count,&n):SSL_read_ex(tls.get(),p,count,&n);
    if(r!=1){wait(r,deadline);continue;}require(n>0&&n<=count,"remote_connection_failed");p+=n;count-=n;
   }
@@ -127,17 +189,43 @@ void Connection::authorize(Continue allowed){permission(allowed);impl_->allowed=
 void Connection::send(const Message& message){
  auto kind=static_cast<std::uint32_t>(message.kind);require(kind>=1&&kind<=10&&message.body.size()<=max_message,"remote_invalid_message");
  require(message.kind==Kind::video||message.body.size()<=65536,"remote_invalid_message");
- std::array<std::uint8_t,12> header{'N','G','R','1'};put(header.data()+4,kind);put(header.data()+8,std::uint32_t(message.body.size()));impl_->transfer(header.data(),header.size(),true);
- if(!message.body.empty())impl_->transfer(const_cast<std::uint8_t*>(message.body.data()),message.body.size(),true);
+ auto deadline=Clock::now()+std::chrono::seconds(3);
+ std::array<std::uint8_t,12> header{'N','G','R','1'};put(header.data()+4,kind);put(header.data()+8,std::uint32_t(message.body.size()));impl_->transfer(header.data(),header.size(),true,deadline);
+ if(!message.body.empty())impl_->transfer(const_cast<std::uint8_t*>(message.body.data()),message.body.size(),true,deadline);
 }
 bool Connection::receive(Message& message,std::uint32_t idle_ms){
- require(idle_ms<=30000,"remote_invalid_timeout");permission(impl_->allowed);
- if(SSL_pending(impl_->tls.get())==0&&!ready(impl_->socket.value,false,idle_ms,impl_->allowed))return false;
- std::array<std::uint8_t,12> header{};impl_->transfer(header.data(),header.size(),false);
- auto kind=get(header.data()+4),size=get(header.data()+8);require(std::memcmp(header.data(),"NGR1",4)==0&&kind>=1&&kind<=10&&size<=max_message,"remote_invalid_message");
- // Control messages are strictly smaller than media frames.
- require(kind==static_cast<std::uint32_t>(Kind::video)||size<=65536,"remote_invalid_message");
- message.kind=static_cast<Kind>(kind);message.body.resize(size);if(size)impl_->transfer(message.body.data(),size,false);return true;
+ [[maybe_unused]] SignalGuard signals;
+ require(idle_ms<=30000,"remote_invalid_timeout");auto& p=*impl_;auto until=Clock::now()+std::chrono::milliseconds(idle_ms);
+ for(;;){
+  permission(p.allowed);if(p.reading)require(Clock::now()<p.readDeadline,"remote_transport_timeout");
+  auto* dest=p.headerReady?p.incoming.body.data()+p.bodyBytes:p.header.data()+p.headerBytes;
+  auto remaining=p.headerReady?p.incoming.body.size()-p.bodyBytes:p.header.size()-p.headerBytes;
+  std::size_t n=0;int result=SSL_read_ex(p.tls.get(),dest,remaining,&n);
+  if(result!=1){
+   auto error=SSL_get_error(p.tls.get(),result);require(error==SSL_ERROR_WANT_READ||error==SSL_ERROR_WANT_WRITE,"remote_connection_failed");
+   auto end=p.reading?std::min(until,p.readDeadline):until;
+   auto left=std::chrono::duration_cast<std::chrono::milliseconds>(end-Clock::now()).count();
+   if(left<=0||!ready(p.socket.value,error==SSL_ERROR_WANT_WRITE,std::uint32_t(left),p.allowed)){
+    if(p.reading)require(Clock::now()<p.readDeadline,"remote_transport_timeout");
+    return false;
+   }
+   continue;
+  }
+  require(n>0&&n<=remaining,"remote_connection_failed");
+  if(!p.reading){p.reading=true;p.readDeadline=Clock::now()+std::chrono::seconds(3);}
+  if(p.headerReady)p.bodyBytes+=n;
+  else{
+   p.headerBytes+=n;if(p.headerBytes==p.header.size()){
+    auto kind=get(p.header.data()+4),size=get(p.header.data()+8);
+    require(std::memcmp(p.header.data(),"NGR1",4)==0&&kind>=1&&kind<=10&&size<=max_message,"remote_invalid_message");
+    require(kind==static_cast<std::uint32_t>(Kind::video)||size<=65536,"remote_invalid_message");
+    p.incoming.kind=static_cast<Kind>(kind);p.incoming.body.resize(size);p.headerReady=true;
+   }
+  }
+  if(p.headerReady&&p.bodyBytes==p.incoming.body.size()){
+   permission(p.allowed);message=std::move(p.incoming);p.incoming={};p.headerBytes=p.bodyBytes=0;p.headerReady=p.reading=false;return true;
+  }
+ }
 }
 struct Listener::Impl {SocketOwner socket;std::shared_ptr<SSL_CTX> context;Continue allowed;std::uint16_t port{};};
 Listener::Listener(const std::string& ip,std::uint16_t port,const Key& seed,Continue allowed):impl_(std::make_unique<Impl>()){

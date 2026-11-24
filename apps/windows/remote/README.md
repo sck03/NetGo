@@ -1,48 +1,45 @@
-# Windows desktop capture adapter
+# Windows remote desktop modules
 
-Independent C++17 DXGI Desktop Duplication adapter. Links only to Windows system
-APIs (`d3d11`, `dxgi`, `user32`) and the C++ runtime. It is not linked into the VPN
-UI or agent and is not a remote desktop product yet.
+The single NetGo.exe links the interactive host and viewer, shared authorization
+and TLS transport, DXGI capture, Media Foundation H.264 and WASAPI audio. Users
+open NetGo.exe; these modules are libraries, not separate daily programs.
 
-The adapter borrows one GPU BGRA surface during a synchronous, nonthrowing sink
-call. It never queues frames, creates threads, copies pixels to the CPU, connects
-to a network or grants access. A hardware encoder must copy into its own bounded
-GPU texture pool before the sink returns. Capture threads and objects are scoped
-to one user's desktop session. Use a dedicated thread; do not destroy or reenter
-the object from its sink. COM pointers must not escape the callback.
+The capture adapter remains independent of authentication and networking. It
+borrows a GPU BGRA surface only during its synchronous callback. The host checks
+VIEW authorization before capture and before encoding/sending, keeps one CPU
+staging texture, and releases pressed keys/buttons when a session ends. Only the
+authenticated overlay address is listened on. Each connection requires local
+consent; a 15-second unanswered prompt rejects the connection.
 
-`open()` selects the primary monitor or an exact DXGI display name. `next()` has a
-maximum 50 ms wait; timeout is normal. Access loss, disconnect or device reset
-releases all device resources and reports `unavailable`. The host must stop the
-stream, revalidate authorization and reopen the **same named display**. Never
-silently capture another monitor. `Surface` provides unrotated texture dimensions,
-desktop origin and clockwise display rotation; the renderer/encoder must apply
-the transform. The adapter rejects non-BGRA, array and oversized surfaces.
+Video keeps the desktop's aspect ratio, rounds to even NV12 dimensions and never
+upscales. The software profile is at most 1280×720, 20 fps, with a 3 Mbps target
+bitrate. Capture and codec initialization must succeed before the host sends the
+accepted format. The viewer uses letterboxing and maps input only to that image.
+Black bars and toolbar wheel events are excluded. Stop ends sharing/viewing
+without closing the window; only-view permissions preserve local shortcuts.
 
-The host must check the remote-core VIEW gate before `next()` and again in its
-sink, poll leases while idle, cancel encoders, and discard queued frames on
-revocation. This low-level adapter is deliberately independent of the gate.
+The authenticated response supplies server_unix_ms. Ticket deadlines use that
+time plus a suspend-aware monotonic timer; media peers and the local wall clock
+cannot supply or extend the time. Server next_generation fences each new
+controller session, including reconnects after old sessions close. Update the
+LAN server and clients together for these added control-response fields.
 
-From the repository root with the existing MinGW toolchain on PATH:
+From the repository root after a native build:
 
 ```powershell
-cmake -S apps/windows/remote -B .cache/capture-windows -G Ninja -DCMAKE_BUILD_TYPE=Release -DNETGO_CAPTURE_PROBE=ON
-cmake --build .cache/capture-windows
-& .cache/capture-windows/netgo-capture-probe.exe --check
-& .cache/capture-windows/netgo-capture-probe.exe --run
+ctest --test-dir .cache/native-build --output-on-failure
+& .cache/native-build/remote/netgo-video-probe.exe --check
+& .cache/native-build/remote/netgo-video-probe.exe --run
 ```
 
-`--check` does not capture pixels. `--run` is an explicit interactive desktop
-probe: acquires a real frame, performs bounded CPU readback, closes and reopens
-the same display three times. It reports dimensions/byte counts only; no image,
-pixel hash or screenshot is saved. CPU readback belongs only to this test.
+--check verifies synthetic 720p input through the actual system H.264 codec.
+--run explicitly captures the current desktop and verifies its encode/decode
+path. Neither saves a screen image. These tests do not prove cross-device VPN
+media, audio, input, UAC, lock screen or hardware performance.
 
-Still pending: cursor shape/composition, dirty/move rectangles, real hardware
-encoding, viewer rendering/rotation, audio, input, signed-ticket host integration,
-lock/UAC/user switch/sleep/multi-monitor/Windows 11 tests and streaming benchmarks.
-No secure-desktop bypass, RDP-session compatibility or headless capability is
-claimed. The smoke probe is intentionally not an unattended CTest.
-
-API references (Microsoft Learn): Desktop Duplication API; IDXGIOutput1::DuplicateOutput;
-IDXGIOutputDuplication::AcquireNextFrame and ReleaseFrame. Windows SDK/MinGW system
-headers are used directly; no third-party capture code is copied.
+Access loss, protected/rotated displays and changed stream dimensions stop the
+session. No automatic switch to another monitor, secure-desktop bypass, file
+transfer or clipboard capability is advertised. Cursor composition, hardware
+encoding, multi-monitor/rotation, sleep, Win11 and full device tests remain in
+the remote desktop plan. Public DXGI/MF/WASAPI system APIs are used; no new
+third-party media engine is bundled.

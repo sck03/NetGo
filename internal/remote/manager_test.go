@@ -7,6 +7,7 @@ import (
 	"crypto/rand"
 	"encoding/base64"
 	"errors"
+	"math"
 	"netgo/internal/model"
 	"netgo/internal/remote/ticket"
 	"netgo/internal/session"
@@ -101,6 +102,9 @@ func TestLifecycleAndSignedBindings(t *testing.T) {
 	a := f.acquire(t)
 	if a.Endpoint != "100.96.0.3:29990" || a.Session.ControllerAuth != "" {
 		t.Fatal("unexpected public authorization", a.Session)
+	}
+	if a.ServerUnixMS != f.now.UnixMilli() {
+		t.Fatal("missing authenticated server clock")
 	}
 	wire, _ := base64.RawURLEncoding.DecodeString(a.Ticket)
 	claims, e := ticket.Verify(f.m.Key.Public().(ed25519.PublicKey), wire)
@@ -272,5 +276,42 @@ func TestInspectOnlyCurrentSessionParticipants(t *testing.T) {
 		if _, err := f.m.Inspect(c, a.Session.ID); !errors.Is(err, model.ErrForbidden) {
 			t.Fatal("revoked session inspected", err)
 		}
+	}
+}
+
+func TestNextGenerationSurvivesClosedSessionsAndRestart(t *testing.T) {
+	f := setup(t)
+	list, err := f.m.List(f.c)
+	if err != nil || list.NextGeneration != 1 {
+		t.Fatal(list.NextGeneration, err)
+	}
+	a := f.acquire(t)
+	if err := f.m.Revoke(f.c, a.Session.ID); err != nil {
+		t.Fatal(err)
+	}
+	f.m.Store.Close()
+	f.m.Store, err = store.Open(f.path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	list, err = f.m.List(f.c)
+	if err != nil || list.NextGeneration != 2 {
+		t.Fatal(list.NextGeneration, err)
+	}
+	other, err := f.m.List(f.h)
+	if err != nil || other.NextGeneration != 1 {
+		t.Fatal("generation leaked across devices", other.NextGeneration, err)
+	}
+	if err := f.m.Store.Update(func(st *model.State) error {
+		r := st.RemoteSessions[a.Session.ID]
+		r.Generation = math.MaxInt64
+		st.RemoteSessions[r.ID] = r
+		return nil
+	}); err != nil {
+		t.Fatal(err)
+	}
+	list, err = f.m.List(f.c)
+	if err != nil || list.NextGeneration != 0 {
+		t.Fatal("generation overflow", list.NextGeneration, err)
 	}
 }
