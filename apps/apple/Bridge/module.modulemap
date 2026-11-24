@@ -1,0 +1,4 @@
+module NetGoApple {
+ header "NetGoApple.h"
+ export *
+}

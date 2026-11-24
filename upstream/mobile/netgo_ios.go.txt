@@ -1,0 +1,53 @@
+//go:build ios
+
+package NetBirdSDK
+
+import (
+	"context"
+	"errors"
+	netgogrpc "github.com/netbirdio/netbird/client/grpc"
+	"github.com/netbirdio/netbird/client/internal/auth"
+	"github.com/netbirdio/netbird/client/system"
+	"net/url"
+	"strings"
+	"golang.zx2c4.com/wireguard/wgctrl/wgtypes"
+)
+
+// NewNetGoAuth uses the authenticated site's existing canonical authority,
+// public trust material and candidate selector. It does not open an OAuth UI.
+func NewNetGoAuth(path, origin, ca, addresses, kinds string) (*Auth, error) {
+	target, err := url.Parse(origin)
+	if err != nil || target.Scheme != "https" || target.Host == "" {
+		return nil, errors.New("invalid_netgo_origin")
+	}
+	candidates := strings.Split(addresses, ";")
+	types := strings.Split(kinds, ";")
+	if len(candidates) != len(types) || len(candidates) > 16 {
+		return nil, errors.New("invalid_netgo_candidates")
+	}
+	if err = netgogrpc.ConfigureNetGoCA(target.Host, ca); err != nil {
+		return nil, err
+	}
+	if err = netgogrpc.ConfigureNetGoRoutes(target.Host, candidates, types...); err != nil {
+		return nil, err
+	}
+	return NewAuth(path, origin, nil)
+}
+func (a *Auth) NetGoPublicKey() (string,error) {
+	key,err:=wgtypes.ParseKey(a.config.PrivateKey)
+	if err!=nil{return "",err}
+	return key.PublicKey().String(),nil
+}
+func (a *Auth) NetGoLoginJWT(token, deviceName string) error {
+	if token == "" || len(token) > 65536 {
+		return errors.New("invalid_netgo_token")
+	}
+	connection, err := auth.NewAuth(a.ctx, a.config.PrivateKey, a.config.ManagementURL, a.config)
+	if err != nil {
+		return err
+	}
+	defer connection.Close()
+	ctx := context.WithValue(a.ctx, system.DeviceNameCtxKey, deviceName)
+	err, _ = connection.Login(ctx, "", token)
+	return err
+}

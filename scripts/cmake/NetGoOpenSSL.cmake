@@ -1,6 +1,17 @@
 # MinGW's FindOpenSSL uses LIB_EAY/SSL_EAY internally. Setting only
 # OPENSSL_*_LIBRARY can silently combine our headers with MSYS libraries.
-if(ANDROID)
+if(APPLE AND NETGO_OPENSSL_ROOT)
+  foreach(_component Crypto SSL)
+    if(NOT TARGET OpenSSL::${_component})
+      string(TOLOWER "${_component}" _library)
+      add_library(OpenSSL::${_component} STATIC IMPORTED GLOBAL)
+      set_target_properties(OpenSSL::${_component} PROPERTIES
+        IMPORTED_LOCATION "${NETGO_OPENSSL_ROOT}/lib/lib${_library}.a"
+        INTERFACE_INCLUDE_DIRECTORIES "${NETGO_OPENSSL_ROOT}/include")
+    endif()
+  endforeach()
+  set_property(TARGET OpenSSL::SSL PROPERTY INTERFACE_LINK_LIBRARIES OpenSSL::Crypto)
+elseif(ANDROID)
   # OpenSSL is built for the target. Some CMake distributions infer Windows
   # static dependencies from the build host when cross compiling on Windows.
   get_filename_component(_netgo_root "${CMAKE_CURRENT_LIST_DIR}/../.." ABSOLUTE)
