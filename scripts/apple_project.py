@@ -12,7 +12,7 @@ def value(obj):
     if isinstance(obj,list):return '('+','.join(value(v) for v in obj)+')'
     return quote(obj)
 
-def create(platform,output,native,framework=None):
+def create(platform,output,native,framework=None,resources=()):
     output=Path(output);project=output/'NetGo.xcodeproj';project.mkdir(parents=True,exist_ok=True)
     objects={};project_id=ident('project');group=ident('group');products=ident('products')
     refs=[];product_refs=[];targets=[]
@@ -38,6 +38,12 @@ def create(platform,output,native,framework=None):
         framework_phase=add(name+'frameworks',{'isa':'PBXFrameworksBuildPhase','buildActionMask':'2147483647','files':libraries,'runOnlyForDeploymentPostprocessing':'0'})
         product=add(name+'product',{'isa':'PBXFileReference','explicitFileType':'wrapper.application' if extension=='app' else 'wrapper.app-extension','path':name+'.'+extension,'sourceTree':'BUILT_PRODUCTS_DIR'})
         product_refs.append(product);phases=[source_phase,framework_phase];dependencies=[]
+        if extension=='app' and resources:
+            payload=[]
+            for path in map(Path,resources):
+                ref=add(name+str(path)+'resource',{'isa':'PBXFileReference','path':str(path),'sourceTree':'<absolute>','lastKnownFileType':'folder' if path.is_dir() else 'text'})
+                refs.append(ref);payload.append(add(name+str(path)+'resourcebuild',{'isa':'PBXBuildFile','fileRef':ref}))
+            phases.append(add(name+'resources',{'isa':'PBXResourcesBuildPhase','buildActionMask':'2147483647','files':payload,'runOnlyForDeploymentPostprocessing':'0'}))
         settings={'PRODUCT_NAME':name,'PRODUCT_BUNDLE_IDENTIFIER':'org.netgo.client.mac' if platform=='macOS' else ('org.netgo.client.ios' if extension=='app' else 'org.netgo.client.ios.tunnel'),
                   'GENERATE_INFOPLIST_FILE':'YES','CODE_SIGN_STYLE':'Automatic','CODE_SIGNING_ALLOWED':'NO','SWIFT_VERSION':'5.0',
                   'SWIFT_INCLUDE_PATHS':str(ROOT/'apps/apple/Bridge'),'LIBRARY_SEARCH_PATHS':str(Path(native).parent),'HEADER_SEARCH_PATHS':[str(ROOT/'apps/apple/Bridge'),str(ROOT/'packages/remote-client/include')],

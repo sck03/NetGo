@@ -42,7 +42,7 @@ func (m Manager) verifyInstalled(state Installation) error {
 		if err := noLinks(path); err != nil {
 			return err
 		}
-		if !strings.HasPrefix(path, m.base()+string(os.PathSeparator)) && !strings.HasPrefix(path, m.path("/etc/systemd/system/")+string(os.PathSeparator)) {
+		if !strings.HasPrefix(path, m.base()+string(os.PathSeparator)) && !strings.HasPrefix(path, m.path("/etc/systemd/system")+string(os.PathSeparator)) {
 			return errors.New("非法归属路径")
 		}
 		value, err := sha(path)
@@ -324,7 +324,7 @@ func (m Manager) Uninstall() error {
 		}
 	}
 	for path := range state.Files {
-		if strings.HasPrefix(path, m.path("/etc/systemd/system/")+string(os.PathSeparator)) {
+		if strings.HasPrefix(path, m.path("/etc/systemd/system")+string(os.PathSeparator)) {
 			if err = os.Remove(path); err != nil {
 				return err
 			}

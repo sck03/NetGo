@@ -190,7 +190,8 @@ void command(int id) {
   auto p=Json::parse(readFile(file));validateProfile(p);bool trust=false;
   for(const auto& old:sites)if(old.at("ID")==p.at("ID")&&(originHost(old.at("Origin"))!=originHost(p.at("Origin"))||old.value("CA","")!=p.value("CA",""))){
    auto warning=L"管理员提供的文件更改了本站点的地址或证书。\n\n原地址："+wide(old.at("Origin"))+L"\n新地址："+wide(p.at("Origin"))+L"\n证书摘要："+wide(sha256(p.value("CA","")).substr(0,16))+L"\n\n确认此文件来自你的服务器管理员后继续。";
-   if(MessageBoxW(window,warning.c_str(),L"确认新的站点身份",MB_YESNO|MB_ICONQUESTION)!=IDYES)return;trust=true;
+   if(MessageBoxW(window,warning.c_str(),L"确认新的站点身份",MB_YESNO|MB_ICONQUESTION)!=IDYES)return;
+   trust=true;
   }
   chosen=p["ID"];submit({{"action","import"},{"profile",p},{"replace_trust",trust}});
  }break;}

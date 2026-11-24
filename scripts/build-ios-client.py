@@ -7,7 +7,7 @@ import plistlib
 import shutil
 import subprocess
 import tempfile
-from apple_toolchain import ROOT, environment, native, run, sums
+from apple_toolchain import ROOT, environment, native, run, sums, licenses
 from apple_project import create
 
 def main():
@@ -28,10 +28,12 @@ def main():
         run(['python3','-B',ROOT/'scripts/prepare-mobile-inputs.py','--output',source,'--go',shutil.which('go')],env=env)
         target='ios/arm64' if args.sdk=='iphoneos' else 'iossimulator/arm64'
         run([Path(env['GOBIN'])/'gomobile','bind','-target='+target,'-iosversion=17','-ldflags=-checklinkname=0','-o',framework,'./mobile'],cwd=source,env=env)
+        upstream=Path(subprocess.check_output(['python3','-B',str(ROOT/'scripts/prepare-upstream.py'),'--path-only'],env=env,text=True).strip())
+        resources=licenses(ROOT/('.cache/ios-legal-'+args.sdk)/'licenses',upstream,env)
     info=plistlib.loads((framework/'Info.plist').read_bytes())
     identifier=next(item['LibraryIdentifier'] for item in info['AvailableLibraries'] if item['SupportedPlatform']=='ios' and (item.get('SupportedPlatformVariant')=='simulator')==(args.sdk=='iphonesimulator'))
     library=next((framework/identifier).glob('*.framework'))
-    project=create('iOS',ROOT/('.cache/project-'+args.sdk),archive,library)
+    project=create('iOS',ROOT/('.cache/project-'+args.sdk),archive,library,resources)
     build=ROOT/('.cache/xcode-'+args.sdk)
     flags=['CODE_SIGNING_ALLOWED=NO'] if not args.team else ['CODE_SIGNING_ALLOWED=YES','DEVELOPMENT_TEAM='+args.team,'-allowProvisioningUpdates']
     run(['xcodebuild','-project',project,'-target','NetGo','-configuration','Release','-sdk',args.sdk,'ARCHS=arm64','SYMROOT='+str(build),*flags,'build'],env=env)

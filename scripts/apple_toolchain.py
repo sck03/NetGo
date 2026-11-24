@@ -56,3 +56,12 @@ def native(sdk,arch,deployment,env):
 def sums(folder):
     folder=Path(folder)
     (folder/'SHA256SUMS').write_text(''.join(hashlib.sha256(p.read_bytes()).hexdigest()+'  '+p.relative_to(folder).as_posix()+'\n' for p in sorted(folder.rglob('*')) if p.is_file() and p.name!='SHA256SUMS'),encoding='utf-8')
+
+def licenses(folder, netbird_source, env):
+    folder=Path(folder);folder.mkdir(parents=True,exist_ok=True)
+    goroot=Path(subprocess.check_output(['go','env','GOROOT'],env=env,text=True).strip())
+    sources={'netbird.txt':Path(netbird_source)/'LICENSE', 'openssl.txt':ROOT/'.cache/openssl-apple-source/LICENSE.txt', 'go.txt':goroot/'LICENSE'}
+    for name,path in sources.items():
+        if not path.is_file():raise ValueError('Required license missing: '+str(path))
+        shutil.copy2(path,folder/name)
+    return [folder,ROOT/'THIRD_PARTY_NOTICES.md']

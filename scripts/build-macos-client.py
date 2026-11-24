@@ -7,7 +7,7 @@ from pathlib import Path
 import platform
 import shutil
 import subprocess
-from apple_toolchain import ROOT, environment, native, run, sums
+from apple_toolchain import ROOT, environment, native, run, sums, licenses
 from apple_project import create
 
 def main():
@@ -22,7 +22,8 @@ def main():
     run(['go','build','-trimpath','-ldflags=-s -w','-o',binaries/'netgo-client-service','./cmd/netgo-client-service'],env=env)
     upstream=Path(subprocess.check_output(['python3','-B',str(ROOT/'scripts/prepare-upstream.py'),'--path-only'],env=env,text=True).strip())
     run(['go','build','-trimpath','-ldflags=-s -w','-o',binaries/'netbird','./client'],cwd=upstream,env=env)
-    project=create('macOS',ROOT/'.cache/project-macos',archive)
+    resources=licenses(ROOT/'.cache/macos-legal/licenses',upstream,env)
+    project=create('macOS',ROOT/'.cache/project-macos',archive,resources=resources)
     build=ROOT/'.cache/xcode-macos'
     run(['xcodebuild','-project',project,'-target','NetGo','-configuration','Release','-sdk','macosx','ARCHS='+args.arch,'SYMROOT='+str(build),'CODE_SIGNING_ALLOWED=NO','build'],env=env)
     output=ROOT/'dist/macos-client';output.mkdir(parents=True,exist_ok=True)
@@ -33,7 +34,6 @@ def main():
     for name in ('netbird','netgo-client-service'):shutil.copy2(binaries/name,resources/'bin'/name)
     sums(resources/'bin')
     shutil.copy2(ROOT/'apps/apple/macOS/install-network.sh',resources/'maintenance/install-network.sh')
-    shutil.copy2(ROOT/'THIRD_PARTY_NOTICES.md',resources/'THIRD_PARTY_NOTICES.md')
     for name in ('netbird','netgo-client-service'):run(['codesign','--force','--sign','-',resources/'bin'/name],env=env)
     sums(resources/'bin');run(['codesign','--force','--sign','-',app],env=env)
     destination=output/('NetGo-0.3.0-dev-macos-'+args.arch+'.zip')
