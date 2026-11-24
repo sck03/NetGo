@@ -80,8 +80,8 @@ void Controller::connect(const Json& r) {
  if(alias.empty()||password.empty()||alias.size()>256||password.size()>2048)throw Error("credentials_required");
  disconnectLocked();cancel_=false;uint64_t gen;
  {std::lock_guard lock(mutex_);gen=++generation_;atomicFile(root_/L".generation",std::to_string(gen));status_={{"generation",gen},{"state","probing"},{"site_id",id}};}
- worker_=std::thread([this,gen,p,alias,password=std::move(password),remember,replace=r.value("replace",false)]() mutable{
-  try{run(gen,p,alias,std::move(password),replace,remember);}
+ worker_=std::thread([this,gen,p,alias,password=std::move(password),remember,replace=r.value("replace",false),internet=r.value("internet",false)]() mutable{
+  try{run(gen,p,alias,std::move(password),replace,remember,internet);}
   catch(const std::exception& e){
    std::string error=e.what();if(!std::regex_match(error,std::regex(R"(^[a-zA-Z0-9_]{1,80}$)")))error="connection_failed";
    if(!cancel_)state(gen,"failed",cleanupFailed_?"engine_cleanup_failed":error);
@@ -89,13 +89,13 @@ void Controller::connect(const Json& r) {
  });
  wipe(password);
 }
-void Controller::run(uint64_t gen,Json p,std::string alias,std::string password,bool replace,bool remember) {
+void Controller::run(uint64_t gen,Json p,std::string alias,std::string password,bool replace,bool remember,bool internet) {
  std::string seed,token,refresh,jwt;Json lease=Json::object();std::unique_ptr<Transport> transport;
  bool prepared=false;
  auto check=[&]{if(cancel_)throw Error("cancelled");};
  auto engine=[&](const std::string& action,const Json& fields=Json::object()){
   if(!engineEnabled_)throw Error("engine_disabled_in_test");
-  check();Json request={{"action",action},{"profile",p}};request.update(fields);return engineCall(request,cancel_);
+  check();Json request={{"action",action},{"profile",p},{"internet",internet}};request.update(fields);return engineCall(request,cancel_);
  };
  auto cleanup=[&]{
   closeRemote();
@@ -135,10 +135,11 @@ void Controller::run(uint64_t gen,Json p,std::string alias,std::string password,
   if(!connected)throw Error("engine_connect_timeout");
   check();auto peer=transport->call("GET","/netgo/v2/peer",nullptr,seed,token);
   lease=transport->call("POST","/netgo/v2/sessions",{{"peer_id",peer.at("ID")},{"generation",gen},{"replace",replace}},seed,token,randomID());
-  auto resources=lease.at("resources");routeConflicts(resources);
+  if(internet&&p.value("InternetDNS",Json::array()).empty())throw Error("internet_not_configured");
+  auto resources=selectedResources(lease.at("resources"),internet);routeConflicts(resources);
   engine("routes",{{"resources",resources}});
   if(remember){auto saved=Json({{"alias",alias},{"password",password}}).dump();credentialWrite("password/"+id,saved);wipe(saved);}else credentialDelete("password/"+id);
-  wipe(password);state(gen,"negotiating","",{{"lease",lease}});
+  wipe(password);state(gen,"negotiating","",{{"lease",lease},{"internet",internet}});
   {std::lock_guard lock(mutex_);remoteReady_=true;remoteContext_={{"site_id",id},{"user_id",userID},{"device_id",deviceID},{"generation",gen},{"lease",lease},{"public_key",publicKey(seed)}};}
   auto remoteWork=[&]{
    std::shared_ptr<RemoteJob> job;
@@ -164,16 +165,17 @@ void Controller::run(uint64_t gen,Json p,std::string alias,std::string password,
     if(authExpires-std::chrono::system_clock::now()<std::chrono::minutes(2)&&!refresh.empty()){
      auto authNew=transport->call("POST","/netgo/v2/auth/refresh",{{"refresh_token",refresh}},seed,token);
      wipe(token);wipe(refresh);wipe(jwt);token=authNew.at("token");refresh=authNew.value("refresh_token","");jwt=authNew.at("id_token");authExpires=parseTime(authNew.at("expires_at"));
-     engine("login",{{"id_token",jwt}});engine("up");engine("routes",{{"resources",lease.at("resources")}});
+     engine("login",{{"id_token",jwt}});engine("up");engine("routes",{{"resources",selectedResources(lease.at("resources"),internet)}});
     }
     if(Clock::now()-renewed>=std::chrono::seconds(30)||parseTime(lease.at("expires_at"))-std::chrono::system_clock::now()<std::chrono::seconds(40)){
      lease=transport->call("POST","/netgo/v2/sessions/"+lease.at("id").get<std::string>()+"/renew",{{"Generation",gen}},seed,token);renewed=Clock::now();
+     engine("routes",{{"resources",selectedResources(lease.at("resources"),internet)}});
      {std::lock_guard lock(mutex_);remoteContext_["lease"]=lease;}
     }
     auto data=engine("status");
     auto engineState=data.value("state","");
     if(engineState!="Connected"&&engineState!="connected"){
-     engine("login",{{"id_token",jwt}});engine("up");engine("routes",{{"resources",lease.at("resources")}});
+     engine("login",{{"id_token",jwt}});engine("up");engine("routes",{{"resources",selectedResources(lease.at("resources"),internet)}});
      throw Error("engine_recovering");
     }
     failed=0;

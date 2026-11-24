@@ -21,6 +21,21 @@ type Daemon struct {
 	RPC      pb.DaemonServiceClient
 	conn     *grpc.ClientConn
 	Username string
+	internet bool
+}
+
+func (d *Daemon) ConfigureInternet(ctx context.Context, enabled bool, dns []string) error {
+	if err := ctx.Err(); err != nil {
+		return err
+	}
+	if enabled && len(dns) == 0 {
+		return errors.New("internet_not_configured")
+	}
+	if err := site.ValidateDNS(dns); err != nil {
+		return err
+	}
+	d.internet = enabled
+	return nil
 }
 
 func OpenDaemon(path string) (*Daemon, error) {
@@ -50,7 +65,7 @@ func (d *Daemon) login(ctx context.Context, p site.Profile, mode, token string) 
 		md.Append("netgo-ca-bin", p.CA)
 	}
 	ctx = metadata.NewOutgoingContext(ctx, md)
-	return d.RPC.Login(ctx, &pb.LoginRequest{ManagementUrl: p.Origin, ProfileName: &name, Username: &d.Username, DisableAutoConnect: boolp(true), ServerSSHAllowed: boolp(false), DisableServerRoutes: boolp(true), DisableIpv6: boolp(true), BlockInbound: boolp(true)})
+	return d.RPC.Login(ctx, &pb.LoginRequest{ManagementUrl: p.Origin, ProfileName: &name, Username: &d.Username, DisableDns: boolp(!d.internet), DisableAutoConnect: boolp(true), ServerSSHAllowed: boolp(false), DisableServerRoutes: boolp(true), DisableIpv6: boolp(true), BlockInbound: boolp(true)})
 }
 func (d *Daemon) Prepare(ctx context.Context, p site.Profile) (string, error) {
 	if _, e := d.RPC.Down(ctx, &pb.DownRequest{}); e != nil {
@@ -145,7 +160,8 @@ func (d *Daemon) Status(ctx context.Context, p site.Profile) (DataStatus, error)
 }
 func (d *Daemon) Routes(ctx context.Context, resources []model.Resource) error {
 	if len(resources) == 0 {
-		return errors.New("no authorized routes")
+		_, err := d.RPC.SelectNetworks(ctx, &pb.SelectNetworksRequest{NetworkIDs: []string{}, Append: false})
+		return err
 	}
 	// Management policy writes precede asynchronous route delivery to the daemon.
 	// Match the Windows adapter's bounded wait without selecting a partial map.

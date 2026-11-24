@@ -8,6 +8,7 @@ import subprocess
 import sys
 import tempfile
 import zipfile
+from runtime_files import VPS_FILES
 
 ROOT = Path(__file__).resolve().parents[1]
 def source_revision():
@@ -26,16 +27,18 @@ def main():
     with tempfile.TemporaryDirectory(prefix='vps-package-',dir=cache) as temporary:
         stage = Path(temporary)
         shutil.copytree(ROOT / 'dist/vps', stage / 'dist/vps')
-        (stage / 'scripts').mkdir(); (stage / 'licenses').mkdir()
-        for name in ('install-vps.sh','THIRD_PARTY_NOTICES.md','scripts/vps_setup.py'):
+        (stage / 'licenses').mkdir()
+        for name in (*VPS_FILES,'THIRD_PARTY_NOTICES.md'):
             shutil.copy2(ROOT / name,stage / name)
         for source,name in [(prepared / 'relay/LICENSE','netbird-relay.txt'),(gomod / ('github.com/fatedier/frp@v'+lock['frp']['version']) / 'LICENSE','frp.txt'),(goroot / 'LICENSE','go.txt')]:
             shutil.copy2(source,stage / 'licenses' / name)
-        (stage / 'BUILDINFO.json').write_text(json.dumps({'version':'0.3.0-dev','platform':'linux-amd64','role':'VPS auxiliary','source':source_revision(),'netbird':lock['netbird']['version'],'frp':lock['frp']['version']},indent=2)+'\n')
+        (output / 'BUILDINFO-vps.json').write_text(json.dumps({'version':'0.3.0-dev','platform':'linux-amd64','role':'VPS auxiliary','source':source_revision(),'netbird':lock['netbird']['version'],'frp':lock['frp']['version']},indent=2)+'\n')
         sums(stage)
         with zipfile.ZipFile(output / 'NetGo-0.3.0-dev-vps-linux-amd64.zip','w',zipfile.ZIP_DEFLATED) as z:
             for path in sorted(stage.rglob('*')):
                 if path.is_file(): z.write(path,path.relative_to(stage).as_posix())
+    installer=output/'netgo-vps-installer-linux-amd64';shutil.copy2(ROOT/'dist/vps/bin/netgo-vpsctl',installer)
+    (output/(installer.name+'.sha256')).write_text(hashlib.sha256(installer.read_bytes()).hexdigest()+'  '+installer.name+'\n')
     sums(output)
 
 if __name__ == '__main__': main()

@@ -67,7 +67,10 @@ func Plan(path string, old, next site.Config) (ConfigPlan, error) {
 	if !reflect.DeepEqual(old.Auxiliaries, next.Auxiliaries) || old.Deployment != next.Deployment || old.Site.LocalRelay != next.Site.LocalRelay || old.Site.AuxiliaryRelay != next.Site.AuxiliaryRelay {
 		return result, errors.New("auxiliary/relay changes require render-deploy and component validation")
 	}
-	rules, err := gateway.Render(next.Interface, next.LANInterface, next.OverlayCIDR, nil, time.Now())
+	if !reflect.DeepEqual(old.Bypass, next.Bypass) || !reflect.DeepEqual(old.LocalCIDRs, next.LocalCIDRs) {
+		return result, errors.New("bypass/network changes require the ng deployment menu")
+	}
+	rules, err := gateway.RenderBypass(next.Interface, next.LANInterface, next.OverlayCIDR, next.LocalCIDRs, next.Bypass, nil, time.Now())
 	if err != nil {
 		return result, err
 	}

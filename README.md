@@ -1,6 +1,6 @@
 # NetGo
 
-当前源码提供 Linux 控制服务、原生 Windows 客户端、Linux GTK 查看器和 Android 客户端。账号、权限和控制服务保留在本地 Linux；公网入口可达时不需要 VPS，预先配置 VPS 后提供备用控制入口和 NetBird 中继。macOS/iOS 按当前要求暂缓，保留平台扩展接口，逐项状态见执行方案。
+当前源码提供 Linux 控制服务、Windows、Linux GTK、Android、macOS 和 iOS 原生客户端。账号与权限保留在本地 Linux；可选 VPS 提供备用控制入口和 NetBird 中继。Apple 构建已接入独立脚本，签名和实机验收需设备环境。
 
 可选 VPS 只需一台：同时运行 frps（备用登录/控制）和 NetBird Relay/STUN（直连失败时的 VPN 业务中继）。多个示例域名可指向同一 VPS IP；不要求两台 VPS。
 
@@ -12,15 +12,15 @@
 
 ## 独立安装入口
 
-Windows、Linux 桌面、Android 客户端与 Linux 服务端的 [独立构建脚本/GitHub 工作流](docs/BUILD_CLIENTS.zh-CN.md) 已分开。按用户最新要求，macOS/iOS 暂缓开发，保留共享 C ABI 和平台适配接口。
+各平台的 [构建脚本/GitHub 工作流](docs/BUILD_CLIENTS.zh-CN.md) 分别维护。Linux/VPS 的安装、证书、端口和菜单由 Go 工具实现，最终安装包无需 Python；Python 只用于开发侧构建、打包与验证。
 
 | 安装对象 | 独立脚本 | 操作 |
 | --- | --- | --- |
 | Debian 服务端 | [install-server.sh](install-server.sh) | 安装、首次配置、状态、诊断、卸载与保留数据重装 |
 | VPS 辅助节点 | [install-vps.sh](install-vps.sh) | 独立安装、导入 VPS 专用配置、状态、诊断、卸载与保留配置重装 |
-| Windows 客户端 | NetGo-Setup.exe；[维护脚本](install-client.ps1) | 图形安装/系统卸载；日常仅启动 NetGo.exe |
+| Windows 客户端 | NetGo-Setup.exe | 图形安装/系统卸载；日常仅启动 NetGo.exe |
 
-脚本提供菜单、包摘要校验、离线安装及本机维护入口。参数和首次配置见 [安装说明](docs/INSTALLERS.zh-CN.md)。Linux/VPS 默认查询最新正式 Release；尚无对应发布包时解析 main 为固定 commit，再构建安装。
+LAN 快捷命令 `ng`，VPS 快捷命令 `ngv`，各自提供安装、设置、证书、端口、诊断和卸载菜单。参数见 [安装说明](docs/INSTALLERS.zh-CN.md)。远程一键下载使用 Release；未发布时，从 Actions 下载对应平台包，解压后运行包内安装脚本。安装过程无需编译器或 Python。
 
 ```sh
 curl -fL https://raw.githubusercontent.com/sck03/NetGo/main/install-server.sh -o install-server.sh
@@ -28,13 +28,9 @@ bash install-server.sh install --plan
 bash install-server.sh
 ```
 
-Windows 在预期桌面用户的管理员 PowerShell 中执行：
+Windows 双击 Setup 安装，从开始菜单打开 NetGo；绿色版解压后双击 NetGo.exe，首次网络授权由程序发起。普通用户无需运行 PowerShell 维护脚本。
 
-```powershell
-Invoke-WebRequest -UseBasicParsing https://raw.githubusercontent.com/sck03/NetGo/main/install-client.ps1 -OutFile install-client.ps1
-.\install-client.ps1 -Action Install -Plan
-.\install-client.ps1
-```
+旁路由互联网出口单独设置 IP、DNS 和 DNS 模式，支持 Clash/Mihomo 的 `198.18.0.0/15` Fake-IP。**只有获得“互联网（旁路由）”资源授权的账号才可使用**，客户端默认关闭互联网模式；撤权会关闭租约转发并清理对应连接。局域网权限继续单独控制。
 
 面向国内动态公网线路，本地默认使用控制 TCP 10443、Relay TCP/UDP 18443，可按运营商允许的端口调整。无需开放本地 443；VPS 可独立使用高位端口或 443。HTTPS 域名证书不绑定端口，使用 DNS-01 可避免依赖入站 80/443。
 
@@ -70,10 +66,10 @@ Windows：安装 MSYS2 UCRT64 编译工具和带 cryptography 的 Python，准�
 
     .\scripts\build.ps1 -Toolchain D:\msys64\ucrt64
 
-Debian 12/13 amd64：可通过 `bash install-server.sh install --from-source` 自动准备锁定工具链、构建并安装；只构建时按运维手册执行 `scripts/bootstrap-linux.sh`、`scripts/build.sh` 与 `scripts/build-upstream.sh`。内嵌 SQLite IdP 必须原生启用 CGO，完整服务端包包含六个上游组件。安装前可运行 --plan/-Plan。
+Debian 12/13 amd64：开发侧执行 `scripts/bootstrap-linux.sh`、`scripts/build.sh` 与 `scripts/build-upstream.sh`。服务端包只保留四个项目程序和五个 LAN 上游程序；VPS 包独立包含 frps、Relay 和 Go 维护工具。安装前可运行 --plan。
 
 核心源码位于 apps/windows、cmd、internal、apps/ui；补丁位于 upstream/patches。客户端包括服务器列表、账号密码认证、连接/断开、控制/数据路径状态、资源列表、托盘、密码保护、自动恢复和脱敏诊断。
 
-完成依赖准备后，Windows 使用 `scripts/verify.ps1 -Output 新目录`；Debian 使用 `python3 -B scripts/verify-linux.py --output 新目录`（可先加 --plan）。检查绑定源码、日志和产物摘要。Windows/源码打包使用 `python -B scripts/package.py --version 0.3.0-dev --verification 验证目录/verification.json`；完整 Linux 服务端使用 `python3 -B scripts/package-server.py --verification 验证目录/verification.json`。验收工具见 [验收工具说明](tests/network/README.zh-CN.md)。
+开发验证使用 `scripts/verify.ps1` 或 `scripts/verify-linux.py`，各平台通过独立脚本打包；源码包使用 `scripts/package-source.py`。检查绑定源码、日志和产物摘要。验收工具见 [验收工具说明](tests/network/README.zh-CN.md)。
 
-旧 ARCHITECTURE_PLAN 保留为历史参考；第一版不包括 OpenWrt 服务端、互联网出口代理或多个站点同时连接。
+旧 ARCHITECTURE_PLAN 保留为历史参考。旁路由本身由外部设备提供代理能力，NetGo 管理获授权 VPN 账号到该设备的接入；目前仍不支持 OpenWrt 服务端或多个站点同时连接。

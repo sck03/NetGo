@@ -24,6 +24,8 @@ type Gate interface {
 type NFT struct {
 	mu                               sync.Mutex
 	Interface, LANInterface, Overlay string
+	Bypass                           site.Bypass
+	LocalCIDRs                       []string
 	Run                              func(context.Context, string) error
 	Inspect                          func(context.Context) error
 	Conntrack                        func(context.Context, string) error
@@ -34,7 +36,7 @@ type NFT struct {
 func (n *NFT) Apply(ctx context.Context, leases []model.Lease) error {
 	n.mu.Lock()
 	defer n.mu.Unlock()
-	script, e := Render(n.Interface, n.LANInterface, n.Overlay, leases, time.Now())
+	script, e := RenderBypass(n.Interface, n.LANInterface, n.Overlay, n.LocalCIDRs, n.Bypass, leases, time.Now())
 	if e != nil {
 		return e
 	}
@@ -92,7 +94,7 @@ func (n *NFT) Apply(ctx context.Context, leases []model.Lease) error {
 				kept = append(kept, l)
 			}
 		}
-		guard, err := Render(n.Interface, n.LANInterface, n.Overlay, kept, time.Now())
+		guard, err := RenderBypass(n.Interface, n.LANInterface, n.Overlay, n.LocalCIDRs, n.Bypass, kept, time.Now())
 		if err != nil {
 			return err
 		}
@@ -247,6 +249,13 @@ func noConntrackEntries(output []byte) bool {
 // Render replaces only the owned table, atomically. Timeouts remain effective if
 // both the application and helper crash. The early drop also covers established flows.
 func Render(iface, lan, overlay string, leases []model.Lease, now time.Time) (string, error) {
+	return RenderBypass(iface, lan, overlay, nil, site.Bypass{}, leases, now)
+}
+
+func RenderBypass(iface, lan, overlay string, local []string, bypass site.Bypass, leases []model.Lease, now time.Time) (string, error) {
+	if err := bypass.Validate(local, overlay); err != nil {
+		return "", err
+	}
 	if !site.ValidID(iface) || !site.ValidID(lan) || iface == lan {
 		return "", errors.New("invalid interface")
 	}
@@ -264,6 +273,20 @@ func Render(iface, lan, overlay string, leases []model.Lease, now time.Time) (st
 	fmt.Fprintf(&b, "add rule inet netgo input iifname %q counter drop\n", iface)
 	fmt.Fprintln(&b, "add chain inet netgo forward { type filter hook forward priority -150; policy accept; }")
 	fmt.Fprintln(&b, "add chain inet netgo resources")
+	if bypass.Enabled {
+		fmt.Fprintf(&b, "add set inet netgo nonpublic4 { type ipv4_addr; flags interval; auto-merge; }\nflush set inet netgo nonpublic4\nadd element inet netgo nonpublic4 { %s }\n", strings.Join(append(append([]string(nil), NonPublicIPv4...), local...), ", "))
+		fmt.Fprintln(&b, "add set inet netgo internet4 { type ipv4_addr; flags timeout; }\nflush set inet netgo internet4")
+		fmt.Fprintln(&b, "add chain inet netgo internet")
+		for _, dns := range bypass.DNS {
+			fmt.Fprintf(&b, "add rule inet netgo internet ip daddr %s meta l4proto { tcp, udp } th dport 53 counter accept\n", dns)
+		}
+		if bypass.FakeIPCIDR != "" {
+			fmt.Fprintf(&b, "add rule inet netgo internet ip daddr %s meta l4proto { tcp, udp } counter accept\n", bypass.FakeIPCIDR)
+		}
+		fmt.Fprintln(&b, "add rule inet netgo internet ip daddr @nonpublic4 return\nadd rule inet netgo internet meta l4proto { tcp, udp, icmp } counter accept")
+		fmt.Fprintln(&b, "add chain inet netgo egress { type nat hook postrouting priority 99; policy accept; }")
+		fmt.Fprintf(&b, "add rule inet netgo egress iifname %q oifname %q ip saddr @internet4 masquerade\n", iface, lan)
+	}
 	fmt.Fprintf(&b, "add rule inet netgo forward iifname %q oifname %q ip saddr @active4 jump resources\n", iface, lan)
 	fmt.Fprintf(&b, "add rule inet netgo forward iifname %q counter drop\n", iface)
 	fmt.Fprintf(&b, "add rule inet netgo forward oifname %q ip daddr @active4 ct state established,related accept\n", iface)
@@ -285,12 +308,20 @@ func Render(iface, lan, overlay string, leases []model.Lease, now time.Time) (st
 		}
 		seen[l.IP] = true
 		fmt.Fprintf(&b, "add element inet netgo active4 { %s timeout %ds }\n", ip, ttl)
+		internetAdded := false
 		for _, r := range l.Resources {
 			if !r.Enabled {
 				continue
 			}
 			if e := site.ValidateResource(r, overlay); e != nil {
 				return "", e
+			}
+			if r.Protocol == "internet" {
+				if bypass.Enabled && !internetAdded {
+					fmt.Fprintf(&b, "add element inet netgo internet4 { %s timeout %ds }\nadd rule inet netgo resources ip saddr %s jump internet\n", ip, ttl, ip)
+					internetAdded = true
+				}
+				continue
 			}
 			fmt.Fprintf(&b, "add rule inet netgo resources ip saddr %s ip daddr %s ", ip, r.CIDR)
 			if r.Protocol == "icmp" {

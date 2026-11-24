@@ -20,6 +20,7 @@ class VpnPlatform(private val service: NetGoVpnService) : Platform {
     private val store = KeyStore.getInstance("AndroidKeyStore").apply { load(null) }
     private val alias = "NetGo.DeviceKeyEncryption"
     private var proxyDns = ""
+	private var selectedDns = ""
     private var address = ""
     private fun key(): SecretKey = synchronized(store) {
         (store.getKey(alias, null) as? SecretKey) ?: KeyGenerator.getInstance(KeyProperties.KEY_ALGORITHM_AES, "AndroidKeyStore").run {
@@ -47,10 +48,11 @@ class VpnPlatform(private val service: NetGoVpnService) : Platform {
         fun add(value: String) { if (value.isNotEmpty()) { val fields = value.split('/'); require(fields.size == 2); builder.addAddress(fields[0], fields[1].toInt()) } }
         add(address); add(address6)
         routes.split(';').filter { it.isNotBlank() }.forEach { val fields = it.split('/'); require(fields.size == 2); builder.addRoute(fields[0], fields[1].toInt()) }
-        proxyDns.split(';').filter { it.isNotBlank() }.forEach { builder.addDnsServer(it) }
+        selectedDns.split(';').filter { it.isNotBlank() }.forEach { builder.addDnsServer(it) }
         search.split(';').filter { it.isNotBlank() }.forEach { builder.addSearchDomain(it) }
         return builder.establish()?.use { it.detachFd().toLong() } ?: error("VPN 授权已失效")
     }
+	@Synchronized override fun configureDNS(dns: String) { selectedDns = dns }
     @Synchronized override fun updateAddr(address: String) { if (this.address != address) { this.address = address; NetGoRuntime.client?.networkChanged(true, networkDNS()) } }
     override fun protectSocket(fd: Int): Boolean = service.protect(fd)
     override fun networkDNS(): String {

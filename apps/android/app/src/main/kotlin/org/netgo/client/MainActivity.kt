@@ -26,32 +26,34 @@ import kotlinx.coroutines.launch
 import org.json.JSONObject
 import org.netgo.client.ui.theme.NetGoTheme
 
+private data class ConnectionRequest(val site: String, val alias: String, val password: String, val internet: Boolean)
 class MainActivity : ComponentActivity() {
-    private var pending: Triple<String, String, String>? = null
+    private var pending: ConnectionRequest? = null
     private val permission = registerForActivityResult(ActivityResultContracts.StartActivityForResult()) {
         val request = pending; pending = null
         if (it.resultCode == Activity.RESULT_OK && request != null) startConnection(request)
         else NetGoRuntime.message.value = "VPN 授权已取消"
     }
-    private fun startConnection(value: Triple<String, String, String>) {
+    private fun startConnection(value: ConnectionRequest) {
         ContextCompat.startForegroundService(this, Intent(this, NetGoVpnService::class.java).setAction("connect")
-            .putExtra("site", value.first).putExtra("alias", value.second).putExtra("password", value.third))
+            .putExtra("site", value.site).putExtra("alias", value.alias).putExtra("password", value.password).putExtra("internet", value.internet))
     }
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState); startService(Intent(this, NetGoVpnService::class.java))
-        setContent { NetGoTheme { Screen { site, alias, password ->
-            val request = Triple(site, alias, password); val approval = VpnService.prepare(this)
+        setContent { NetGoTheme { Screen { site, alias, password, internet ->
+            val request = ConnectionRequest(site, alias, password, internet); val approval = VpnService.prepare(this)
             if (approval == null) startConnection(request) else { pending = request; permission.launch(approval) }
         } } }
     }
     override fun onStop() { NativeRemote.stopCurrent(); super.onStop() }
 }
 
-@Composable private fun Screen(connect: (String, String, String) -> Unit) {
+@Composable private fun Screen(connect: (String, String, String, Boolean) -> Unit) {
     val profiles by NetGoRuntime.profiles.collectAsState(); val hosts by NetGoRuntime.hosts.collectAsState()
     val status by NetGoRuntime.status.collectAsState(); val message by NetGoRuntime.message.collectAsState()
     var site by remember { mutableStateOf(NetGoRuntime.selectedSite) }; var alias by remember { mutableStateOf("") }; var password by remember { mutableStateOf("") }
     var select by remember { mutableStateOf(false) }; var target by remember { mutableStateOf("") }
+    var internet by remember { mutableStateOf(false) }
     val context = androidx.compose.ui.platform.LocalContext.current
     LaunchedEffect(profiles) { if (site.isEmpty() && profiles.isNotEmpty()) { site = profiles.first().first; NetGoRuntime.selectedSite = site } }
     val importer = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocument()) { uri ->
@@ -74,8 +76,9 @@ class MainActivity : ComponentActivity() {
         }
         OutlinedTextField(alias, onValueChange = { alias = it }, label = { Text("账号") }, singleLine = true, modifier = Modifier.fillMaxWidth())
         OutlinedTextField(password, onValueChange = { password = it }, label = { Text("密码") }, visualTransformation = PasswordVisualTransformation(), singleLine = true, modifier = Modifier.fillMaxWidth())
+        Row { Checkbox(checked = internet, onCheckedChange = { internet = it }); Text("通过旁路由访问互联网（需要账号授权）") }
         Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-            Button(onClick = { connect(site, alias, password); password = "" }, enabled = site.isNotEmpty() && alias.isNotEmpty() && password.isNotEmpty()) { Text("连接网络") }
+            Button(onClick = { connect(site, alias, password, internet); password = "" }, enabled = site.isNotEmpty() && alias.isNotEmpty() && password.isNotEmpty()) { Text("连接网络") }
             OutlinedButton(onClick = { target = ""; NetGoRuntime.disconnect() }) { Text("断开") }
         }
         Text(status.optString("state", "disconnected") + "  " + status.optString("error")); Text(message); HorizontalDivider()

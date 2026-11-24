@@ -23,7 +23,7 @@ final class PacketTunnelProvider: NEPacketTunnelProvider {
             self.bridge.applyNetwork = { [weak self] ip,ip6,dns,routes in self?.apply(ip,dns:dns,routes:routes) }
             self.monitor.pathUpdateHandler = { [weak self] path in self?.bridge.networkAvailable(path.status == .satisfied) }; self.monitor.start(queue:self.queue)
             self.queue.async {
-                let result = self.bridge.startRoot(root.path,profile:profile,alias:alias,password:password,tunnelFD:self.descriptor,interfaceName:self.interfaceName)
+                let result = self.bridge.startRoot(root.path,profile:profile,alias:alias,password:password,internet:(options["internet"] as? NSNumber)?.boolValue ?? false,tunnelFD:self.descriptor,interfaceName:self.interfaceName)
                 completionHandler(result.isEmpty ? nil : NSError(domain:"NetGo",code:3,userInfo:[NSLocalizedDescriptionKey:result]))
             }
         }
@@ -35,12 +35,12 @@ final class PacketTunnelProvider: NEPacketTunnelProvider {
         settings.ipv4Settings = NEIPv4Settings(addresses:[String(parts[0])],subnetMasks:[maskText]); settings.mtu = 1280
         var values = [NEIPv4Route(destinationAddress:String(parts[0]),subnetMask:maskText)]
         for value in routes.split(separator:";") {
-            let fields = value.split(separator:"/"); guard fields.count == 2, let prefix = Int(fields[1]), prefix > 0, prefix <= 32 else { continue }
-            let mask = UInt32.max << (32-prefix), text = [24,16,8,0].map { String((mask >> $0) & 255) }.joined(separator:".")
+            let fields = value.split(separator:"/"); guard fields.count == 2, let prefix = Int(fields[1]), prefix >= 0, prefix <= 32 else { continue }
+            let mask = prefix == 0 ? UInt32(0) : UInt32.max << (32-prefix), text = [24,16,8,0].map { String((mask >> $0) & 255) }.joined(separator:".")
             values.append(NEIPv4Route(destinationAddress:String(fields[0]),subnetMask:text))
         }
         settings.ipv4Settings?.includedRoutes = values
-        if let data = dns.data(using:.utf8), let object = try? JSONSerialization.jsonObject(with:data) as? [String:Any], let server = object["ServerIP"] as? String, !server.isEmpty { settings.dnsSettings = NEDNSSettings(servers:[server]); settings.dnsSettings?.matchDomains = object["SearchDomains"] as? [String] ?? [] }
+        if let data = dns.data(using:.utf8), let object = try? JSONSerialization.jsonObject(with:data) as? [String:Any], let servers = object["Servers"] as? [String], !servers.isEmpty { settings.dnsSettings = NEDNSSettings(servers:servers); settings.dnsSettings?.matchDomains = [""] }
         setTunnelNetworkSettings(settings) { [weak self] error in if let error = error { self?.cancelTunnelWithError(error) } }
     }
     override func handleAppMessage(_ messageData: Data,completionHandler: ((Data?) -> Void)?) { queue.async { [weak self] in completionHandler?(self?.bridge.message(messageData)) } }

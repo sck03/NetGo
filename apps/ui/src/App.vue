@@ -52,9 +52,9 @@ async function deleteUser(user: any) {
 async function saveResource() {
   await action(async () => {
     const f = resourceForm.value
-    const ports = f.protocol === 'icmp' ? [] : f.ports.split(',').map(x => Number(x.trim()))
+    const ports = ['icmp','internet'].includes(f.protocol) ? [] : f.ports.split(',').map(x => Number(x.trim()))
     if (ports.some(x => !Number.isInteger(x) || x < 1 || x > 65535)) throw Error('端口必须为 1–65535 的整数')
-    await admin.request('/netgo/v2/admin/resources/' + encodeURIComponent(f.id), 'PUT', { ...f, ports })
+    await admin.request('/netgo/v2/admin/resources/' + encodeURIComponent(f.id), 'PUT', { ...f, cidr: f.protocol === 'internet' ? '0.0.0.0/0' : f.cidr, ports })
     await refresh(); notice.value = '资源已保存，请应用策略后重新连接以获取权限。'
   })
 }
@@ -109,7 +109,7 @@ onUnmounted(() => { if (timer) clearInterval(timer); admin.logout() })
         <section class="card"><h3>账号权限</h3><div v-for="u in users" :key="u.id" class="user-row"><div><strong>{{ u.alias }}</strong><small>{{ u.email }} · {{ u.role }}</small></div><label class="check"><input type="checkbox" v-model="u.disabled">禁用</label><label>设备上限<input class="number" v-model.number="u.max_devices" type="number" min="1" max="100"></label><label>并发上限<input class="number" v-model.number="u.max_sessions" type="number" min="1" max="100" :placeholder="String(u.max_sessions || 1)"></label><label>到期时间<input type="datetime-local" :value="expiryValue(u.expires_at)" @change="setExpiry(u, $event)"></label><label>授权资源<select v-model="u.resources" multiple><option v-for="r in resources" :value="r.id" :key="r.id">{{ r.name }}</option></select></label><button class="secondary" :disabled="busy" @click="saveUser(u)">保存并撤销旧会话</button><button class="secondary" :disabled="busy" @click="deleteUser(u)">删除账号</button></div></section>
       </template>
       <template v-else-if="page === 'resources'">
-        <section class="card"><h3>添加或修改资源</h3><form class="resource-form" @submit.prevent="saveResource"><label>资源 ID<input v-model="resourceForm.id" required pattern="[a-zA-Z0-9][a-zA-Z0-9_.-]{0,62}"></label><label>名称<input v-model="resourceForm.name" required></label><label>IPv4 网段或主机<input v-model="resourceForm.cidr" required></label><label>协议<select v-model="resourceForm.protocol"><option>tcp</option><option>udp</option><option>icmp</option></select></label><label v-if="resourceForm.protocol !== 'icmp'">端口（逗号分隔）<input v-model="resourceForm.ports" required></label><label class="check"><input v-model="resourceForm.enabled" type="checkbox">启用</label><button class="primary" :disabled="busy">保存资源</button></form></section>
+        <section class="card"><h3>添加或修改资源</h3><form class="resource-form" @submit.prevent="saveResource"><label>资源 ID<input v-model="resourceForm.id" required pattern="[a-zA-Z0-9][a-zA-Z0-9_.-]{0,62}"></label><label>名称<input v-model="resourceForm.name" required></label><label>IPv4 网段或主机<input v-model="resourceForm.cidr" required></label><label>协议<select v-model="resourceForm.protocol"><option>tcp</option><option>udp</option><option>icmp</option><option value="internet">互联网（旁路由）</option></select></label><label v-if="!['icmp','internet'].includes(resourceForm.protocol)">端口（逗号分隔）<input v-model="resourceForm.ports" required></label><label class="check"><input v-model="resourceForm.enabled" type="checkbox">启用</label><button class="primary" :disabled="busy">保存资源</button></form></section>
         <section class="card"><div v-for="r in resources" :key="r.id" class="resource"><strong>{{ r.name }}</strong><code>{{ r.cidr }}</code><span>{{ r.protocol }} {{ r.ports.join(', ') }} · {{ r.enabled ? '启用' : '停用' }}</span><button class="secondary" @click="resourceForm = { ...r, ports: r.ports.join(',') }">编辑</button><button class="secondary" :disabled="busy" @click="action(async () => { await admin.request('/netgo/v2/admin/resources/' + encodeURIComponent(r.id), 'DELETE'); await refresh() })">删除</button></div><div v-if="!resources.length" class="empty">尚未配置资源。</div></section>
       </template>
       <template v-else-if="page === 'sessions'">

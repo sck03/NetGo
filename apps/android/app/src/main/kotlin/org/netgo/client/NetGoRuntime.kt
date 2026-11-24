@@ -33,7 +33,7 @@ object NetGoRuntime {
         if (selectedSite.isEmpty() && profiles.value.isNotEmpty()) selectedSite = profiles.value.first().first
     }
     fun importProfile(text: String) = execute { it.importProfile(text); refreshProfiles(it); message.value = "站点已导入" }
-    fun connect(site: String, alias: String, password: String) = execute { selectedSite = site; it.connect(site, alias, password, false) }
+    fun connect(site: String, alias: String, password: String, internet: Boolean) = execute { selectedSite = site; it.connectMode(site, alias, password, false, internet) }
     fun disconnect() = execute { NativeRemote.stopCurrent(); it.disconnect(); hosts.value = emptyList() }
     fun refreshHosts() = execute {
         val data = JSONObject(it.remoteCall(selectedSite, "GET", "/netgo/v2/remote", "", "")).getJSONArray("hosts")

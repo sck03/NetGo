@@ -12,7 +12,7 @@
 using namespace netgo;
 namespace {
 constexpr UINT resultMessage=WM_APP+1,trayMessage=WM_APP+2;
-enum { Servers=100,Alias,Password,Remember,Replace,Connect,Import,Export,Edit,Remove,Info,Resources,StatusText,Detail,Log,Tabs,ShowPassword,LogText,StatusDetail,RefreshLog,MenuNew=200,MenuImport,MenuExport,MenuEdit,MenuDelete,MenuForget,MenuExit,MenuShow,MenuDisconnect,MenuAutoStart,MenuAutoConnect,MenuTray,MenuAbout,MenuAdvanced,MenuMain,MenuInfo,MenuResources,MenuMinimizeTray,MenuNetworkSetup,MenuRemote };
+enum { Servers=100,Alias,Password,Remember,Replace,Connect,Import,Export,Edit,Remove,Info,Resources,StatusText,Detail,Log,Tabs,ShowPassword,LogText,StatusDetail,RefreshLog,Internet,MenuNew=200,MenuImport,MenuExport,MenuEdit,MenuDelete,MenuForget,MenuExit,MenuShow,MenuDisconnect,MenuAutoStart,MenuAutoConnect,MenuTray,MenuAbout,MenuAdvanced,MenuMain,MenuInfo,MenuResources,MenuMinimizeTray,MenuNetworkSetup,MenuRemote };
 struct Result{std::string action,site;Json value;std::string error;};
 HWND window=nullptr;HFONT font=nullptr,titleFont=nullptr;HBRUSH background=nullptr,sidebar=nullptr;
 UINT dpi=96;
@@ -42,6 +42,8 @@ std::wstring errorText(const std::string& e) {
   {"unauthorized",L"账号认证失败或已失效，请检查账号密码。"},
   {"clock_out_of_sync",L"本机与服务器时间相差超过 30 秒。请核对两端校时状态后重试。"},
   {"forbidden",L"账号没有访问权限或已禁用。"},
+  {"internet_forbidden",L"账号尚未获得互联网权限。请取消互联网选项，或联系管理员授权。"},
+  {"internet_not_configured",L"服务器尚未设置旁路由和 DNS。请联系管理员设置。"},
   {"rate_limited",L"登录请求过于频繁，请稍候一分钟再试。"},
   {"session_conflict",L"该账号已有连接。如需替换，请勾选“替换旧连接”后重试。"},
   {"lease_expired",L"无法续期，连接已断开。请检查服务器入口后重新连接。"},
@@ -71,7 +73,7 @@ void set(int id,const std::wstring& s){SetWindowTextW(controls.at(id),s.c_str())
 bool active(){auto state=currentStatus.value("state","disconnected");return pending||(state!="disconnected"&&state!="failed")||currentStatus.value("error","")=="engine_cleanup_failed";}
 void showTab(int page){
  TabCtrl_SetCurSel(controls[Tabs],page);
- for(int id:std::initializer_list<int>{Servers,Alias,Password,Remember,Replace,Connect,Import,Edit,Detail,Log,ShowPassword,400,401,402})ShowWindow(controls[id],page==0?SW_SHOW:SW_HIDE);
+ for(int id:std::initializer_list<int>{Servers,Alias,Password,Remember,Replace,Internet,Connect,Import,Edit,Detail,Log,ShowPassword,400,401,402})ShowWindow(controls[id],page==0?SW_SHOW:SW_HIDE);
  for(int id:std::initializer_list<int>{403,Info})ShowWindow(controls[id],page==1?SW_SHOW:SW_HIDE);
  for(int id:std::initializer_list<int>{Resources,404})ShowWindow(controls[id],page==2?SW_SHOW:SW_HIDE);
  for(int id:std::initializer_list<int>{405,LogText,RefreshLog,300,301})ShowWindow(controls[id],page==3?SW_SHOW:SW_HIDE);
@@ -112,7 +114,7 @@ LRESULT CALLBACK editorProc(HWND h,UINT m,WPARAM w,LPARAM l){
  if(m==WM_DESTROY){data->done=true;return 0;}return DefWindowProcW(h,m,w,l);
 }
 void editProfile(bool create,bool advanced=false) {
- Json p=create?Json{{"Protocol",1},{"ID","site1"},{"Name","我的服务器"},{"Origin","https://control.example.com:10443"},{"Candidates",Json::array({{{"ID","direct"},{"Address","control.example.com:10443"},{"Kind","direct"}}})},{"GatewayPeerID",""},{"GatewayIP","100.96.0.1"},{"CA",""},{"LocalRelay","relay.example.com"},{"AuxiliaryRelay",""}}:(selected()?*selected():Json());
+ Json p=create?Json{{"Protocol",2},{"ConfigRevision",1},{"ID","site1"},{"Name","我的服务器"},{"Origin","https://control.example.com:10443"},{"Candidates",Json::array({{{"ID","direct"},{"Address","control.example.com:10443"},{"Kind","direct"}}})},{"GatewayPeerID",""},{"GatewayIP","100.96.0.1"},{"CA",""},{"LocalRelay","relay.example.com"},{"AuxiliaryRelay",""}}:(selected()?*selected():Json());
  if(p.is_null())return;
  if(!advanced){if(auto result=profileDialog(window,p,create)){chosen=result->at("ID");submit({{"action","import"},{"profile",*result}});}return;}
  WNDCLASSW c{};c.lpfnWndProc=editorProc;c.hInstance=GetModuleHandleW(nullptr);c.lpszClassName=L"NetGoProfileEditor";c.hCursor=LoadCursorW(nullptr,IDC_ARROW);c.hbrBackground=reinterpret_cast<HBRUSH>(COLOR_WINDOW+1);RegisterClassW(&c);
@@ -148,7 +150,7 @@ void refreshSelection() {
  set(Password,L"");saved=false;set(Alias,L"");SendMessageW(controls[Remember],BM_SETCHECK,BST_UNCHECKED,0);
  SendMessageW(controls[ShowPassword],BM_SETCHECK,BST_UNCHECKED,0);SendMessageW(controls[Password],EM_SETPASSWORDCHAR,L'●',0);
  if(p)submit({{"action","credential-info"},{"site",chosen}});
- for(int id:{Connect,Edit,Alias,Password,Remember,Replace,ShowPassword})EnableWindow(controls[id],p!=nullptr&&!active());
+ for(int id:{Connect,Edit,Alias,Password,Remember,Replace,Internet,ShowPassword})EnableWindow(controls[id],p!=nullptr&&!active());
  preferences["selected"]=chosen;persist();
 }
 void drawStatus(Json status) {
@@ -156,7 +158,7 @@ void drawStatus(Json status) {
  bool busy=active();set(Connect,busy?(s=="connected"||s=="recovering"?L"断开连接":L"取消连接"):L"连接");
  EnableWindow(controls[Connect],!pending&&(busy||selected()!=nullptr));
  EnableWindow(controls[Servers],!busy);EnableWindow(controls[Import],!busy);
- for(int id:{Alias,Password,Remember,Replace,Edit,ShowPassword})EnableWindow(controls[id],!busy&&selected()!=nullptr);
+ for(int id:{Alias,Password,Remember,Replace,Internet,Edit,ShowPassword})EnableWindow(controls[id],!busy&&selected()!=nullptr);
  auto d=currentStatus.value("data",Json::object());auto path=d.value("path","negotiating");std::wstring route=path=="direct"?L"直连":path=="local_relay"?L"本地中继":path=="auxiliary_relay"?L"VPS 中继":path=="relay_unknown"?L"中继（待识别）":L"等待连接";
  auto control=currentStatus.value("control","");std::wstring entrance=control=="direct"?L"服务器直达入口":control=="auxiliary"?L"VPS 备用入口":L"等待探测";
  auto candidate=currentStatus.value("control_candidate","");if(!candidate.empty())entrance+=L"（"+wide(candidate)+L"）";
@@ -180,7 +182,7 @@ void command(int id) {
  case IDOK:case Connect:{if(pending)break;if(active()){pending=true;submit({{"action","disconnect"}});drawStatus(currentStatus);break;}if(!selected())break;
   if(std::filesystem::is_regular_file(executableDir()/L"netgo-portable.json")&&!WaitNamedPipeW(L"\\\\.\\pipe\\netgo-netbird",100)){command(MenuNetworkSetup);break;}
   if(text(controls[Alias]).empty()||(!saved&&text(controls[Password]).empty()))throw Error("credentials_required");
-  std::string password=utf8(text(controls[Password]));submit({{"action","connect"},{"site",chosen},{"alias",utf8(text(controls[Alias]))},{"password",password},{"remember",SendMessageW(controls[Remember],BM_GETCHECK,0,0)==BST_CHECKED},{"replace",SendMessageW(controls[Replace],BM_GETCHECK,0,0)==BST_CHECKED}});
+  std::string password=utf8(text(controls[Password]));submit({{"action","connect"},{"site",chosen},{"alias",utf8(text(controls[Alias]))},{"password",password},{"internet",SendMessageW(controls[Internet],BM_GETCHECK,0,0)==BST_CHECKED},{"remember",SendMessageW(controls[Remember],BM_GETCHECK,0,0)==BST_CHECKED},{"replace",SendMessageW(controls[Replace],BM_GETCHECK,0,0)==BST_CHECKED}});
   pending=true;wipe(password);set(Password,L"");drawStatus(currentStatus);preferences["selected"]=chosen;persist();break;}
  case MenuDisconnect:if(!pending){pending=true;submit({{"action","disconnect"}});drawStatus(currentStatus);}break;
  case ShowPassword:SendMessageW(controls[Password],EM_SETPASSWORDCHAR,SendMessageW(controls[ShowPassword],BM_GETCHECK,0,0)==BST_CHECKED?0:L'●',0);InvalidateRect(controls[Password],nullptr,TRUE);break;
@@ -227,7 +229,8 @@ void layout(){
  move(401,28,100,58,24);move(Alias,90,95,width-122,26);
  move(402,28,141,58,24);move(Password,90,136,width-224,26);move(ShowPassword,width-124,139,100,23);
  move(Remember,90,176,158,24);move(Replace,254,176,width-284,24);
- move(Connect,90,213,184,32);move(Log,284,213,110,32);move(Detail,90,253,width-120,30);
+ move(Internet,90,205,width-122,24);
+ move(Connect,90,238,184,32);move(Log,284,238,110,32);move(Detail,90,278,width-120,30);
  move(403,28,46,width-56,22);move(Info,28,72,width-56,height-166);
  move(Resources,28,48,width-56,height-176);move(404,28,height-120,width-56,24);
  move(405,28,46,width-56,22);move(LogText,28,72,width-56,height-208);move(RefreshLog,28,height-126,82,28);move(301,120,height-126,90,28);move(300,width-144,height-126,116,28);
@@ -265,6 +268,7 @@ void createUI(){
  control(L"BUTTON",L"显示密码",ShowPassword,WS_TABSTOP|BS_AUTOCHECKBOX);
  control(L"BUTTON",L"记住密码",Remember,WS_TABSTOP|BS_AUTOCHECKBOX);
  control(L"BUTTON",L"替换旧连接",Replace,WS_TABSTOP|BS_AUTOCHECKBOX);
+ control(L"BUTTON",L"通过旁路由访问互联网（需要账号授权）",Internet,WS_TABSTOP|BS_AUTOCHECKBOX);
  control(L"BUTTON",L"连接",Connect,WS_TABSTOP|BS_DEFPUSHBUTTON);
  control(L"STATIC",L"VPN 信息",403);
  control(L"EDIT",L"尚未连接。",Info,WS_TABSTOP|WS_VSCROLL|ES_MULTILINE|ES_READONLY|ES_AUTOVSCROLL,WS_EX_CLIENTEDGE);
@@ -282,7 +286,7 @@ LRESULT CALLBACK proc(HWND h,UINT m,WPARAM w,LPARAM l) {
   switch(m){
   case WM_CREATE:window=h;createUI();return 0;
   case WM_SIZE:if(w==SIZE_MINIMIZED&&preferences.value("minimize_to_tray",false))ShowWindow(h,SW_HIDE);else if(controls.contains(StatusDetail)&&controls.contains(Resources))layout();return 0;
-  case WM_GETMINMAXINFO:{RECT r{0,0,scale(500),scale(370)};AdjustWindowRectExForDpi(&r,WS_OVERLAPPEDWINDOW,TRUE,0,dpi);auto info=reinterpret_cast<MINMAXINFO*>(l);info->ptMinTrackSize={r.right-r.left,r.bottom-r.top};return 0;}
+  case WM_GETMINMAXINFO:{RECT r{0,0,scale(500),scale(410)};AdjustWindowRectExForDpi(&r,WS_OVERLAPPEDWINDOW,TRUE,0,dpi);auto info=reinterpret_cast<MINMAXINFO*>(l);info->ptMinTrackSize={r.right-r.left,r.bottom-r.top};return 0;}
   case WM_DPICHANGED:{dpi=HIWORD(w);fonts();for(const auto& [id,control]:controls)SendMessageW(control,WM_SETFONT,reinterpret_cast<WPARAM>(id==StatusText?titleFont:font),TRUE);auto rect=reinterpret_cast<RECT*>(l);SetWindowPos(h,nullptr,rect->left,rect->top,rect->right-rect->left,rect->bottom-rect->top,SWP_NOZORDER|SWP_NOACTIVATE);layout();return 0;}
   case WM_CTLCOLORSTATIC:case WM_CTLCOLOREDIT:{auto child=reinterpret_cast<HWND>(l);bool edit=m==WM_CTLCOLOREDIT||child==controls[Info]||child==controls[LogText];SetTextColor(reinterpret_cast<HDC>(w),GetSysColor(COLOR_WINDOWTEXT));SetBkColor(reinterpret_cast<HDC>(w),GetSysColor(edit?COLOR_WINDOW:COLOR_BTNFACE));return reinterpret_cast<LRESULT>(edit?sidebar:background);}
   case WM_ERASEBKGND:{RECT r{};GetClientRect(h,&r);FillRect(reinterpret_cast<HDC>(w),&r,background);return TRUE;}

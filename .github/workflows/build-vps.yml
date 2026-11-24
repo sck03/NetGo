@@ -2,7 +2,7 @@ name: VPS auxiliary node
 on:
   workflow_dispatch:
   push:
-    paths: ['install-vps.sh', 'scripts/bootstrap-vps.sh', 'scripts/build-vps.sh', 'scripts/package-vps.py', 'scripts/vps_setup.py', 'scripts/export_vps.py', 'tests/tools/test_vps.py', 'upstream/**', '.github/workflows/build-vps.yml']
+    paths: ['install-vps.sh', 'cmd/netgo-vpsctl/**', 'internal/node/**', 'internal/deployment/**', 'internal/site/**', 'deploy/templates/**', 'scripts/runtime_files.py', 'scripts/bootstrap-vps.sh', 'scripts/build-vps.sh', 'scripts/package-vps.py', 'upstream/**', '.github/workflows/build-vps.yml']
 permissions:
   contents: read
 jobs:
@@ -21,7 +21,7 @@ jobs:
       - name: Verify deployment boundary and ownership
         run: |
           git config --global --add safe.directory "$GITHUB_WORKSPACE"
-          python3 -B -m unittest discover -s tests/tools -p 'test_vps*.py' -v
+          CGO_ENABLED=0 go test ./internal/node ./internal/deployment -v
       - name: Build VPS auxiliary package
         run: bash scripts/build-vps.sh
       - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9

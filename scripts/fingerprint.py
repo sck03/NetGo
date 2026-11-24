@@ -5,7 +5,7 @@ import json
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
-SCOPES = ('apps', 'assets', 'cmd', 'internal', 'packages', 'deploy', 'scripts', 'tests', 'examples', 'upstream', '.github')
+SCOPES = ('apps', 'assets', 'cmd', 'internal', 'mobile', 'packages', 'deploy', 'scripts', 'tests', 'examples', 'upstream', '.github')
 EXCLUDED = {'dist', '__pycache__', 'node_modules', '.git', 'build', '.gradle', '.cxx'}
 
 

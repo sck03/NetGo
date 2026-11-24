@@ -7,7 +7,7 @@ next="/opt/netgo/releases/$version"
 [[ -x "$next/netgo-server" && -L /opt/netgo/current && ! -e /opt/netgo/next ]] || exit 1
 old=$(readlink -f /opt/netgo/current)
 [[ $old == /opt/netgo/releases/* ]] || exit 1
-# Schema 1 is unchanged. For later schema changes restore a consistent backup first.
+# A release switch requires the same schema; incompatible data must be archived.
 "$next/netgoctl" config validate --config /etc/netgo/site.json
 ln -s "$next" /opt/netgo/next
 mv -T /opt/netgo/next /opt/netgo/current

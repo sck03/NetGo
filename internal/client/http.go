@@ -36,13 +36,14 @@ func (c *Controller) Handler() http.Handler {
 		var b struct {
 			Site, Alias, Password string
 			Replace               bool
+			Internet              bool
 		}
 		r.Body = http.MaxBytesReader(w, r.Body, 8192)
 		if e := site.Decode(r.Body, &b); e != nil {
 			write(w, nil, e)
 			return
 		}
-		e := c.Connect(b.Site, b.Alias, b.Password, b.Replace)
+		e := c.ConnectMode(b.Site, b.Alias, b.Password, b.Replace, b.Internet)
 		b.Password = ""
 		write(w, c.Status(), e)
 	})

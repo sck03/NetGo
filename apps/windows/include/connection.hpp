@@ -10,6 +10,7 @@ std::string publicKey(const std::string& seed);
 std::string signedMessage(const std::string& method,const std::string& path,const std::string& stamp,const std::string& nonce,const std::string& body,const std::string& token);
 Json engineCall(const Json& request, const std::atomic_bool& cancel);
 void routeConflicts(const Json& resources);
+Json selectedResources(const Json& resources,bool internet);
 Json safeDiagnostic(const Json& status, const Json& logs);
 void validateHealth(const Json& health,const std::string& siteID);
 struct HttpResponse { int status; std::string body; };
@@ -52,7 +53,7 @@ class Controller {
  bool engineEnabled_ = true;
  uint64_t generation_ = 0;
  void state(uint64_t gen,const std::string& name,const std::string& error = {},const Json& fields = Json::object());
- void run(uint64_t gen,Json profile,std::string alias,std::string password,bool replace,bool remember);
+ void run(uint64_t gen,Json profile,std::string alias,std::string password,bool replace,bool remember,bool internet);
  void disconnectLocked();
 public:
  explicit Controller(std::filesystem::path root,bool engineEnabled = true);

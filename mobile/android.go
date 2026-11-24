@@ -26,6 +26,7 @@ type Platform interface {
 	ProtectSocket(fd int32) bool
 	IFaces() (string, error)
 	NetworkDNS() string
+	ConfigureDNS(dns string) error
 }
 type androidBackend struct {
 	mu                                       sync.Mutex
@@ -33,6 +34,7 @@ type androidBackend struct {
 	platform                                 Platform
 	root, device, config, ip, ip6, lastError string
 	connected                                bool
+	internetDNS                              []string
 	done                                     chan struct{}
 }
 type platformFiles struct{ config, root string }
@@ -74,6 +76,24 @@ func (b *androidBackend) auth(p site.Profile) (*sdk.Auth, error) {
 		b.mu.Unlock()
 	}
 	return auth, err
+}
+func (b *androidBackend) ConfigureInternet(ctx context.Context, enabled bool, dns []string) error {
+	if err := ctx.Err(); err != nil {
+		return err
+	}
+	if enabled && len(dns) == 0 {
+		return errors.New("internet_not_configured")
+	}
+	if err := site.ValidateDNS(dns); err != nil {
+		return err
+	}
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	b.internetDNS = nil
+	if enabled {
+		b.internetDNS = append([]string(nil), dns...)
+	}
+	return b.platform.ConfigureDNS(strings.Join(b.internetDNS, ";"))
 }
 func (b *androidBackend) Prepare(ctx context.Context, p site.Profile) (string, error) {
 	if err := b.Down(ctx); err != nil {
@@ -268,7 +288,10 @@ func (b *androidBackend) rebuildTun() {
 	if ip == "" {
 		return
 	}
-	fd, err := b.platform.ConfigureInterface(ip, ip6, 1280, "", settings.SearchDomains, settings.Routes)
+	b.mu.Lock()
+	dns := strings.Join(b.internetDNS, ";")
+	b.mu.Unlock()
+	fd, err := b.platform.ConfigureInterface(ip, ip6, 1280, dns, settings.SearchDomains, settings.Routes)
 	if err != nil {
 		return
 	}

@@ -4,6 +4,24 @@ from pathlib import Path, PurePosixPath
 import posixpath
 import shutil
 import tarfile
+import zipfile
+
+def extract_zip(archive,destination):
+    destination=Path(destination).resolve();destination.mkdir(mode=0o700,parents=True,exist_ok=False)
+    with zipfile.ZipFile(archive) as z:
+        entries=z.infolist();seen=set()
+        if len(entries)>100 or sum(e.file_size for e in entries)>4*1024**2:raise ValueError('configuration archive is too large')
+        for e in entries:
+            name=e.filename.rstrip('/');path=PurePosixPath(name);mode=e.external_attr>>16
+            if not name or path.is_absolute() or '..' in path.parts or '\\' in name or ':' in name or str(path)!=name or name in seen or (mode&0o170000) not in (0,0o100000,0o040000):raise ValueError('unsafe configuration archive path')
+            seen.add(name)
+        for e in entries:
+            target=destination/e.filename
+            if e.is_dir():target.mkdir(mode=0o700,parents=True,exist_ok=True);continue
+            target.parent.mkdir(mode=0o700,parents=True,exist_ok=True)
+            with z.open(e) as src,target.open('xb') as dst:shutil.copyfileobj(src,dst)
+            target.chmod(0o600)
+    return destination
 
 
 def extract_tar(archive, destination, allow_links=False):

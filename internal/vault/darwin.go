@@ -34,19 +34,35 @@ static void erase(void *bytes,size_t size){if(bytes){memset(bytes,0,size);free(b
 import "C"
 
 import (
+	"crypto/sha256"
+	"encoding/hex"
 	"errors"
 	"netgo/internal/site"
 	"os"
+	"path/filepath"
 	"unsafe"
 )
 
 type Vault struct{ Root string }
 
+func (v Vault) account(id string) (string, error) {
+	root, err := filepath.Abs(v.Root)
+	if err != nil {
+		return "", err
+	}
+	sum := sha256.Sum256([]byte(filepath.Clean(root)))
+	return hex.EncodeToString(sum[:]) + ":" + id, nil
+}
+
 func (v Vault) Read(id string) ([]byte, error) {
 	if !site.ValidID(id) {
 		return nil, errors.New("invalid vault ID")
 	}
-	a := C.CString(id)
+	account, err := v.account(id)
+	if err != nil {
+		return nil, err
+	}
+	a := C.CString(account)
 	defer C.free(unsafe.Pointer(a))
 	var bytes unsafe.Pointer
 	var size C.size_t
@@ -67,7 +83,11 @@ func (v Vault) Write(id string, b []byte) error {
 	if !site.ValidID(id) || len(b) == 0 || len(b) > 4096 {
 		return errors.New("invalid device key")
 	}
-	a := C.CString(id)
+	account, err := v.account(id)
+	if err != nil {
+		return err
+	}
+	a := C.CString(account)
 	defer C.free(unsafe.Pointer(a))
 	if C.writeKey(a, unsafe.Pointer(&b[0]), C.size_t(len(b))) != 0 {
 		return errors.New("keychain_write_failed")

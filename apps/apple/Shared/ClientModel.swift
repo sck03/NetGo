@@ -17,9 +17,10 @@ struct HostItem: Identifiable { let id: String; let name: String }
     @Published var password = ""
     @Published var message = "未连接"
     @Published var connected = false
+	@Published var internet = false
     let viewer = RemoteViewer()
     var request: ((String,String,String) throws -> String)?
-    var connectAction: ((SiteItem,String,String) -> Void)?
+    var connectAction: ((SiteItem,String,String,Bool) -> Void)?
     var disconnectAction: (() -> Void)?
     private var timer: Timer?
 
@@ -41,8 +42,8 @@ struct HostItem: Identifiable { let id: String; let name: String }
     func connect() {
         guard let site = sites.first(where:{$0.id == selected}), !alias.isEmpty, !password.isEmpty else { message = "请选择站点并填写账号密码"; return }
         let secret = password; password = ""; message = "连接中…"
-        if let connectAction = connectAction { connectAction(site,alias,secret); return }
-        let body = encode(["Site":site.id,"Alias":alias,"Password":secret,"Replace":false])
+        if let connectAction = connectAction { connectAction(site,alias,secret,internet); return }
+        let body = encode(["Site":site.id,"Alias":alias,"Password":secret,"Replace":false,"Internet":internet])
         operation("POST","/desktop/connect",body)
     }
     func disconnect() { viewer.stop(); if let disconnectAction = disconnectAction { disconnectAction() } else { operation("POST","/desktop/disconnect","{}") } }
@@ -58,7 +59,7 @@ struct HostItem: Identifiable { let id: String; let name: String }
         }
     }
     func loadHosts() {
-        let body = encode(["Site":selected,"Method":"GET","Path":"/remote/hosts","Body":NSNull(),"Idempotency":""])
+        let body = encode(["Site":selected,"Method":"GET","Path":"/netgo/v2/remote","Body":NSNull(),"Idempotency":""])
         guard let request = request else { return }
         DispatchQueue.global().async { [weak self] in
             do {

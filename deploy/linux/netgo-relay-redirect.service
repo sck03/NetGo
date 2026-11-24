@@ -1,0 +1,13 @@
+# Managed by NetGo v1
+[Unit]
+Description=NetGo local Relay QUIC port mapping
+Before=netbird-relay.service netgo-haproxy.service
+
+[Service]
+Type=oneshot
+RemainAfterExit=yes
+ExecStart=/usr/sbin/nft -f /etc/netgo/relay-port.nft
+ExecStop=/opt/netgo/current/netgoctl server redirect-remove
+
+[Install]
+WantedBy=multi-user.target

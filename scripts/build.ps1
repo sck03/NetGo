@@ -12,17 +12,18 @@ if(-not $SkipChecks){go test ./internal/... ./cmd/...;Check-Exit;go vet ./intern
 $releaseVersion=go run ./cmd/netgoctl version | ConvertFrom-Json;Check-Exit
 New-Item -ItemType Directory -Path "$root\dist\linux-amd64" -Force|Out-Null
 $env:GOOS='linux';$env:GOARCH='amd64'
-foreach($name in @('netgoctl','netgo-server','netgo-helper','netgo-client-service','netgo-ddns')){go build -trimpath -ldflags '-s -w' -o "dist/linux-amd64/$name" "./cmd/$name";Check-Exit}
+foreach($name in @('netgoctl','netgo-server','netgo-helper','netgo-ddns')){go build -trimpath -ldflags '-s -w' -o "dist/linux-amd64/$name" "./cmd/$name";Check-Exit}
 Remove-Item Env:GOOS -ErrorAction SilentlyContinue
 [ordered]@{version=$releaseVersion.version;protocol=$releaseVersion.protocol;schema=$releaseVersion.schema;os='linux';arch='amd64'} | ConvertTo-Json | Set-Content -LiteralPath "$root\dist\linux-amd64\release.json" -Encoding utf8NoBOM
-Get-ChildItem -LiteralPath "$root\dist\linux-amd64" -File | Where-Object {$_.Name -ne 'SHA256SUMS'} | Get-FileHash -Algorithm SHA256 | ForEach-Object {"$($_.Hash.ToLower())  $([IO.Path]::GetFileName($_.Path))"} | Set-Content -LiteralPath "$root\dist\linux-amd64\SHA256SUMS" -Encoding utf8NoBOM
+$serverArtifacts=@('netgoctl','netgo-server','netgo-helper','netgo-ddns','release.json')|ForEach-Object{Get-Item -LiteralPath "$root\dist\linux-amd64\$_"}
+$serverArtifacts | Get-FileHash -Algorithm SHA256 | ForEach-Object {"$($_.Hash.ToLower())  $([IO.Path]::GetFileName($_.Path))"} | Set-Content -LiteralPath "$root\dist\linux-amd64\SHA256SUMS" -Encoding utf8NoBOM
 if(-not $SkipNative){& "$PSScriptRoot\build-native.ps1" -Toolchain $Toolchain -Python $Python}
 if(-not $SkipUpstream){& "$PSScriptRoot\build-upstream-windows.ps1" -Toolchain $Toolchain}
 $windows=Join-Path $root 'dist\windows-amd64'
 if(Test-Path -LiteralPath $windows){
  Get-ChildItem -LiteralPath $windows -File|Where-Object {$_.Name -ne 'SHA256SUMS'}|Get-FileHash -Algorithm SHA256|ForEach-Object {"$($_.Hash.ToLower())  $([IO.Path]::GetFileName($_.Path))"}|Set-Content -Encoding utf8NoBOM (Join-Path $windows 'SHA256SUMS')
 }
-$artifactFiles=@(Get-ChildItem -LiteralPath "$root\dist\linux-amd64" -File)
+$artifactFiles=@($serverArtifacts)
 if(Test-Path -LiteralPath $windows){$artifactFiles+=Get-ChildItem -LiteralPath $windows -File}
 $artifactFiles|Where-Object {$_.Name -ne 'SHA256SUMS'}|Get-FileHash -Algorithm SHA256|ForEach-Object {"$($_.Hash.ToLower())  $($_.Path.Substring($root.Length+6).Replace('\','/'))"}|Set-Content -Encoding utf8NoBOM "$root\dist\SHA256SUMS"
 Write-Host 'Product source checks and builds complete. Linux upstream CGO services and network acceptance require a Linux lab.'

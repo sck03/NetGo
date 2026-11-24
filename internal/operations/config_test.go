@@ -9,6 +9,7 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 )
 
 func configuration() site.Config {
@@ -87,7 +88,13 @@ func TestConfigurationAndReleaseOperationsCannotOverlap(t *testing.T) {
 	}, Health: func(context.Context, site.Config) error { return nil }}
 	done := make(chan error, 1)
 	go func() { done <- tx.Apply(context.Background(), path, next) }()
-	<-entered
+	select {
+	case <-entered:
+	case err := <-done:
+		t.Fatalf("configuration failed before reaching the lock test: %v", err)
+	case <-time.After(5 * time.Second):
+		t.Fatal("configuration never reached the lock test")
+	}
 	queued := old
 	queued.LeaseSeconds = 60
 	err := (ConfigTransaction{}).Apply(context.Background(), path, queued)

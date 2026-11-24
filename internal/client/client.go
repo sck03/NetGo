@@ -50,6 +50,7 @@ type Status struct {
 	ControlCandidate string             `json:"control_candidate"`
 	Data             netbird.DataStatus `json:"data"`
 	Lease            model.Lease        `json:"lease"`
+	Internet         bool               `json:"internet"`
 }
 type Controller struct {
 	mu            sync.Mutex
@@ -216,6 +217,9 @@ func (c *Controller) disconnect() error {
 	return err
 }
 func (c *Controller) Connect(id, alias, password string, replace bool) error {
+	return c.ConnectMode(id, alias, password, replace, false)
+}
+func (c *Controller) ConnectMode(id, alias, password string, replace, internet bool) error {
 	c.op.Lock()
 	defer c.op.Unlock()
 	if !site.ValidID(id) {
@@ -244,13 +248,13 @@ func (c *Controller) Connect(id, alias, password string, replace bool) error {
 		cancel()
 		return e
 	}
-	c.status = Status{Generation: gen, State: "probing", SiteID: id}
+	c.status = Status{Generation: gen, State: "probing", SiteID: id, Internet: internet}
 	c.cancel = cancel
 	c.done = done
 	c.mu.Unlock()
 	go func() {
 		defer close(done)
-		e := c.run(ctx, gen, p, alias, &password, replace)
+		e := c.run(ctx, gen, p, alias, &password, replace, internet)
 		password = ""
 		if e != nil && ctx.Err() == nil {
 			c.set(gen, func(s *Status) { s.State = "failed"; s.Error = e.Error() })
@@ -258,7 +262,7 @@ func (c *Controller) Connect(id, alias, password string, replace bool) error {
 	}()
 	return nil
 }
-func (c *Controller) run(ctx context.Context, gen uint64, p site.Profile, alias string, password *string, replace bool) (result error) {
+func (c *Controller) run(ctx context.Context, gen uint64, p site.Profile, alias string, password *string, replace, internet bool) (result error) {
 	defer func() { *password = "" }()
 	selector, e := controlpath.New(p)
 	if e != nil {
@@ -331,6 +335,13 @@ func (c *Controller) run(ctx context.Context, gen uint64, p site.Profile, alias 
 		return e
 	}
 	remote.HTTP = selector.Client()
+	if engine, ok := c.Engine.(InternetEngine); ok {
+		if e = engine.ConfigureInternet(loginCtx, internet, p.InternetDNS); e != nil {
+			return e
+		}
+	} else if internet {
+		return errors.New("internet_not_supported")
+	}
 	c.set(gen, func(s *Status) { s.Control = selector.Current().Kind; s.ControlCandidate = selector.Current().ID })
 	if e = c.Engine.Login(loginCtx, p, auth.IDToken); e != nil {
 		return e
@@ -354,10 +365,17 @@ func (c *Controller) run(ctx context.Context, gen uint64, p site.Profile, alias 
 		defer done()
 		_ = remote.Call(cleanup, "DELETE", "/netgo/v2/sessions/"+lease.ID, nil, nil, "")
 	}()
-	if e = CheckConflicts(lease.Resources); e != nil {
-		return e
+	applyRoutes := func(ctx context.Context) error {
+		resources, err := SelectedResources(lease.Resources, internet)
+		if err != nil {
+			return err
+		}
+		if err = CheckConflicts(resources); err != nil {
+			return err
+		}
+		return c.Engine.Routes(ctx, resources)
 	}
-	if e = c.Engine.Routes(loginCtx, lease.Resources); e != nil {
+	if e = applyRoutes(loginCtx); e != nil {
 		return e
 	}
 	c.set(gen, func(s *Status) { s.State = "negotiating"; s.Lease = lease })
@@ -398,7 +416,7 @@ func (c *Controller) run(ctx context.Context, gen uint64, p site.Profile, alias 
 				if e = c.Engine.Up(ctx, p); e != nil {
 					continue
 				}
-				if e = c.Engine.Routes(ctx, lease.Resources); e != nil {
+				if e = applyRoutes(ctx); e != nil {
 					continue
 				}
 			}
@@ -409,6 +427,9 @@ func (c *Controller) run(ctx context.Context, gen uint64, p site.Profile, alias 
 					continue
 				}
 				lastRenew = time.Now()
+				if e = applyRoutes(ctx); e != nil {
+					return e
+				}
 			}
 			stateCtx, done := context.WithTimeout(ctx, 5*time.Second)
 			ds, de := c.Engine.Status(stateCtx, p)
@@ -420,7 +441,7 @@ func (c *Controller) run(ctx context.Context, gen uint64, p site.Profile, alias 
 					de = c.Engine.Up(recovery, p)
 				}
 				if de == nil {
-					de = c.Engine.Routes(recovery, lease.Resources)
+					de = applyRoutes(recovery)
 				}
 				done()
 				c.set(gen, func(s *Status) { s.State = "recovering"; s.Error = "engine_recovering" })
@@ -454,6 +475,9 @@ func CheckConflicts(resources []model.Resource) error {
 			continue
 		}
 		for _, r := range resources {
+			if r.Protocol == "internet" && r.CIDR == "0.0.0.0/0" {
+				continue
+			}
 			remote, e := netip.ParsePrefix(r.CIDR)
 			if e != nil {
 				return e

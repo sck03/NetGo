@@ -9,7 +9,7 @@ import NetworkExtension
 final class TunnelRuntime {
     private var manager: NETunnelProviderManager?
     @MainActor func attach(_ model: ClientModel) {
-        model.connectAction = { [weak self,weak model] site,alias,password in self?.connect(site,alias:alias,password:password,model:model) }
+        model.connectAction = { [weak self,weak model] site,alias,password,internet in self?.connect(site,alias:alias,password:password,internet:internet,model:model) }
         model.disconnectAction = { [weak self] in self?.manager?.connection.stopVPNTunnel() }
         model.request = { [weak self] method,path,body in
             guard let session = self?.manager?.connection as? NETunnelProviderSession else { throw NSError(domain:"NetGo",code:1,userInfo:[NSLocalizedDescriptionKey:"VPN 未连接"]) }
@@ -21,7 +21,7 @@ final class TunnelRuntime {
             return String(decoding:data,as:UTF8.self)
         }
     }
-    private func connect(_ site: SiteItem,alias: String,password: String,model: ClientModel?) {
+    private func connect(_ site: SiteItem,alias: String,password: String,internet: Bool,model: ClientModel?) {
         NETunnelProviderManager.loadAllFromPreferences { [weak self,weak model] managers,error in
             if let error = error { Task { @MainActor in model?.message = error.localizedDescription }; return }
             let manager = managers?.first(where:{($0.protocolConfiguration as? NETunnelProviderProtocol)?.providerBundleIdentifier == "org.netgo.client.ios.tunnel"}) ?? NETunnelProviderManager()
@@ -32,7 +32,7 @@ final class TunnelRuntime {
                 manager.loadFromPreferences { error in
                     if let error = error { Task { @MainActor in model?.message = error.localizedDescription }; return }
                     self?.manager = manager
-                    do { try manager.connection.startVPNTunnel(options:["profile":site.raw as NSString,"alias":alias as NSString,"password":password as NSString]) }
+                    do { try manager.connection.startVPNTunnel(options:["profile":site.raw as NSString,"alias":alias as NSString,"password":password as NSString,"internet":NSNumber(value:internet)]) }
                     catch { Task { @MainActor in model?.message = error.localizedDescription } }
                 }
             }

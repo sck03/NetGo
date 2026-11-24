@@ -1,0 +1,21 @@
+# Managed by NetGo v1
+[Unit]
+Description=NetGo optional LAN bypass router
+After=network-online.target
+Before=netgo-helper.service netgo-router.service netgo-server.service
+Wants=network-online.target
+
+[Service]
+Type=oneshot
+RemainAfterExit=yes
+ExecStart=/opt/netgo/current/netgoctl server network-apply
+ExecStop=/opt/netgo/current/netgoctl server network-remove
+UMask=0077
+NoNewPrivileges=yes
+ProtectSystem=strict
+ProtectHome=yes
+ReadWritePaths=/etc/netgo /run
+CapabilityBoundingSet=CAP_NET_ADMIN
+
+[Install]
+WantedBy=multi-user.target

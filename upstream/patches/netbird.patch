@@ -59,7 +59,7 @@ new file mode 100644
 index 0000000..f206a86
 --- /dev/null
 +++ b/client/cmd/netgo_rpc.go
-@@ -0,0 +1,246 @@
+@@ -0,0 +1,249 @@
 +package cmd
 +
 +import (
@@ -108,11 +108,13 @@ index 0000000..f206a86
 +	ConfigRevision                                                             uint64
 +	ID, Name, Origin, CA, GatewayPeerID, GatewayIP, LocalRelay, AuxiliaryRelay string
 +	Candidates                                                                 []struct{ ID, Address, Kind string }
++	InternetDNS                                                                []string
 +}
 +type netgoRPCRequest struct {
 +	Action    string          `json:"action"`
 +	Profile   netgoRPCProfile `json:"profile"`
 +	IDToken   string          `json:"id_token"`
++	Internet  bool            `json:"internet"`
 +	Resources []struct {
 +		CIDR               string `json:"cidr"`
 +		ID, Name, Protocol string
@@ -139,7 +141,7 @@ index 0000000..f206a86
 +		return map[string]bool{"done": err == nil}, err
 +	}
 +	p := req.Profile
-+	if p.Protocol != 1 || !regexp.MustCompile("^[a-zA-Z0-9][a-zA-Z0-9_.-]{0,62}$").MatchString(p.ID) {
++	if p.Protocol != 2 || !regexp.MustCompile("^[a-zA-Z0-9][a-zA-Z0-9_.-]{0,62}$").MatchString(p.ID) {
 +		return nil, errors.New("invalid profile")
 +	}
 +	authority, err := url.Parse(p.Origin)
@@ -160,9 +162,10 @@ index 0000000..f206a86
 +			md.Append("netgo-jwt", req.IDToken)
 +		}
 +		yes, no := true, false
++		disableDNS := !req.Internet
 +		return client.Login(metadata.NewOutgoingContext(ctx, md), &proto.LoginRequest{
 +			ManagementUrl: p.Origin, ProfileName: &name, Username: &user.Username, DisableAutoConnect: &yes,
-+			ServerSSHAllowed: &no, DisableServerRoutes: &yes, DisableIpv6: &yes, BlockInbound: &yes,
++			ServerSSHAllowed: &no, DisableServerRoutes: &yes, DisableIpv6: &yes, BlockInbound: &yes, DisableDns: &disableDNS,
 +		})
 +	}
 +	switch req.Action {

@@ -17,7 +17,7 @@ std::string originHost(const std::string& s) {
  std::string host=m[1];if(host.front()=='[')host=host.substr(1,host.size()-2);return host;
 }
 void validateProfile(const Json& p) {
- static const std::vector<std::string> allowed={"Protocol","ConfigRevision","ID","Name","Origin","Candidates","CA","GatewayPeerID","GatewayIP","LocalRelay","AuxiliaryRelay"};
+ static const std::vector<std::string> allowed={"Protocol","ConfigRevision","ID","Name","Origin","Candidates","CA","GatewayPeerID","GatewayIP","LocalRelay","AuxiliaryRelay","InternetDNS"};
  if(!p.is_object())throw Error("invalid_profile");
  for(auto i=p.begin();i!=p.end();++i)if(std::find(allowed.begin(),allowed.end(),i.key())==allowed.end())throw Error("unknown_profile_field");
  std::string id=p.at("ID");
@@ -37,6 +37,8 @@ void validateProfile(const Json& p) {
  }
  if(!direct)throw Error("direct_candidate_required");
  in_addr ip{};if(InetPtonA(AF_INET,p.at("GatewayIP").get<std::string>().c_str(),&ip)!=1)throw Error("invalid_gateway_ip");
+ auto dns=p.value("InternetDNS",Json::array());if(!dns.is_array()||dns.size()>3)throw Error("invalid_profile");
+ for(const auto& value:dns){in_addr address{};if(!value.is_string()||InetPtonA(AF_INET,value.get<std::string>().c_str(),&address)!=1)throw Error("invalid_profile");auto number=ntohl(address.s_addr);if((number>>24)==0||(number>>24)==127||number>=0xe0000000||(number&0xffff0000)==0xa9fe0000)throw Error("invalid_profile");}
  auto ca=p.value("CA","");if(ca.size()>32*1024)throw Error("invalid_ca");
  if(!ca.empty()){
   DWORD size=0;
@@ -55,7 +57,7 @@ void validateProfileUpdate(const Json& old,const Json& next) {
  auto previous=old.value("ConfigRevision",uint64_t(0)),revision=next.value("ConfigRevision",uint64_t(0));
  if(revision<previous)throw Error("profile_revision_stale");
  if(previous&&revision==previous){
-  for(const auto& key:{"Candidates","GatewayPeerID","GatewayIP","LocalRelay","AuxiliaryRelay"})if(old.value(key,Json(""))!=next.value(key,Json("")))throw Error("profile_revision_conflict");
+  for(const auto& key:{"Candidates","GatewayPeerID","GatewayIP","LocalRelay","AuxiliaryRelay","InternetDNS"})if(old.value(key,Json(""))!=next.value(key,Json("")))throw Error("profile_revision_conflict");
  }
 }
 std::chrono::system_clock::time_point parseTime(const std::string& s) {

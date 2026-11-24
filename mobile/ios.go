@@ -4,6 +4,7 @@ package mobile
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	sdk "github.com/netbirdio/netbird/client/ios/NetBirdSDK"
 	"netgo/internal/client"
@@ -30,6 +31,7 @@ type iosBackend struct {
 	platform                           Platform
 	root, device, config, ip, ip6, dns string
 	connected                          bool
+	internetDNS                        []string
 	done                               chan struct{}
 }
 
@@ -71,6 +73,24 @@ func (b *iosBackend) auth(p site.Profile) (*sdk.Auth, error) {
 	}
 	b.config = filepath.Join(b.root, "netbird-"+p.ID+".json")
 	return sdk.NewNetGoAuth(b.config, p.Origin, p.CA, strings.Join(addresses, ";"), strings.Join(kinds, ";"))
+}
+func (b *iosBackend) ConfigureInternet(ctx context.Context, enabled bool, dns []string) error {
+	if err := ctx.Err(); err != nil {
+		return err
+	}
+	if enabled && len(dns) == 0 {
+		return errors.New("internet_not_configured")
+	}
+	if err := site.ValidateDNS(dns); err != nil {
+		return err
+	}
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	b.internetDNS = nil
+	if enabled {
+		b.internetDNS = append([]string(nil), dns...)
+	}
+	return nil
 }
 func (b *iosBackend) Prepare(ctx context.Context, p site.Profile) (string, error) {
 	if err := b.Down(ctx); err != nil {
@@ -245,7 +265,9 @@ func (b *iosBackend) Routes(ctx context.Context, resources []model.Resource) err
 }
 func (b *iosBackend) configure() {
 	b.mu.Lock()
-	node, ip, ip6, dns := b.node, b.ip, b.ip6, b.dns
+	node, ip, ip6 := b.node, b.ip, b.ip6
+	dnsBytes, _ := json.Marshal(map[string]any{"Servers": b.internetDNS})
+	dns := string(dnsBytes)
 	b.mu.Unlock()
 	if node == nil || ip == "" {
 		return

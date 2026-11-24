@@ -16,6 +16,7 @@ struct ClientView: View {
             Picker("站点",selection:$model.selected) { ForEach(model.sites) { Text($0.name).tag($0.id) } }
             TextField("账号",text:$model.alias).textFieldStyle(.roundedBorder)
             SecureField("密码",text:$model.password).textFieldStyle(.roundedBorder)
+            Toggle("通过旁路由访问互联网（需要账号授权）",isOn:$model.internet).disabled(model.connected)
             HStack { Button("连接") { model.connect() }.disabled(model.connected); Button("断开") { model.disconnect() }; Spacer(); Text(model.message).font(.caption) }
             Divider()
             HStack { Text("远程桌面"); Spacer(); Button("刷新主机") { model.loadHosts() }.disabled(!model.connected) }

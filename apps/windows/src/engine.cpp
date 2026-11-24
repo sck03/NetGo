@@ -56,6 +56,7 @@ void routeConflicts(const Json& resources) {
    uint32_t local=ntohl(reinterpret_cast<sockaddr_in*>(u->Address.lpSockaddr)->sin_addr.s_addr);
    if((local&0xffc00000)==0x64400000)continue; // NetBird's CGNAT overlay is not a LAN interface.
    for(const auto& r:resources) {
+    if(r.value("protocol","")=="internet"&&r.value("cidr","")=="0.0.0.0/0")continue;
     std::string cidr=r.at("cidr");size_t slash=cidr.find('/');if(slash==std::string::npos)throw Error("invalid_route");
     int bits=std::stoi(cidr.substr(slash+1));in_addr ip{};
     if(bits<0||bits>32||InetPtonA(AF_INET,cidr.substr(0,slash).c_str(),&ip)!=1)throw Error("invalid_route");
@@ -65,6 +66,15 @@ void routeConflicts(const Json& resources) {
    }
   }
  }
+}
+Json selectedResources(const Json& resources,bool internet){
+ Json selected=Json::array();bool granted=false;
+ for(const auto& r:resources){if(!r.value("enabled",false))continue;if(r.value("protocol","")=="internet"){
+  if(r.value("cidr","")!="0.0.0.0/0"||!r.value("ports",Json::array()).empty())throw Error("invalid_internet_resource");
+  granted=true;if(!internet)continue;
+ }selected.push_back(r);}
+ if(internet&&!granted)throw Error("internet_forbidden");
+ return selected;
 }
 Json safeDiagnostic(const Json& status,const Json& logs) {
  Json safe={{"version","0.3.0-dev"},{"platform","Windows native C++"},{"state",status.value("state","disconnected")},{"error",status.value("error","")},{"control",status.value("control","")},{"generation",status.value("generation",uint64_t(0))}};

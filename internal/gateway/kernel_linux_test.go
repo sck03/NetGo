@@ -6,8 +6,10 @@ import (
 	"context"
 	"encoding/json"
 	"netgo/internal/model"
+	"netgo/internal/site"
 	"os"
 	"os/exec"
+	"strings"
 	"testing"
 	"time"
 )
@@ -83,5 +85,22 @@ func TestKernelLeaseRenewalAndRevocation(t *testing.T) {
 	}
 	if err := exec.Command("nft", "list", "table", "inet", "netgo_unrelated_test").Run(); err != nil {
 		t.Fatal("unrelated firewall table was modified", err)
+	}
+	gate.LocalCIDRs = []string{"192.168.18.0/24"}
+	gate.Bypass = site.Bypass{Enabled: true, Gateway: "192.168.18.1", DNS: []string{"192.168.18.1"}}
+	lease.Resources = []model.Resource{{ID: "internet", Name: "Internet", CIDR: "0.0.0.0/0", Protocol: "internet", Enabled: true}}
+	if err := gate.Apply(ctx, []model.Lease{lease}); err != nil {
+		t.Fatal("kernel Internet rules", err)
+	}
+	lease.Resources = nil
+	if err := gate.Apply(ctx, []model.Lease{lease}); err != nil {
+		t.Fatal("kernel Internet revocation", err)
+	}
+	output, err = exec.Command("nft", "list", "set", "inet", "netgo", "internet4").Output()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if strings.Contains(string(output), lease.IP) {
+		t.Fatal("revoked Internet source retained", string(output))
 	}
 }

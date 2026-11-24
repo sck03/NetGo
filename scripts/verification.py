@@ -9,7 +9,7 @@ import zipfile
 
 from fingerprint import ROOT, fingerprint
 
-PRODUCTS = ('netgo-server', 'netgo-helper', 'netgoctl', 'netgo-client-service', 'netgo-ddns')
+PRODUCTS = ('netgo-server', 'netgo-helper', 'netgoctl', 'netgo-ddns')
 UPSTREAM = ('netbird-server', 'netbird', 'netbird-relay', 'caddy', 'frpc', 'frps')
 WINDOWS = ('NetGo.exe', 'netbird.exe', 'wintun.dll')
 COMMON_CHECKS = frozenset(('tool-versions', 'source-inputs', 'tools-tests', 'go-race',

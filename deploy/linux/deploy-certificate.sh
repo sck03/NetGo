@@ -8,8 +8,7 @@ role=${1:-}; hostname=${2:-}
 case "$role" in
  control) service=netgo-caddy; action=reload ;;
  relay) service=netbird-relay; action=restart ;;
- tunnel) service=netgo-frps; action=restart ;;
- *) echo 'role must be control, relay or tunnel' >&2; exit 2 ;;
+ *) echo 'role must be control or relay; VPS certificates are maintained through ngv' >&2; exit 2 ;;
 esac
 [[ $hostname =~ ^[a-zA-Z0-9][a-zA-Z0-9.-]{0,252}$ ]] || { echo 'DNS hostname required' >&2; exit 2; }
 destination=/etc/netgo/tls

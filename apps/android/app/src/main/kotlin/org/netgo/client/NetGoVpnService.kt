@@ -41,7 +41,7 @@ class NetGoVpnService : VpnService() {
             val open = PendingIntent.getActivity(this, 0, Intent(this, MainActivity::class.java), PendingIntent.FLAG_IMMUTABLE)
             val notification = NotificationCompat.Builder(this, "netgo-vpn").setSmallIcon(R.drawable.ic_launcher_foreground).setContentTitle("NetGo").setContentText("网络连接运行中").setContentIntent(open).setOngoing(true).build()
             if (Build.VERSION.SDK_INT >= 34) startForeground(1, notification, ServiceInfo.FOREGROUND_SERVICE_TYPE_SYSTEM_EXEMPTED) else startForeground(1, notification)
-            NetGoRuntime.connect(intent.getStringExtra("site") ?: "", intent.getStringExtra("alias") ?: "", intent.getStringExtra("password") ?: ""); intent.removeExtra("password")
+            NetGoRuntime.connect(intent.getStringExtra("site") ?: "", intent.getStringExtra("alias") ?: "", intent.getStringExtra("password") ?: "", intent.getBooleanExtra("internet", false)); intent.removeExtra("password")
         }
         return START_NOT_STICKY
     }

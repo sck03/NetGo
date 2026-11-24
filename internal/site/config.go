@@ -11,6 +11,7 @@ import (
 	"net/url"
 	"netgo/internal/model"
 	"os"
+	"reflect"
 	"regexp"
 	"strconv"
 	"strings"
@@ -33,6 +34,7 @@ type Profile struct {
 	GatewayIP      string
 	LocalRelay     string
 	AuxiliaryRelay string
+	InternetDNS    []string `json:",omitempty"`
 }
 type Config struct {
 	Site                Profile
@@ -49,6 +51,7 @@ type Config struct {
 	LeaseSeconds        int
 	Auxiliaries         []Auxiliary
 	Deployment          Deployment
+	Bypass              Bypass
 }
 type Auxiliary struct {
 	ID          string
@@ -139,6 +142,9 @@ func (p Profile) Validate() error {
 	if !direct {
 		return errors.New("local direct candidate is required")
 	}
+	if err := ValidateDNS(p.InternetDNS); err != nil {
+		return err
+	}
 	return nil
 }
 func (c Config) Validate() error {
@@ -165,7 +171,7 @@ func (c Config) Validate() error {
 	}
 	for _, s := range c.LocalCIDRs {
 		p, e := netip.ParsePrefix(s)
-		if e != nil || p.Overlaps(o) {
+		if e != nil || !p.Addr().Is4() || p != p.Masked() || p.Bits() == 0 || p.Overlaps(o) {
 			return fmt.Errorf("invalid/conflicting local network %q", s)
 		}
 	}
@@ -202,9 +208,27 @@ func (c Config) Validate() error {
 			return err
 		}
 	}
+	if err := c.Bypass.Validate(c.LocalCIDRs, c.OverlayCIDR); err != nil {
+		return err
+	}
+	if c.Site.LocalRelay != "" && !validHostname(c.Site.LocalRelay) {
+		return errors.New("invalid local Relay hostname")
+	}
+	if c.Bypass.Enabled && !reflect.DeepEqual(c.Bypass.DNS, c.Site.InternetDNS) {
+		return errors.New("client Internet DNS must match the bypass DNS")
+	}
+	if !c.Bypass.Enabled && len(c.Site.InternetDNS) != 0 {
+		return errors.New("Internet DNS requires enabled bypass")
+	}
 	return c.Deployment.Validate(c.Site.Origin)
 }
 func ValidateResource(r model.Resource, overlay string) error {
+	if r.Protocol == "internet" {
+		if !ValidID(r.ID) || r.Name == "" || r.CIDR != "0.0.0.0/0" || len(r.Ports) != 0 {
+			return errors.New("internet resource requires an ID/name, 0.0.0.0/0 and no ports")
+		}
+		return nil
+	}
 	p, e := netip.ParsePrefix(r.CIDR)
 	if e != nil || !p.Addr().Is4() || p != p.Masked() || p.Bits() == 0 || p.Addr().IsLoopback() || p.Addr().IsMulticast() || p.Addr().IsUnspecified() {
 		return errors.New("canonical IPv4 LAN CIDR required")

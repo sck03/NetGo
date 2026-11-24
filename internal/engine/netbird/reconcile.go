@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"netgo/internal/model"
+	"netgo/internal/site"
 	"netgo/internal/store"
 	"reflect"
 	"sort"
@@ -18,6 +19,7 @@ type Reconciler struct {
 	Management        *Management
 	Store             *store.Store
 	SiteID, GatewayID string
+	Bypass            site.Bypass
 }
 type object struct {
 	ID          string         `json:"id"`
@@ -223,6 +225,7 @@ func (r *Reconciler) apply(ctx context.Context, st model.State) error {
 		desiredResources[name] = true
 	}
 	desiredPolicies := map[string]bool{}
+	dnsGroups := []string{}
 	// Register source groups from management-authoritative ownership, not submitted IDs.
 	var peers []struct {
 		ID     string `json:"id"`
@@ -249,12 +252,19 @@ func (r *Reconciler) apply(ctx context.Context, st model.State) error {
 			if !ok {
 				continue
 			}
+			if v.Protocol == "internet" && v.Enabled && !u.Disabled {
+				dnsGroups = append(dnsGroups, gid)
+			}
 			name := prefix + "policy:" + model.Hash(u.ID + ":" + rid)[:24]
 			ports := []string{}
 			for _, p := range v.Ports {
 				ports = append(ports, fmt.Sprint(p))
 			}
-			rule := map[string]any{"name": name, "enabled": true, "action": "accept", "bidirectional": false, "protocol": v.Protocol, "sources": []string{gid}, "destinations": []string{resourceGroups[rid]}}
+			protocol := v.Protocol
+			if protocol == "internet" {
+				protocol = "all"
+			}
+			rule := map[string]any{"name": name, "enabled": true, "action": "accept", "bidirectional": false, "protocol": protocol, "sources": []string{gid}, "destinations": []string{resourceGroups[rid]}}
 			if len(ports) > 0 {
 				rule["ports"] = ports
 			}
@@ -264,6 +274,9 @@ func (r *Reconciler) apply(ctx context.Context, st model.State) error {
 			}
 			desiredPolicies[name] = true
 		}
+	}
+	if e := r.reconcileDNS(ctx, prefix, dnsGroups); e != nil {
+		return e
 	}
 	desiredRemoteGroups := map[string]bool{}
 	for _, route := range model.RemoteRoutes(st) {

@@ -17,7 +17,7 @@ using netgo::desktop_linux::Json;using netgo::desktop_linux::Frame;
 namespace {
 struct State {
  GtkApplication* app=nullptr;GtkWidget *window=nullptr,*profiles=nullptr,*alias=nullptr,*password=nullptr,*notice=nullptr,*hosts=nullptr,*picture=nullptr,*connect=nullptr,*remoteButton=nullptr;
- GtkIMContext* ime=nullptr;GSubprocess* service=nullptr;
+ GtkIMContext* ime=nullptr;GSubprocess* service=nullptr;GtkWidget* internet=nullptr;
  std::string root,socket,site;Json profileList=Json::array(),hostList=Json::array();
  std::atomic_bool alive=true,remoteActive=false,jobBusy=false,renderPending=false;std::thread job,remote;
  std::mutex mutex;Frame frame;std::deque<Json> inputs;uint32_t caps=0;std::unique_ptr<netgo::desktop_linux::Decoder> decoder;
@@ -101,9 +101,10 @@ void activate(GtkApplication* app,void*){
  auto import=gtk_button_new_with_label("导入站点…");gtk_box_append(GTK_BOX(row),import);g_signal_connect(import,"clicked",callback(+[](GtkButton*,void*){auto dialog=gtk_file_dialog_new();gtk_file_dialog_set_title(dialog,"导入 NetGo 站点");gtk_file_dialog_open(dialog,GTK_WINDOW(state->window),nullptr,chooseProfile,nullptr);g_object_unref(dialog);}),nullptr);
  auto refreshButton=gtk_button_new_with_label("刷新");gtk_box_append(GTK_BOX(row),refreshButton);g_signal_connect(refreshButton,"clicked",callback(+[](GtkButton*,void*){refresh();}),nullptr);
  row=gtk_box_new(GTK_ORIENTATION_HORIZONTAL,8);gtk_box_append(GTK_BOX(box),row);state->alias=gtk_entry_new();gtk_entry_set_placeholder_text(GTK_ENTRY(state->alias),"账号");gtk_box_append(GTK_BOX(row),state->alias);state->password=gtk_password_entry_new();gtk_box_append(GTK_BOX(row),state->password);
+ state->internet=gtk_check_button_new_with_label("通过旁路由访问互联网（需要账号授权）");gtk_box_append(GTK_BOX(box),state->internet);
  state->connect=gtk_button_new_with_label("连接网络");gtk_box_append(GTK_BOX(row),state->connect);g_signal_connect(state->connect,"clicked",callback(+[](GtkButton*,void*){
   auto id=selected(state->profiles,state->profileList,"ID");if(id.empty()){status("请先导入并选择站点");return;}if(state->remoteActive){status("请先结束远程桌面");return;}state->site=id;
-  Json request={{"Site",state->site},{"Alias",gtk_editable_get_text(GTK_EDITABLE(state->alias))},{"Password",gtk_editable_get_text(GTK_EDITABLE(state->password))},{"Replace",false}};gtk_editable_set_text(GTK_EDITABLE(state->password),"");task([request=std::move(request)]{call("POST","/desktop/connect",request);});
+  Json request={{"Site",state->site},{"Alias",gtk_editable_get_text(GTK_EDITABLE(state->alias))},{"Password",gtk_editable_get_text(GTK_EDITABLE(state->password))},{"Replace",false},{"Internet",bool(gtk_check_button_get_active(GTK_CHECK_BUTTON(state->internet)))}};gtk_editable_set_text(GTK_EDITABLE(state->password),"");task([request=std::move(request)]{call("POST","/desktop/connect",request);});
  }),nullptr);
  auto disconnect=gtk_button_new_with_label("断开网络");gtk_box_append(GTK_BOX(row),disconnect);g_signal_connect(disconnect,"clicked",callback(+[](GtkButton*,void*){stopRemote();task([]{call("POST","/desktop/disconnect");});}),nullptr);
  state->notice=gtk_label_new("导入站点后使用已有账号连接");gtk_label_set_xalign(GTK_LABEL(state->notice),0);gtk_box_append(GTK_BOX(box),state->notice);

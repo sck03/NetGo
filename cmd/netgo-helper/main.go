@@ -20,7 +20,7 @@ func main() {
 	if e != nil {
 		log.Fatal(e)
 	}
-	g := &gateway.NFT{Interface: c.Interface, LANInterface: c.LANInterface, Overlay: c.OverlayCIDR}
+	g := &gateway.NFT{Interface: c.Interface, LANInterface: c.LANInterface, Overlay: c.OverlayCIDR, LocalCIDRs: c.LocalCIDRs, Bypass: c.Bypass}
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	e = g.Apply(ctx, nil)
 	cancel()

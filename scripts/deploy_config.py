@@ -94,10 +94,11 @@ def secrets_config(path):
 def configuration(config, selected_mode=None):
     allowed = {"Site", "Listen", "Database", "ManagementURL", "ManagementTokenFile", "NativeSecretFile",
                "HelperSocket", "Interface", "LANInterface", "OverlayCIDR", "LocalCIDRs", "LeaseSeconds",
-               "Auxiliaries", "Deployment"}
+               "Auxiliaries", "Deployment", "Bypass"}
     if not isinstance(config, dict) or set(config) - allowed:
         raise ValueError("unknown server configuration field")
     site = config["Site"]
+    validate_bypass(config)
     revision = site.get("ConfigRevision", 0)
     if type(revision) is not int or not 0 <= revision <= 9007199254740991:
         raise ValueError("invalid configuration revision")
@@ -221,6 +222,26 @@ def configuration(config, selected_mode=None):
     elif any(c["Kind"] == "auxiliary" for c in candidates) or site.get("AuxiliaryRelay"):
         raise ValueError("auxiliary candidates/Relay exist without an auxiliary deployment")
     return values, {"schema": 1, "site_id": site["ID"], "local": local, "auxiliary": auxiliary}
+
+def validate_bypass(config):
+    b=config.get('Bypass') or {}
+    if not isinstance(b,dict) or set(b)-{'Enabled','Gateway','DNS','FakeIPCIDR'}:raise ValueError('unknown bypass field')
+    if type(b.get('Enabled',False)) is not bool:raise ValueError('bypass Enabled must be a boolean')
+    if not b.get('Enabled'):
+        if b.get('Gateway') or b.get('DNS') or b.get('FakeIPCIDR'):raise ValueError('disabled bypass must have no gateway or DNS')
+        return
+    gateway=ipaddress.IPv4Address(b['Gateway']);overlay=ipaddress.ip_network(config['OverlayCIDR'])
+    local=[ipaddress.ip_network(c) for c in config['LocalCIDRs']]
+    if gateway.is_unspecified or gateway.is_loopback or gateway.is_multicast or gateway.is_link_local or gateway in overlay:
+        raise ValueError('invalid bypass gateway')
+    if not any(gateway in n and n.prefixlen<31 and gateway not in (n.network_address,n.broadcast_address) for n in local):
+        raise ValueError('bypass gateway must be a LAN host')
+    dns=b.get('DNS',[])
+    if b.get('FakeIPCIDR','') not in ('','198.18.0.0/15'):raise ValueError('invalid dedicated Fake-IP range')
+    if not isinstance(dns,list) or not 1<=len(dns)<=3 or len(set(dns))!=len(dns):raise ValueError('one to three distinct DNS servers required')
+    for value in dns:
+        ip=ipaddress.IPv4Address(value)
+        if ip.is_unspecified or ip.is_loopback or ip.is_multicast or ip.is_link_local:raise ValueError('invalid IPv4 DNS server')
 
 
 def expand(template, values):

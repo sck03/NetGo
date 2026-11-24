@@ -15,6 +15,7 @@ import (
 	"netgo/internal/diagnostics"
 	"netgo/internal/engine/netbird"
 	"netgo/internal/model"
+	"netgo/internal/node"
 	"netgo/internal/operations"
 	"netgo/internal/securefile"
 	"netgo/internal/site"
@@ -41,6 +42,13 @@ func password() ([]byte, error) {
 	return p, e
 }
 func run() error {
+	name := filepath.Base(os.Args[0])
+	if name == "ng" || name == "netgo-serverctl" {
+		return node.Main("server", os.Args[1:])
+	}
+	if len(os.Args) > 1 && os.Args[1] == "server" {
+		return node.Main("server", os.Args[2:])
+	}
 	if len(os.Args) < 2 {
 		return errors.New("commands: init, init-admin, reset-password, doctor, client import|connect|disconnect|status, config validate|plan|apply, export-site, reconcile, auxiliary add|remove, diagnostics, backup, restore, upgrade, rollback, version")
 	}
@@ -428,7 +436,7 @@ func run() error {
 		})
 	}
 	if cmd == "reconcile" {
-		r := netbird.Reconciler{Management: m, Store: s, SiteID: c.Site.ID, GatewayID: c.Site.GatewayPeerID}
+		r := netbird.Reconciler{Management: m, Store: s, SiteID: c.Site.ID, GatewayID: c.Site.GatewayPeerID, Bypass: c.Bypass}
 		return r.Apply(ctx)
 	}
 	return errors.New("unknown command")
@@ -445,6 +453,6 @@ func reconcileConfig(ctx context.Context, c site.Config) error {
 		return err
 	}
 	m := &netbird.Management{URL: c.ManagementURL, Token: token, Client: &http.Client{Timeout: 10 * time.Second, CheckRedirect: func(*http.Request, []*http.Request) error { return errors.New("management redirect forbidden") }}}
-	r := netbird.Reconciler{Management: m, Store: s, SiteID: c.Site.ID, GatewayID: c.Site.GatewayPeerID}
+	r := netbird.Reconciler{Management: m, Store: s, SiteID: c.Site.ID, GatewayID: c.Site.GatewayPeerID, Bypass: c.Bypass}
 	return r.Apply(ctx)
 }

@@ -19,7 +19,7 @@ import (
 	"time"
 )
 
-var Products = []string{"netgo-server", "netgo-helper", "netgoctl", "netgo-client-service", "netgo-ddns"}
+var Products = []string{"netgo-server", "netgo-helper", "netgoctl", "netgo-ddns"}
 
 type ReleaseManifest struct {
 	Version  string `json:"version"`
