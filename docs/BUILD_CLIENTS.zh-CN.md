@@ -2,6 +2,8 @@
 
 七个客户端/节点工作流保持独立。到 GitHub Actions 选择目标工作流，点击 **Run workflow** 后可以填写版本、架构和发布选项。
 
+如果仍只看到分支选择，请刷新工作流页面并选择 main。具体入口见下表；参数定义位于 main 上的各工作流文件。
+
 ## 手动运行参数
 
 | 参数 | 用途 | 默认行为 |
@@ -14,7 +16,7 @@
 | Apple build_number | macOS/iOS Bundle 构建号 | 1 |
 | iOS sdk | both、iphoneos 设备版、iphonesimulator 模拟器版 | both |
 
-版本会传给程序内版本信息、Windows 文件属性、Android versionName、Apple Bundle 信息和包名。API v2/schema 2 与发行版本号分别管理。
+版本会传给程序内版本信息、Windows 文件属性、Android versionName、Apple Bundle 信息和包名。Apple 标准版本字段使用数字部分，NetGoBuildVersion 保留完整版本及预发布后缀。API v2/schema 2 与发行版本号分别管理。
 
 自动 push 构建使用 VERSION 文件的版本，**不发布 Releases**。只有手动运行且勾选 publish 才进入具有 `contents: write` 权限的发布任务。失败的构建不进入发布。
 
@@ -79,3 +81,5 @@ Actions 固定官方稳定版提交 SHA。当前锁定 Go 1.27.4、Node 26.13.1 
 Windows 构建需要 UCRT64 GCC/CMake/Ninja 和 Python cryptography；Linux桌面需要 GTK4/OpenSSL/FFmpeg/libcurl 开发包。Python用于开发侧构建、打包和发布，不是最终用户安装维护的依赖。
 
 构建和发布成功不代表完整设备验收。未签名 APK/IPA 仍需签名；Apple 真机、跨设备远控、UAC/锁屏/多屏和长期运行状态见 [进度](PROGRESS.zh-CN.md)。安装使用说明见 [INSTALLERS](INSTALLERS.zh-CN.md)。
+
+本轮参数、产物及发布控制验证见 [工作流验证记录](evidence/2026-11-24-workflows/REPORT.zh-CN.md)。

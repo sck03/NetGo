@@ -1,0 +1,605 @@
+{
+  "schema": 1,
+  "checked_at": "2026-11-24T17:02:15+08:00",
+  "release_created": false,
+  "releases_at_audit": [],
+  "implementation_commits": {
+    "parameters": "529435a069e95df18ce7e28985e603aa4c826f51",
+    "draft_lookup": "b9bb2802225f3499b5b897a0d905ed7d04412d66",
+    "artifact_api": "52770d6c44b98bd014a31d714ba134755fd270f0",
+    "apple_full_version": "943b9904f89f078ae603389e15e0d9753d71e014"
+  },
+  "runs": [
+    {
+      "run_id": 45357490459,
+      "name": "Android client · VERSION默认 · arm64",
+      "url": "https://github.com/sck03/NetGo/actions/runs/45357490459",
+      "source_commit": "52770d6c44b98bd014a31d714ba134755fd270f0",
+      "event": "push",
+      "result": "success",
+      "publish_job": "skipped",
+      "settings": {
+        "target": "android",
+        "version": "0.3.0-dev",
+        "arch": "arm64",
+        "sdk": "none",
+        "version_code": "1",
+        "build_number": "1"
+      },
+      "verified_artifact": {
+        "id": 14903148265,
+        "name": "release-android-0.3.0-dev-arm64-none-45357490459",
+        "size_in_bytes": 56255813,
+        "digest": "sha256:998cc6923f13b137cb126ef49e73b703133c0b74948c30786723d96c95fa976f"
+      },
+      "verified_release_assets": [
+        {
+          "name": "NetGo-0.3.0-dev-android-arm64-debug.apk",
+          "sha256": "cf5c46d030007122bc7349118e4a80a91ae2dcd72008d306310301000f804b32",
+          "bytes": 81362439
+        },
+        {
+          "name": "NetGo-0.3.0-dev-android-arm64-debug.apk.sha256",
+          "sha256": "cf77e156995d2e5ff54ac0f47599758233acc22e6aa075762bde83b34d3c8bb8",
+          "bytes": 106
+        },
+        {
+          "name": "NetGo-0.3.0-dev-android-arm64-unsigned.apk",
+          "sha256": "0575694ad675c881f3d70ce2b03e7869015361eaaa83f507c71186ded147f03e",
+          "bytes": 72639742
+        },
+        {
+          "name": "NetGo-0.3.0-dev-android-arm64-unsigned.apk.sha256",
+          "sha256": "9b1bccc15ac2f33bf684760ce0268be0c76b40002617c958312a348c99d9df28",
+          "bytes": 109
+        },
+        {
+          "name": "NetGo-0.3.0-dev-android-arm64-none-BUILDINFO.json",
+          "sha256": "dfb19e5f310086cca01a384dbe2200a88ea76ea5d45b78a0f180ee8d39450baa",
+          "bytes": 170
+        },
+        {
+          "name": "NetGo-0.3.0-dev-android-arm64-none-BUILDINFO.json.sha256",
+          "sha256": "fb045f98fb261fcb1e7c5cfaeb8480ad4bafc69ef38bb4ecfb409912fadc4b8c",
+          "bytes": 116
+        }
+      ],
+      "runtime_archives": [
+        {
+          "archive": "NetGo-0.3.0-dev-android-arm64-debug.apk",
+          "entries": 138,
+          "verified_native_arch": "arm64"
+        },
+        {
+          "archive": "NetGo-0.3.0-dev-android-arm64-unsigned.apk",
+          "entries": 135,
+          "verified_native_arch": "arm64"
+        }
+      ]
+    },
+    {
+      "run_id": 45357490289,
+      "name": "Linux desktop client · VERSION默认 · amd64",
+      "url": "https://github.com/sck03/NetGo/actions/runs/45357490289",
+      "source_commit": "52770d6c44b98bd014a31d714ba134755fd270f0",
+      "event": "push",
+      "result": "success",
+      "publish_job": "skipped",
+      "settings": {
+        "target": "linux-client",
+        "version": "0.3.0-dev",
+        "arch": "amd64",
+        "sdk": "none",
+        "version_code": "1",
+        "build_number": "1"
+      },
+      "verified_artifact": {
+        "id": 14903496532,
+        "name": "release-linux-client-0.3.0-dev-amd64-none-45357490289",
+        "size_in_bytes": 23335456,
+        "digest": "sha256:378a26b542c254a59f508fc06fd6351fb5cbe514d902f954ae37b250c8ec18f6"
+      },
+      "verified_release_assets": [
+        {
+          "name": "NetGo-0.3.0-dev-linux-client-amd64.tar.gz",
+          "sha256": "b5c2491febfbd515d962bc43d3aa01e6d52a30fe6ce55f6da50dc51accbbd599",
+          "bytes": 23370467
+        },
+        {
+          "name": "NetGo-0.3.0-dev-linux-client-amd64.tar.gz.sha256",
+          "sha256": "a7447307e35e02704ffc7568540f87ff423757691eeb3452002f4a653cc45919",
+          "bytes": 108
+        },
+        {
+          "name": "NetGo-0.3.0-dev-linux-client-amd64-none-BUILDINFO.json",
+          "sha256": "94b5763aad1afdad0804e8bacdee18ddf4676b522b1ed3fa7fa75fd195c91444",
+          "bytes": 154
+        },
+        {
+          "name": "NetGo-0.3.0-dev-linux-client-amd64-none-BUILDINFO.json.sha256",
+          "sha256": "66486dfd1cdd37ae847a10e1266b56ff4542637169f1323c2aa5dbdb1e99a1bc",
+          "bytes": 121
+        }
+      ],
+      "runtime_archives": [
+        {
+          "archive": "NetGo-0.3.0-dev-linux-client-amd64.tar.gz",
+          "entries": 8,
+          "verified_native_arch": "amd64"
+        }
+      ]
+    },
+    {
+      "run_id": 45357490367,
+      "name": "VPS auxiliary node · VERSION默认 · amd64",
+      "url": "https://github.com/sck03/NetGo/actions/runs/45357490367",
+      "source_commit": "52770d6c44b98bd014a31d714ba134755fd270f0",
+      "event": "push",
+      "result": "success",
+      "publish_job": "skipped",
+      "settings": {
+        "target": "vps",
+        "version": "0.3.0-dev",
+        "arch": "amd64",
+        "sdk": "none",
+        "version_code": "1",
+        "build_number": "1"
+      },
+      "verified_artifact": {
+        "id": 14903217344,
+        "name": "release-vps-0.3.0-dev-amd64-none-45357490367",
+        "size_in_bytes": 23637690,
+        "digest": "sha256:90dc7dd9026355343baf5be6629f74ea096e24de63e24994c7f4c74bb93614ec"
+      },
+      "verified_release_assets": [
+        {
+          "name": "NetGo-0.3.0-dev-vps-linux-amd64.zip",
+          "sha256": "2d1df99ae439d435da618dbc45dcf387ea32f3df7e572fb7c65268414081b2a6",
+          "bytes": 20226486
+        },
+        {
+          "name": "NetGo-0.3.0-dev-vps-linux-amd64.zip.sha256",
+          "sha256": "e10b334ceb84aa0575df645c8c08945fea00f75c3efcf4339c6233d639167402",
+          "bytes": 102
+        },
+        {
+          "name": "netgo-vps-installer-linux-amd64",
+          "sha256": "067400cb462d85e6ec71b07e9ee0e937ca136dbec00e0840033fb767e4c76420",
+          "bytes": 8216736
+        },
+        {
+          "name": "netgo-vps-installer-linux-amd64.sha256",
+          "sha256": "5fd9892c801557bc24c75196f9698802cac6b368843b0843603d2b58e3100b6b",
+          "bytes": 98
+        },
+        {
+          "name": "NetGo-0.3.0-dev-vps-amd64-none-BUILDINFO.json",
+          "sha256": "3aa29393ee0b01e9d1affd9228324c154807e124c01d5a976ab25f7d89f71d34",
+          "bytes": 202
+        },
+        {
+          "name": "NetGo-0.3.0-dev-vps-amd64-none-BUILDINFO.json.sha256",
+          "sha256": "373e5f67ec6d5cf25e8cf4ed7c24cd043498d9d862e5e0c70b91e32ecfb5c76c",
+          "bytes": 112
+        }
+      ],
+      "runtime_archives": [
+        {
+          "archive": "NetGo-0.3.0-dev-vps-linux-amd64.zip",
+          "entries": 10,
+          "verified_native_arch": "amd64"
+        }
+      ]
+    },
+    {
+      "run_id": 45357490306,
+      "name": "Linux server · VERSION默认 · amd64",
+      "url": "https://github.com/sck03/NetGo/actions/runs/45357490306",
+      "source_commit": "52770d6c44b98bd014a31d714ba134755fd270f0",
+      "event": "push",
+      "result": "success",
+      "publish_job": "skipped",
+      "settings": {
+        "target": "linux-server",
+        "version": "0.3.0-dev",
+        "arch": "amd64",
+        "sdk": "none",
+        "version_code": "1",
+        "build_number": "1"
+      },
+      "verified_artifact": {
+        "id": 14903701713,
+        "name": "release-linux-server-0.3.0-dev-amd64-none-45357490306",
+        "size_in_bytes": 104911923,
+        "digest": "sha256:e8a9a70f3b9bf0d328c17fbec5c9e5ac030a3e9fa355c9a20f016e24ef02be54"
+      },
+      "verified_release_assets": [
+        {
+          "name": "NetGo-0.3.0-dev-linux-amd64.zip",
+          "sha256": "c138d1b796ef23a59092aa450567545f4ee9c4dc657e36e61ba641c2dd541fa8",
+          "bytes": 97559246
+        },
+        {
+          "name": "NetGo-0.3.0-dev-linux-amd64.zip.sha256",
+          "sha256": "4c6cf5d3b04fa4018e43326ef84efb8559503c6b7bf014e8b8327bb969451eb9",
+          "bytes": 98
+        },
+        {
+          "name": "netgo-server-installer-linux-amd64",
+          "sha256": "4a602907e13586d9221264875768e3d5e058366a08947d4ff4569db5926043ac",
+          "bytes": 18870432
+        },
+        {
+          "name": "netgo-server-installer-linux-amd64.sha256",
+          "sha256": "46333feebe76fac06af83e2468b6f8dcbfc590fcbf0fbcb063fcbe3339b4dec2",
+          "bytes": 101
+        },
+        {
+          "name": "NetGo-0.3.0-dev-linux-server-amd64-none-BUILDINFO.json",
+          "sha256": "3ebec1cba997708db909eeba13fefc9365af227ca145aaa369fc4cf62440050f",
+          "bytes": 3110
+        },
+        {
+          "name": "NetGo-0.3.0-dev-linux-server-amd64-none-BUILDINFO.json.sha256",
+          "sha256": "ccd65d002676b09c64134f7c822924e1e98b9e670e8d1b7e078930c8a69f6913",
+          "bytes": 121
+        },
+        {
+          "name": "NetGo-0.3.0-dev-linux-server-amd64-none-SBOM.cdx.json",
+          "sha256": "40e0105fee063ed1f2183735660e6cc5064b4d649ab5cf094d2f47512407d12c",
+          "bytes": 50476
+        },
+        {
+          "name": "NetGo-0.3.0-dev-linux-server-amd64-none-SBOM.cdx.json.sha256",
+          "sha256": "604145a1e274ad0cf2cbd824a781cfb01b68e0f3d11f486d04886ab350075da8",
+          "bytes": 120
+        }
+      ],
+      "runtime_archives": [
+        {
+          "archive": "NetGo-0.3.0-dev-linux-amd64.zip",
+          "entries": 24,
+          "verified_native_arch": "amd64"
+        }
+      ]
+    },
+    {
+      "run_id": 45357490282,
+      "name": "Windows client · VERSION默认 · amd64",
+      "url": "https://github.com/sck03/NetGo/actions/runs/45357490282",
+      "source_commit": "52770d6c44b98bd014a31d714ba134755fd270f0",
+      "event": "push",
+      "result": "success",
+      "publish_job": "skipped",
+      "settings": {
+        "target": "windows",
+        "version": "0.3.0-dev",
+        "arch": "amd64",
+        "sdk": "none",
+        "version_code": "1",
+        "build_number": "1"
+      },
+      "verified_artifact": {
+        "id": 14903209981,
+        "name": "release-windows-0.3.0-dev-amd64-none-45357490282",
+        "size_in_bytes": 29958935,
+        "digest": "sha256:07374380a593831d90a789f9038e2753d96bedc5184945b51c0ac6ec948f663d"
+      },
+      "verified_release_assets": [
+        {
+          "name": "NetGo-0.3.0-dev-windows-amd64-Setup.exe",
+          "sha256": "a36ca45c957c57373f8e07cbab468eb52afc71219655a20ad494eb7eb5f327bd",
+          "bytes": 15535616
+        },
+        {
+          "name": "NetGo-0.3.0-dev-windows-amd64-Setup.exe.sha256",
+          "sha256": "a3f884843c75fad4ca14b0e1f9530b07fdec483ae4c4880764c5d6afc7522967",
+          "bytes": 107
+        },
+        {
+          "name": "NetGo-0.3.0-dev-windows-amd64-portable.zip",
+          "sha256": "43842bd5f1be7e1cf35d7851df84cafc68e0b80bf68d864e70c7848510646834",
+          "bytes": 15193582
+        },
+        {
+          "name": "NetGo-0.3.0-dev-windows-amd64-portable.zip.sha256",
+          "sha256": "8177aa3cd5d1f471919260c9902ee92396f91b8f378fbd64c0ed079075872f55",
+          "bytes": 110
+        },
+        {
+          "name": "NetGo-0.3.0-dev-windows-amd64-none-BUILDINFO.json",
+          "sha256": "80a575abbd8b5d6ee8cfb3f9c509cd7ddb3230f8c62939d3f801b2c8b830eecb",
+          "bytes": 181
+        },
+        {
+          "name": "NetGo-0.3.0-dev-windows-amd64-none-BUILDINFO.json.sha256",
+          "sha256": "e84aab349c093a53aa22c108792099af50450516b918951ed8a6fe823d6e86ca",
+          "bytes": 117
+        }
+      ],
+      "runtime_archives": [
+        {
+          "archive": "NetGo-0.3.0-dev-windows-amd64-portable.zip",
+          "entries": 10,
+          "verified_native_arch": "amd64"
+        }
+      ]
+    },
+    {
+      "run_id": 45359010505,
+      "name": "macOS client · 0.3.1-dev · x86_64",
+      "url": "https://github.com/sck03/NetGo/actions/runs/45359010505",
+      "source_commit": "943b9904f89f078ae603389e15e0d9753d71e014",
+      "event": "workflow_dispatch",
+      "result": "success",
+      "publish_job": "skipped",
+      "settings": {
+        "target": "macos",
+        "version": "0.3.1-dev",
+        "arch": "x86_64",
+        "sdk": "none",
+        "version_code": "1",
+        "build_number": "2"
+      },
+      "verified_artifact": {
+        "id": 14904426375,
+        "name": "release-macos-0.3.1-dev-x86_64-none-45359010505",
+        "size_in_bytes": 23952489,
+        "digest": "sha256:bd976ec80772fa885762049e78494d19fdd0a5fa7e5fe1282342406f06a88df8"
+      },
+      "verified_release_assets": [
+        {
+          "name": "NetGo-0.3.1-dev-macos-x86_64.zip",
+          "sha256": "887831034601791b7fcff9041131076cb3d3e52a5f06bed2a9af0e679096b6cf",
+          "bytes": 24002065
+        },
+        {
+          "name": "NetGo-0.3.1-dev-macos-x86_64.zip.sha256",
+          "sha256": "c09ea8912f7b02a9b85b83b91633cd5aa53060d177a22f4ca118970c10cc1ef8",
+          "bytes": 99
+        },
+        {
+          "name": "NetGo-0.3.1-dev-macos-x86_64-none-BUILDINFO.json",
+          "sha256": "b3447cce306157fd28605153130cd2535be6662fb80e6acc05e94bed75bf8b60",
+          "bytes": 169
+        },
+        {
+          "name": "NetGo-0.3.1-dev-macos-x86_64-none-BUILDINFO.json.sha256",
+          "sha256": "4c4efcbd9671cada127627acff22cd13958084114f19b44468d26834e1f41631",
+          "bytes": 115
+        }
+      ],
+      "runtime_archives": [
+        {
+          "archive": "NetGo-0.3.1-dev-macos-x86_64.zip",
+          "entries": 20,
+          "verified_native_arch": "x86_64",
+          "bundle": {
+            "CFBundleShortVersionString": "0.3.1",
+            "CFBundleVersion": "2",
+            "NetGoBuildVersion": "0.3.1-dev"
+          }
+        }
+      ]
+    },
+    {
+      "run_id": 45358901070,
+      "name": "macOS client · VERSION默认 · arm64",
+      "url": "https://github.com/sck03/NetGo/actions/runs/45358901070",
+      "source_commit": "943b9904f89f078ae603389e15e0d9753d71e014",
+      "event": "push",
+      "result": "success",
+      "publish_job": "skipped",
+      "settings": {
+        "target": "macos",
+        "version": "0.3.0-dev",
+        "arch": "arm64",
+        "sdk": "none",
+        "version_code": "1",
+        "build_number": "1"
+      },
+      "verified_artifact": {
+        "id": 14903244137,
+        "name": "release-macos-0.3.0-dev-arm64-none-45358901070",
+        "size_in_bytes": 21592442,
+        "digest": "sha256:d659652f1f426c75402f954317be2c0b5cf31987d3e3ef7e6a0b49acfef8a7f3"
+      },
+      "verified_release_assets": [
+        {
+          "name": "NetGo-0.3.0-dev-macos-arm64.zip",
+          "sha256": "28d865e5f93791c3c892398aa13518eb1e43f1437ee06eece90cd4475375b6b8",
+          "bytes": 21643467
+        },
+        {
+          "name": "NetGo-0.3.0-dev-macos-arm64.zip.sha256",
+          "sha256": "99240b9a80605e8862a20eee25a2ba510d9778cf462bbdf0b5c1efc67c838f4d",
+          "bytes": 98
+        },
+        {
+          "name": "NetGo-0.3.0-dev-macos-arm64-none-BUILDINFO.json",
+          "sha256": "82b840ea144e4fedd55f9eb739a4c884c10eaf71c0461edcb57e2a36a6a2cb40",
+          "bytes": 168
+        },
+        {
+          "name": "NetGo-0.3.0-dev-macos-arm64-none-BUILDINFO.json.sha256",
+          "sha256": "d8abbf90f2ceba51d70a686864018efb1fd2ce952d663a150d04a045e6d89939",
+          "bytes": 114
+        }
+      ],
+      "runtime_archives": [
+        {
+          "archive": "NetGo-0.3.0-dev-macos-arm64.zip",
+          "entries": 20,
+          "verified_native_arch": "arm64",
+          "bundle": {
+            "CFBundleShortVersionString": "0.3.0",
+            "CFBundleVersion": "1",
+            "NetGoBuildVersion": "0.3.0-dev"
+          }
+        }
+      ]
+    },
+    {
+      "run_id": 45358901175,
+      "name": "iOS client · VERSION默认 · arm64",
+      "url": "https://github.com/sck03/NetGo/actions/runs/45358901175",
+      "source_commit": "943b9904f89f078ae603389e15e0d9753d71e014",
+      "event": "push",
+      "result": "success",
+      "publish_job": "skipped",
+      "settings": {
+        "target": "ios",
+        "version": "0.3.0-dev",
+        "arch": "arm64",
+        "sdk": "both",
+        "version_code": "1",
+        "build_number": "1"
+      },
+      "verified_artifact": {
+        "id": 14904745900,
+        "name": "release-ios-0.3.0-dev-arm64-both-45358901175",
+        "size_in_bytes": 32300701,
+        "digest": "sha256:ab4522de7b8dab54ab18232f67fe24ad793111ca628098667f44b4baf6c5417f"
+      },
+      "verified_release_assets": [
+        {
+          "name": "NetGo-0.3.0-dev-ios-arm64-both-BUILDINFO.json",
+          "sha256": "98bcdf46880005fcffed72047b53a2d6749f01e9e5213dff14798db8e1a7c673",
+          "bytes": 206
+        },
+        {
+          "name": "NetGo-0.3.0-dev-ios-arm64-both-BUILDINFO.json.sha256",
+          "sha256": "aa3074922748ee1b71eb868e7f420d6e6be3a36fc7b5a593945609eb13fc796e",
+          "bytes": 112
+        },
+        {
+          "name": "NetGo-0.3.0-dev-ios-arm64-simulator.zip",
+          "sha256": "54321d4a0e5a77a1f090871c24aa8d4380538e4cfff82e85db2a878b3019705e",
+          "bytes": 16377166
+        },
+        {
+          "name": "NetGo-0.3.0-dev-ios-arm64-simulator.zip.sha256",
+          "sha256": "21f63dda60fa17c8eb1ae9acd120300a5f79c4d1c682f4e2be05eef4c8bc48e5",
+          "bytes": 106
+        },
+        {
+          "name": "NetGo-0.3.0-dev-ios-arm64-unsigned.ipa",
+          "sha256": "f767fc48bfcffa1028c0cafdb22fcf29e656a18bb128a30c4b565e39a5fa5c04",
+          "bytes": 16008983
+        },
+        {
+          "name": "NetGo-0.3.0-dev-ios-arm64-unsigned.ipa.sha256",
+          "sha256": "d97dea032656ff66cf53f7b2bd05e2467bcdc9c8c5be0ba54ab8946668ef31f4",
+          "bytes": 105
+        }
+      ],
+      "runtime_archives": [
+        {
+          "archive": "NetGo-0.3.0-dev-ios-arm64-simulator.zip",
+          "entries": 13,
+          "verified_native_arch": "arm64",
+          "bundle": {
+            "CFBundleShortVersionString": "0.3.0",
+            "CFBundleVersion": "1",
+            "NetGoBuildVersion": "0.3.0-dev"
+          }
+        },
+        {
+          "archive": "NetGo-0.3.0-dev-ios-arm64-unsigned.ipa",
+          "entries": 14,
+          "verified_native_arch": "arm64",
+          "bundle": {
+            "CFBundleShortVersionString": "0.3.0",
+            "CFBundleVersion": "1",
+            "NetGoBuildVersion": "0.3.0-dev"
+          }
+        }
+      ]
+    },
+    {
+      "run_id": 45355844088,
+      "name": "VPS auxiliary node · 0.3.1-rc.1 · amd64",
+      "url": "https://github.com/sck03/NetGo/actions/runs/45355844088",
+      "source_commit": "529435a069e95df18ce7e28985e603aa4c826f51",
+      "event": "workflow_dispatch",
+      "result": "success",
+      "publish_job": "skipped",
+      "settings": {
+        "target": "vps",
+        "version": "0.3.1-rc.1",
+        "arch": "amd64",
+        "sdk": "none",
+        "version_code": "1",
+        "build_number": "1"
+      },
+      "verified_artifact": {
+        "id": 14902342189,
+        "name": "release-vps-0.3.1-rc.1-amd64-none-45355844088",
+        "size_in_bytes": 23637646,
+        "digest": "sha256:ed459525b4007ab129fdfbcedf8fdd30513c85cf6b2babbbc93a8e34a2d0cb3d"
+      },
+      "verified_release_assets": [
+        {
+          "name": "NetGo-0.3.1-rc.1-vps-linux-amd64.zip",
+          "sha256": "d0589d026b5051b9346f00a91ebb8f479e643a3688e94ed4d0f64f08bb3de948",
+          "bytes": 20226487
+        },
+        {
+          "name": "NetGo-0.3.1-rc.1-vps-linux-amd64.zip.sha256",
+          "sha256": "8edbc8215a92ff97d5a0b279563ac977d793ab5b312bf567125153c18786c369",
+          "bytes": 103
+        },
+        {
+          "name": "netgo-vps-installer-linux-amd64",
+          "sha256": "e98fc4f88b295181432024ec764b3a2d98fc7f1f481951488804d620522d5d8b",
+          "bytes": 8216736
+        },
+        {
+          "name": "netgo-vps-installer-linux-amd64.sha256",
+          "sha256": "c13fc1ab0e242170ba418c66c17a5491b88e14d0cb90a8dd369dcc794f40e2af",
+          "bytes": 98
+        },
+        {
+          "name": "NetGo-0.3.1-rc.1-vps-amd64-none-BUILDINFO.json",
+          "sha256": "fe2b77392894ae8c38eca85d3b968c5be607c32c95c522f6e40a2cd130665dbb",
+          "bytes": 203
+        },
+        {
+          "name": "NetGo-0.3.1-rc.1-vps-amd64-none-BUILDINFO.json.sha256",
+          "sha256": "1ce2507b55d71b2f0ba3e608a61abea9a987b9d52ddfe8b9aae119f3cacf98ac",
+          "bytes": 113
+        }
+      ],
+      "runtime_archives": [
+        {
+          "archive": "NetGo-0.3.1-rc.1-vps-linux-amd64.zip",
+          "entries": 10
+        }
+      ]
+    }
+  ],
+  "workspace_log_sha256": {
+    "workflow-tools-tests-delivery.txt": "ff1a95782009d20be35246a063e8718523b9dea732a8d4a5604ed04e066cec14",
+    "workflow-tools-upstream-delivery.txt": "e464e6ae1eb1dedbcb7345a61c99347e1a86a47f577e70f05d86656b3ebe8d4b",
+    "workflow-go-final.txt": "54b6edbdaaed4573b77058d557e01609c0b1843aa8df1fa36bca3732f064993c",
+    "workflow-vet-final.txt": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+    "workflow-native-version-final.txt": "2a2571cde17303d7a1b60da246f8ebe556f656bd189590b6f9297563e020347f",
+    "workflow-vps-version-runtime.txt": "99ff4e6ba919048d860d78b12fcbfc56050c6ab06ec82e51b1a33d7f48429b9e"
+  },
+  "executed_cloud_binary_versions": {
+    "vps": {
+      "version": "0.3.1-rc.1",
+      "arch": "amd64",
+      "role": "vps",
+      "protocol": 2,
+      "schema": 2
+    },
+    "windows": {
+      "version": "0.3.0-dev",
+      "arch": "amd64",
+      "FileVersion": "0.3.0-dev",
+      "ProductVersion": "0.3.0-dev"
+    }
+  },
+  "scope": "Build/input/version/architecture/archive/API-read verification; Release-write paths covered by regression tests; not full device or remote-desktop acceptance."
+}

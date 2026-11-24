@@ -24,6 +24,8 @@ NetGo 将账号、权限、管理网页和 VPN 网关部署在局域网 Debian �
 
 手动点击 Run workflow 后，可设置版本号、目标架构、是否发布到 Releases、草稿/预发布/正式类型；Android 还可设置 versionCode，Apple 可设置构建号，iOS 可选择设备/模拟器。自动 push 构建默认不发布。需要在线一键安装时，应将 LAN/VPS 两个工作流的运行包及校验文件发布到同一个正式 Release。
 
+如果仍只看到截图中的分支选择，请刷新对应工作流页面并选择 main。正式发布示例：version 填 `0.3.1`，勾选 publish，release_type 选择 stable；只下载 Actions 构建产物时保持 publish 不勾选。参数和本轮验证见 [构建与发布说明](docs/BUILD_CLIENTS.zh-CN.md)。
+
 ## 2. Debian 服务端一键安装与维护
 
 **有独立的一键安装脚本 `install-server.sh`。** 它安装程序并打开交互菜单；后续输入 **`ng`** 即可修改设置或卸载。运行和维护不需要 Python、Node 或 Go 编译器。
