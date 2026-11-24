@@ -55,7 +55,7 @@ bool ready(Socket s,bool write,std::uint32_t ms,const Continue& allowed){
  do{
   permission(allowed);fd_set f;FD_ZERO(&f);FD_SET(s,&f);
   auto left=std::chrono::duration_cast<std::chrono::milliseconds>(until-Clock::now()).count();
-  auto wait=std::max<std::int64_t>(0,std::min<std::int64_t>(left,100));timeval tv{0,long(wait*1000)};
+  auto wait=std::max<std::int64_t>(0,std::min<std::int64_t>(left,100));timeval tv{};tv.tv_usec=static_cast<decltype(tv.tv_usec)>(wait*1000);
   int result=select(int(s)+1,write?nullptr:&f,write?&f:nullptr,nullptr,&tv);
   require(result>=0,"remote_socket_failed");if(result>0){permission(allowed);return true;}
  }while(Clock::now()<until);
