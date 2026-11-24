@@ -62,6 +62,35 @@ func TestKernelBypassRoutingOwnershipAndRestoration(t *testing.T) {
 	if len(route) != 1 || route[0]["gateway"] != nil {
 		t.Fatal("LAN route was sent through bypass", string(raw))
 	}
+	if _, e = m.command("ip", "link", "del", "wt0"); e != nil {
+		t.Fatal(e)
+	}
+	if e = m.ApplyNetwork(&c); e != nil {
+		t.Fatal("detached rule on daemon restart", e)
+	}
+	if e = m.NetworkRemove(); e != nil {
+		t.Fatal("remove detached rule", e)
+	}
+	if e = m.ApplyNetwork(&c); e != nil {
+		t.Fatal("apply before VPN interface exists", e)
+	}
+	for _, args := range [][]string{{"link", "add", "wt0", "type", "dummy"}, {"link", "set", "wt0", "up"}, {"address", "add", "100.96.0.1/16", "dev", "wt0"}} {
+		if _, e = m.command("ip", args...); e != nil {
+			t.Fatal(e)
+		}
+	}
+	if e = m.ApplyNetwork(&c); e != nil {
+		t.Fatal("reattached VPN rule", e)
+	}
+	raw, e = m.ip("-j", "route", "get", "1.1.1.1", "from", "100.96.0.2", "iif", "wt0")
+	if e != nil {
+		t.Fatal(e)
+	}
+	route = nil
+	json.Unmarshal(raw, &route)
+	if len(route) != 1 || route[0]["gateway"] != "192.168.18.1" {
+		t.Fatal("reattached rule lost bypass", string(raw))
+	}
 	if _, e = m.ip("route", "add", "198.20.0.0/16", "dev", "lan0", "table", routeTable, "proto", "187"); e != nil {
 		t.Fatal(e)
 	}

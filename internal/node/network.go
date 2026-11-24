@@ -95,6 +95,11 @@ func (m Manager) inspectNetwork(spec *NetworkSpec) error {
 			continue
 		}
 		count++
+		// The kernel marks a name-bound rule detached while NetBird recreates
+		// its WireGuard interface. It retains all of the original selectors.
+		if value, present := r["iif_detached"]; present && value == nil {
+			delete(r, "iif_detached")
+		}
 		if spec == nil || fmt.Sprint(r["table"]) != routeTable || r["iif"] != spec.Interface || fmt.Sprint(r["protocol"]) != routeProtocol || r["src"] != "all" || len(r) != 5 {
 			return errors.New("策略路由规则不属于本安装，保留现场")
 		}
