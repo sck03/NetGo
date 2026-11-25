@@ -43,6 +43,9 @@ bool Exchange::push(const Json &c) {
     }
 }
 void Exchange::finish(const std::string &error) {
+    // Completion allows UI adapters to delete staging files/release scoped URLs.
+    // Close native handles before delivering that event.
+    local_.reset();
     if (!active_.is_null()) {
         Json e = {
             {"action", active_.value("action", "")}, {"done", true}, {"bytes", offset_}, {"size", size_}};
@@ -52,7 +55,6 @@ void Exchange::finish(const std::string &error) {
             e["path"] = active_.at("path");
         event_(e);
     }
-    local_.reset();
     active_ = pending_ = ready_ = chunk_ = Json();
     localToken_.clear();
     remoteToken_.clear();
