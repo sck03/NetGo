@@ -47,10 +47,28 @@ VPS 控制入口三组串行请求实测耗时 5.515 / 8.301 / 8.679 秒（每�
 
 LAN 临时源码、程序、构建目录和归档共清理 57,933,685 字节。临时管理员设备已撤销；没有创建测试资源/普通账号，也没有修改在运行的服务器程序或配置。六项 LAN 服务、两项 VPS 服务及 SSH 正常，默认网关不变，已安装程序与安装清单摘要一致。网络故障注入位于无名 netns，退出即销毁。
 
-前轮约 346.57 MiB 本地缓存的路径经核验后删除仍被自动审批拒绝，原因为 blocked by policy；保留 .cache/remote-lan-20261125，未改用其他方式绕过限制。
+前轮约 346.57 MiB 本地缓存的路径经核验后删除仍被自动审批拒绝，原因为 blocked by policy；保留 .cache/remote-lan-20261125，未改用其他方式绕过限制。本轮独立的 8 个已结束预览/测试脚本与源码归档先清理 807,633 字节；证据归档后再清理其余 24 个文件 31,537,714 字节，.cache/access-20261125 已移除，预览服务及 5194 端口已释放；结果见 CLEANUP.json。
 
 浏览器插件返回缺少 network policy；Windows Computer Use 因无法可靠确定当前浏览器 URL 停止本轮 UI 操作。因此新布局/工具栏实际点击、响应式视觉效果尚未验收。完整两设备画面、实际键鼠、音频、UAC/锁屏、多屏、物理 ARM 和 72 小时稳定性未由本轮测试证明。前轮首次 DNS 超时 / TLS EOF 仍是开放问题。本轮没有重新进行完整 VPN 业务流测试。
 
 ## 云构建与提交
 
-代码通过本地和 Debian 检查后推送 main；九项平台/架构构建的结果在后续证据提交中记录。
+代码提交 **483a951a6b7967b5a538a24fab64b168f271d5f0** 已推送 main。以下九项构建全部成功，发布任务均跳过；详细步骤和产物摘要见 CI.json。
+
+| 目标 | GitHub Actions Run | 结果 |
+| --- | --- | --- |
+| LAN amd64 | 45611468697 | success |
+| LAN arm64 | 45611508706 | success |
+| VPS amd64 | 45611468606 | success |
+| VPS arm64 | 45611516591 | success |
+| Windows amd64 | 45611468497 | success |
+| Linux desktop amd64 | 45611468461 | success |
+| Android arm64 | 45611468499 | success，第 2 次运行 |
+| macOS arm64 | 45611468731 | success |
+| iOS arm64（device + simulator） | 45611468554 | success |
+
+Android 第一次运行在解析 org.gradle.toolchains.foojay-resolver-convention 1.0.0 时失败，尚未进入 Android 工程编译；官方插件页及固定版本 POM 仍能读取。同一提交仅重跑失败任务后成功，没有为此修改依赖、校验或项目代码。保留 ANDROID-FIRST-ATTEMPT.json 与 ANDROID-FAILURE.txt。
+
+五个运行包（Windows、LAN amd64/arm64、VPS amd64/arm64）已独立校验 GitHub 外层摘要、清单文件及旁置校验文件摘要、源码提交、内层归档路径/CRC 和 ELF/PE 架构，结果见 ARTIFACTS.json。下载曾发生一次 GitHub 读取 TLS EOF，后续读取成功；Windows 校验文件使用 CRLF，内存校验脚本首次只接受 LF 导致误报，确认并按完整相同内容的 LF/CRLF 两种形式校验后通过。这两次失败均来自交付验证过程，未更改产品代码或放宽摘要要求。
+
+本地 Windows 构建的 NetGo.exe 为 7,124,992 字节，其摘要和测试维护程序摘要见 LOCAL-ARTIFACTS.json。构建通过不替代设备运行或图形交互验收。

@@ -1,0 +1,37 @@
+{
+  "local_current": {
+    "removedFiles": 8,
+    "removedBytes": 807633,
+    "root": "E:\\NetGo\\.cache\\access-20261125"
+  },
+  "local_previous": {
+    "target": ".cache/remote-lan-20261125",
+    "files": 105,
+    "bytes": 363407071,
+    "status": "retained",
+    "reason": "Automatic approval review rejected verified recursive removal: blocked by policy"
+  },
+  "LAN": {
+    "removed_bytes": 57933685,
+    "installed_binary_hashes": "match original installation manifest",
+    "temporary_administrator_device": "deleted",
+    "default_gateway": "192.168.18.18",
+    "interface": "ens32",
+    "services": "6 NetGo services and SSH active"
+  },
+  "VPS": {
+    "default_gateway": "107.174.220.65",
+    "interface": "eth0",
+    "services": "2 NetGo services and SSH active"
+  },
+  "preview": {
+    "port": 5194,
+    "status": "stopped"
+  },
+  "local_final": {
+    "root": "E:\\NetGo\\.cache\\access-20261125",
+    "removedFiles": 24,
+    "removedBytes": 31537714.0,
+    "status": "removed after evidence archival"
+  }
+}
