@@ -1,8 +1,8 @@
 # 执行方案与源码追踪
 
-修订：2026-11-24。当前为 0.3.0-dev / API v2 / schema 2，不兼容旧接口/数据。完整场景按 [执行方案](EXECUTION_PLAN.zh-CN.md) 和 [融合契约 I01–I10](INTEGRATION_CONTRACT.zh-CN.md) 判定。
+修订：2026-11-26（本轮工作始于 11 月 25 日）。当前为 0.3.0-dev / API v2 / schema 2，不兼容旧接口/数据。完整场景按 [执行方案](EXECUTION_PLAN.zh-CN.md) 和 [融合契约 I01–I10](INTEGRATION_CONTRACT.zh-CN.md) 判定。
 
-| 需求 | 实现入口 | 本轮验证 | 仍须验收 |
+| 需求 | 实现入口 | 已有验证证据（对应各自提交） | 仍须验收 |
 | --- | --- | --- | --- |
 | 身份、设备签名和新数据库 | identity、model、store、api；Dex/NetBird补丁 | Go回归、Debian13新站点与28项真实TLS/IdP/API | 全设备登录、禁用、恢复矩阵 |
 | 时钟偏差与会话期限 | controlpath、protocol、client；Windows transport；ui/auth.ts | Go ±24小时、Windows/前端 ±1小时及修改本机日期回归 | 设备休眠、长时间断网与服务端校时 |
@@ -15,7 +15,8 @@
 | Linux图形客户端 | apps/linux、desktopinstall | GTK/FFmpeg、6 CTest、Xvfb；普通用户IPC、更新失败恢复、卸载/重装 | 物理桌面、Linux主机/X11/Wayland和音频 |
 | Android | apps/android、mobile/android.go、共享C ABI | VPN AAR/JNI/Kotlin/APK/lint及独立工作流 | Android实机VPN/远控/IME/恢复 |
 | macOS/iOS | apps/apple、mobile/ios.go、vault/darwin.go | SwiftUI/ObjC++/Packet Tunnel；独立App/模拟器/未签名设备构建 | 签名、权限、macOS/iPhone/iPad实机 |
+| 本轮一致性与性能 | accounts、store/queries、session、remote、ui/auth、原生客户端 | 容量/排序/刷新竞态、审计分页、连接池、域事务、站点取消、媒体缓冲回归；详见本轮记录 | 移动真机生命周期和跨设备长期媒体测试 |
 | 远控会话与媒体 | internal/remote、packages/remote-*、平台适配 | 主机/授权/持钥证明/一次消费/撤权/票据/C ABI/TLS回归；采集和媒体接入 | 完整overlay音视频、输入、多屏、剪贴板/文件及RD-A01–A14 |
 | 交付、许可和仓库 | 七份脚本/工作流、package-*、THIRD_PARTY_NOTICES | 运行文件白名单、Go维护、秘密/缓存忽略和稳定工具链锁定 | 发行签名、72小时和完整设备证据 |
 
-局部VPN、API和生命周期成功不代表所有远控、设备或A01–A33完成。最新事实见 [进度](PROGRESS.zh-CN.md) 与 [当前报告](evidence/2026-11-24-platforms/REPORT.zh-CN.md)，旧evidence保留历史结果。
+局部VPN、API和生命周期成功不代表所有远控、设备或A01–A33完成。最新事实见 [进度](PROGRESS.zh-CN.md) 与 [当前重构报告](REFACTOR_2026-11-25.zh-CN.md)，旧evidence保留历史结果。
