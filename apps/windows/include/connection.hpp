@@ -2,6 +2,7 @@
 #include "common.hpp"
 #include <deque>
 #include <future>
+#include <condition_variable>
 
 struct ssl_ctx_st;
 namespace netgo {
@@ -18,7 +19,7 @@ HttpResponse decodeHttp(const std::string& raw);
 class Transport {
  Json profile_;
  std::shared_ptr<ssl_ctx_st> context_;
- size_t selected_ = 0;
+ std::atomic_size_t selected_{0};
  int directSuccess_ = 0;
  size_t directCandidate_ = SIZE_MAX;
  std::chrono::milliseconds cooldown_ = std::chrono::seconds(30);
@@ -47,6 +48,7 @@ class Controller {
  std::thread worker_;
  struct RemoteJob {Json request;std::promise<Json> result;std::atomic_bool abandoned{false};};
  std::deque<std::shared_ptr<RemoteJob>> remoteJobs_;
+ std::condition_variable remoteWake_;
  bool remoteReady_=false;
  Json remoteContext_;
  Json remoteCall(const Json&);

@@ -65,6 +65,7 @@ type Controller struct {
 	remote        *remoteConnection
 }
 type Remote struct {
+	auth          sync.RWMutex
 	HTTP          *http.Client
 	Origin, Token string
 	Private       ed25519.PrivateKey
@@ -83,6 +84,25 @@ func terminalControlError(err error) bool {
 }
 
 func (r *Remote) Call(ctx context.Context, method, path string, in, out any, key string) error {
+	r.auth.RLock()
+	defer r.auth.RUnlock()
+	return r.call(ctx, method, path, in, out, key)
+}
+
+// Rotate credentials between requests. In-flight desktop requests finish with
+// their original proof before the server invalidates that credential.
+func (r *Remote) Refresh(ctx context.Context, refreshToken string) (identity.Result, error) {
+	r.auth.Lock()
+	defer r.auth.Unlock()
+	var result identity.Result
+	err := r.call(ctx, "POST", "/netgo/v2/auth/refresh", map[string]string{"refresh_token": refreshToken}, &result, "")
+	if err == nil {
+		r.Token = result.Token
+	}
+	return result, err
+}
+
+func (r *Remote) call(ctx context.Context, method, path string, in, out any, key string) error {
 	var b []byte
 	if in != nil {
 		b, _ = json.Marshal(in)
@@ -409,7 +429,7 @@ func (c *Controller) run(ctx context.Context, gen uint64, p site.Profile, alias 
 		return e
 	}
 	c.set(gen, func(s *Status) { s.State = "negotiating"; s.Lease = lease })
-	remoteConnection := c.attachRemote(ctx, p.ID, scope, auth, pk)
+	remoteConnection := c.attachRemote(ctx, p.ID, scope, auth, pk, remote)
 	defer c.detachRemote(remoteConnection)
 	tick := time.NewTicker(5 * time.Second)
 	defer tick.Stop()
@@ -418,8 +438,6 @@ func (c *Controller) run(ctx context.Context, gen uint64, p site.Profile, alias 
 		select {
 		case <-ctx.Done():
 			return ctx.Err()
-		case job := <-remoteConnection.jobs:
-			remoteConnection.handle(job, remote)
 		case <-tick.C:
 			if !selector.Now().Before(lease.ExpiresAt) {
 				return errors.New("lease_expired")
@@ -434,7 +452,7 @@ func (c *Controller) run(ctx context.Context, gen uint64, p site.Profile, alias 
 			}
 			if auth.ExpiresAt.Sub(selector.Now()) < 2*time.Minute && auth.RefreshToken != "" {
 				var renewed identity.Result
-				if e = remote.Call(ctx, "POST", "/netgo/v2/auth/refresh", map[string]string{"refresh_token": auth.RefreshToken}, &renewed, ""); e != nil {
+				if renewed, e = remote.Refresh(ctx, auth.RefreshToken); e != nil {
 					if terminalControlError(e) {
 						return e
 					}
@@ -442,7 +460,6 @@ func (c *Controller) run(ctx context.Context, gen uint64, p site.Profile, alias 
 					continue
 				}
 				auth = renewed
-				remote.Token = renewed.Token
 				if e = c.Engine.Login(ctx, engineProfile(), renewed.IDToken); e != nil {
 					continue
 				}

@@ -1,12 +1,14 @@
 #include "connection.hpp"
 #include <openssl/rand.h>
 #include <regex>
+#include <shared_mutex>
 
 namespace netgo {
 void Controller::closeRemote(){
  std::lock_guard lock(mutex_);remoteReady_=false;remoteContext_=Json::object();
  for(auto& job:remoteJobs_)job->result.set_value({{"error","remote_site_disconnected"}});
  remoteJobs_.clear();
+ remoteWake_.notify_all();
 }
 Json Controller::remoteCall(const Json& request){
  auto job=std::make_shared<RemoteJob>();job->request=request;auto future=job->result.get_future();
@@ -14,6 +16,7 @@ Json Controller::remoteCall(const Json& request){
   if(request.at("action")=="remote-context")return remoteContext_;
   if(remoteJobs_.size()>=8)throw Error("remote_busy");
   remoteJobs_.push_back(job);}
+ remoteWake_.notify_one();
  if(future.wait_for(std::chrono::seconds(25))!=std::future_status::ready){job->abandoned=true;throw Error("remote_control_timeout");}
  return future.get();
 }
@@ -91,6 +94,7 @@ void Controller::connect(const Json& r) {
 }
 void Controller::run(uint64_t gen,Json p,std::string alias,std::string password,bool replace,bool remember,bool internet) {
  std::string seed,token,refresh,jwt;Json lease=Json::object();std::unique_ptr<Transport> transport;
+ std::shared_mutex authMutex;std::atomic_bool remoteStop=false;std::thread remoteWorker;
  bool prepared=false;
  const auto scope=accountScope(p.at("ID"),alias);
  auto check=[&]{if(cancel_)throw Error("cancelled");};
@@ -99,7 +103,9 @@ void Controller::run(uint64_t gen,Json p,std::string alias,std::string password,
   check();auto profile=p;profile["ID"]=scope;Json request={{"action",action},{"profile",profile},{"internet",internet}};request.update(fields);return engineCall(request,cancel_);
  };
  auto cleanup=[&]{
+  remoteStop=true;
   closeRemote();
+  if(remoteWorker.joinable())remoteWorker.join();
   std::atomic_bool cleanupCancel=false;
   if(transport&&!token.empty()&&lease.contains("id"))try{transport->call("DELETE","/netgo/v2/sessions/"+lease["id"].get<std::string>(),nullptr,seed,token);}catch(...){}
   if(prepared)try{engineCall({{"action","down"}},cleanupCancel);cleanupFailed_=false;}catch(...){cleanupFailed_=true;}
@@ -142,9 +148,7 @@ void Controller::run(uint64_t gen,Json p,std::string alias,std::string password,
   if(remember){auto saved=Json({{"alias",alias},{"password",password}}).dump();credentialWrite("password/"+id,saved);wipe(saved);}else credentialDelete("password/"+id);
   wipe(password);state(gen,"negotiating","",{{"lease",lease},{"internet",internet}});
   {std::lock_guard lock(mutex_);remoteReady_=true;remoteContext_={{"site_id",id},{"credential_scope",scope},{"user_id",userID},{"device_id",deviceID},{"generation",gen},{"lease",lease},{"public_key",publicKey(seed)}};}
-  auto remoteWork=[&]{
-   std::shared_ptr<RemoteJob> job;
-   {std::lock_guard lock(mutex_);if(!remoteJobs_.empty()){job=remoteJobs_.front();remoteJobs_.pop_front();}}
+  auto remoteWork=[&](const std::shared_ptr<RemoteJob>& job){
    if(!job||job->abandoned)return;
    try{
     check();auto method=job->request.value("method",""),path=job->request.value("path","");
@@ -152,20 +156,34 @@ void Controller::run(uint64_t gen,Json p,std::string alias,std::string password,
     allowed=allowed||((method=="POST"||method=="DELETE")&&std::regex_match(path,std::regex(method=="POST"?R"(^/netgo/v2/remote/sessions/[A-Za-z0-9_-]{22}/(consume|renew)$)":R"(^/netgo/v2/remote/sessions/[A-Za-z0-9_-]{22}$)")));
     allowed=allowed||(method=="GET"&&std::regex_match(path,std::regex(R"(^/netgo/v2/remote/sessions/[A-Za-z0-9_-]{22}$)")));
     if(!allowed)throw Error("remote_invalid_operation");
+    std::shared_lock authLock(authMutex);
     auto value=transport->call(method,path,job->request.value("body",Json()),seed,token,job->request.value("idempotency",""));
     check();job->result.set_value(std::move(value));
    }catch(const std::exception& e){job->result.set_value({{"error",e.what()}});}
   };
+  // The bounded command worker stays responsive while WAN probing and route
+  // recovery wait on the network engine. Cleanup joins it before wiping keys.
+  remoteWorker=std::thread([&]{
+   while(!remoteStop&&!cancel_){
+    std::shared_ptr<RemoteJob> job;
+    {std::unique_lock lock(mutex_);remoteWake_.wait(lock,[&]{return remoteStop||cancel_||!remoteJobs_.empty();});
+     if(remoteStop||cancel_)break;
+     job=remoteJobs_.front();remoteJobs_.pop_front();}
+    remoteWork(job);
+   }
+  });
   auto renewed=Clock::now();int failed=0;
   while(!cancel_) {
-   for(int i=0;i<25&&!cancel_;++i){remoteWork();Sleep(200);}
+   for(int i=0;i<25&&!cancel_;++i)Sleep(200);
    check();
    if(transport->now()>=parseTime(lease.at("expires_at")))throw Error("lease_expired");
    try{
     transport->recover();check();
     if(authExpires-transport->now()<std::chrono::minutes(2)&&!refresh.empty()){
+     std::unique_lock authLock(authMutex);
      auto authNew=transport->call("POST","/netgo/v2/auth/refresh",{{"refresh_token",refresh}},seed,token);
      wipe(token);wipe(refresh);wipe(jwt);token=authNew.at("token");refresh=authNew.value("refresh_token","");jwt=authNew.at("id_token");authExpires=parseTime(authNew.at("expires_at"));
+     authLock.unlock();
      engine("login",{{"id_token",jwt}});engine("up");engine("routes",{{"resources",selectedResources(lease.at("resources"),internet)}});
     }
     if(Clock::now()-renewed>=std::chrono::seconds(30)||parseTime(lease.at("expires_at"))-transport->now()<std::chrono::seconds(40)){

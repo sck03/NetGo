@@ -230,12 +230,13 @@ void Transport::recover() {
   if(++directSuccess_>=3){selected_=chosen;switched_=Clock::now();directSuccess_=0;directCandidate_=SIZE_MAX;}
  }
 }
-std::string Transport::kind() const{return profile_["Candidates"][selected_]["Kind"];}
+std::string Transport::kind() const{return profile_["Candidates"][selected_.load()]["Kind"];}
 std::string Transport::candidate() const{return profile_["Candidates"][selected_]["ID"];}
 std::chrono::system_clock::time_point Transport::now() const {
  std::lock_guard lock(clockMutex_);
- if(selected_>=clocks_.size()||!clocks_[selected_].valid)return std::chrono::system_clock::now();
- const auto& sample=clocks_[selected_];return sample.server+std::chrono::duration_cast<std::chrono::system_clock::duration>(Clock::now()-sample.received);
+ auto selected=selected_.load();
+ if(selected>=clocks_.size()||!clocks_[selected].valid)return std::chrono::system_clock::now();
+ const auto& sample=clocks_[selected];return sample.server+std::chrono::duration_cast<std::chrono::system_clock::duration>(Clock::now()-sample.received);
 }
 Json Transport::call(const std::string& method,const std::string& path,const Json& value,const std::string& seed,const std::string& token,const std::string& idem) {
  std::string body=value.is_null()?"":value.dump(),headers="X-NetGo-Protocol: 2\r\n";

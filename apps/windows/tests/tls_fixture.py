@@ -119,6 +119,7 @@ def run(binary):
                     started=time.monotonic();subprocess.run([binary,"--tls",str(file)],check=True,timeout=10)
                     assert time.monotonic()-started < 6, "fallback exceeded concurrent probe window"
                     print("PASS seven stalled TLS candidates: bounded parallel fallback")
+                    subprocess.run([binary,"--tls-recovery-load",str(file)],check=True,timeout=15)
                 finally:
                     p["Candidates"]=original;stall.shutdown();stall.server_close();stall_thread.join(timeout=3)
                 p["Origin"]="https://wrong.test"

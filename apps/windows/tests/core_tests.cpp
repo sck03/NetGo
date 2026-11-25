@@ -21,6 +21,15 @@ int main(int argc,char** argv){
    }
    std::cout<<"PASS shared profile revision, rollback, identity and WAN contract\n";return 0;
   }
+  if(argc==3&&std::string(argv[1])=="--tls-recovery-load"){
+   auto p=Json::parse(readFile(wide(argv[2])));Transport transport(p,std::chrono::milliseconds(0));
+   transport.select();std::string seed(32,'a');
+   auto probing=std::async(std::launch::async,[&]{transport.recover();});
+   auto started=Clock::now();
+   for(int i=0;i<3;++i)require(transport.call("POST","/fixture",{{"native",true}},seed,"fixture-token").at("verified")==true,"concurrent request failed");
+   require(Clock::now()-started<std::chrono::seconds(2),"remote requests waited for stalled WAN probes");
+   probing.get();std::cout<<"PASS signed requests proceed while WAN recovery is stalled\n";return 0;
+  }
   if(argc==3&&std::string(argv[1])=="--tls-multiwan"){
    auto p=Json::parse(readFile(wide(argv[2])));Transport transport(p,std::chrono::milliseconds(0));
    transport.select();require(transport.kind()=="auxiliary","initial fallback not selected");

@@ -31,6 +31,8 @@ type remoteConnection struct {
 	ctx                               context.Context
 	site, scope, device, user, public string
 	jobs                              chan remoteJob
+	cancel                            context.CancelFunc
+	done                              chan struct{}
 }
 
 var remoteSessionPath = regexp.MustCompile(`^/netgo/v2/remote/sessions/[A-Za-z0-9_-]{22}(/(consume|renew))?$`)
@@ -122,8 +124,22 @@ func (c *Controller) SignPossession(site, message string) (string, error) {
 	}()
 	return base64.RawURLEncoding.EncodeToString(ed25519.Sign(private, []byte(message))), nil
 }
-func (c *Controller) attachRemote(ctx context.Context, site, scope string, auth identity.Result, pk ed25519.PrivateKey) *remoteConnection {
-	connection := &remoteConnection{ctx: ctx, site: site, scope: scope, device: auth.DeviceID, user: auth.User.ID, public: base64.RawURLEncoding.EncodeToString(pk.Public().(ed25519.PublicKey)), jobs: make(chan remoteJob, 8)}
+func (c *Controller) attachRemote(ctx context.Context, site, scope string, auth identity.Result, pk ed25519.PrivateKey, transport *Remote) *remoteConnection {
+	ctx, cancel := context.WithCancel(ctx)
+	connection := &remoteConnection{ctx: ctx, cancel: cancel, done: make(chan struct{}), site: site, scope: scope, device: auth.DeviceID, user: auth.User.ID, public: base64.RawURLEncoding.EncodeToString(pk.Public().(ed25519.PublicKey)), jobs: make(chan remoteJob, 8)}
+	// VPN recovery and route delivery can each wait several seconds. Desktop
+	// heartbeats must not queue behind them on the connection maintenance loop.
+	go func() {
+		defer close(connection.done)
+		for {
+			select {
+			case <-ctx.Done():
+				return
+			case job := <-connection.jobs:
+				connection.handle(job, transport)
+			}
+		}
+	}()
 	c.mu.Lock()
 	c.remote = connection
 	c.mu.Unlock()
@@ -135,6 +151,8 @@ func (c *Controller) detachRemote(connection *remoteConnection) {
 		c.remote = nil
 	}
 	c.mu.Unlock()
+	connection.cancel()
+	<-connection.done
 }
 func (connection *remoteConnection) handle(job remoteJob, r *Remote) {
 	if job.ctx.Err() != nil {

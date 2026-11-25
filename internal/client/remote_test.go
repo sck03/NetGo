@@ -5,6 +5,11 @@ import (
 	"crypto/ed25519"
 	"crypto/rand"
 	"encoding/base64"
+	"encoding/json"
+	"io"
+	"net/http"
+	"net/http/httptest"
+	"netgo/internal/identity"
 	"netgo/internal/site"
 	"netgo/internal/vault"
 	"runtime"
@@ -12,6 +17,105 @@ import (
 	"testing"
 	"time"
 )
+
+func TestRemoteWorkerDoesNotWaitForVPNMaintenance(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path != "/netgo/v2/remote" {
+			t.Error(r.URL.Path)
+		}
+		_, _ = w.Write([]byte("{\"hosts\":[]}"))
+	}))
+	defer server.Close()
+	_, key, _ := ed25519.GenerateKey(rand.Reader)
+	c := &Controller{}
+	connection := c.attachRemote(context.Background(), "s", "scope", identity.Result{}, key, &Remote{HTTP: server.Client(), Origin: server.URL})
+	defer c.detachRemote(connection)
+	ctx, cancel := context.WithTimeout(context.Background(), time.Second)
+	defer cancel()
+	// No connection-maintenance loop drains jobs in this test.
+	result, err := c.RemoteCommand(ctx, RemoteRequest{Site: "s", Method: "GET", Path: "/netgo/v2/remote"})
+	if err != nil || string(result) != "{\"hosts\":[]}" {
+		t.Fatalf("independent worker: %s %v", result, err)
+	}
+}
+
+func TestRemoteWorkerCancelsInFlightRequestOnDetach(t *testing.T) {
+	entered := make(chan struct{})
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		_, _ = io.Copy(io.Discard, r.Body)
+		close(entered)
+		<-r.Context().Done()
+	}))
+	defer server.Close()
+	_, key, _ := ed25519.GenerateKey(rand.Reader)
+	c := &Controller{}
+	connection := c.attachRemote(context.Background(), "s", "scope", identity.Result{}, key, &Remote{HTTP: server.Client(), Origin: server.URL})
+	result := make(chan error, 1)
+	go func() {
+		_, err := c.RemoteCommand(context.Background(), RemoteRequest{Site: "s", Method: "GET", Path: "/netgo/v2/remote"})
+		result <- err
+	}()
+	select {
+	case <-entered:
+	case <-time.After(time.Second):
+		t.Fatal("request not dispatched")
+	}
+	detached := make(chan struct{})
+	go func() { c.detachRemote(connection); close(detached) }()
+	select {
+	case <-detached:
+	case <-time.After(time.Second):
+		t.Fatal("detach did not cancel HTTP")
+	}
+	if err := <-result; err == nil {
+		t.Fatal("disconnected request succeeded")
+	}
+}
+
+func TestRemoteCredentialRotationWaitsForInFlightProof(t *testing.T) {
+	entered, release := make(chan struct{}), make(chan struct{})
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path == "/slow" {
+			close(entered)
+			<-release
+		}
+		if r.URL.Path == "/netgo/v2/auth/refresh" {
+			json.NewEncoder(w).Encode(identity.Result{Token: "new-token"})
+			return
+		}
+		want := "Bearer old-token"
+		if r.URL.Path == "/after" {
+			want = "Bearer new-token"
+		}
+		if r.Header.Get("Authorization") != want {
+			t.Errorf("unexpected credential: %s", r.URL.Path)
+		}
+		w.WriteHeader(204)
+	}))
+	defer server.Close()
+	_, key, _ := ed25519.GenerateKey(rand.Reader)
+	remote := &Remote{HTTP: server.Client(), Origin: server.URL, Token: "old-token", Private: key}
+	request := make(chan error, 1)
+	go func() { request <- remote.Call(context.Background(), "GET", "/slow", nil, nil, "") }()
+	<-entered
+	rotated := make(chan error, 1)
+	go func() { _, err := remote.Refresh(context.Background(), "refresh"); rotated <- err }()
+	select {
+	case <-rotated:
+		t.Fatal("credential rotated under an in-flight request")
+	case <-time.After(20 * time.Millisecond):
+	}
+	close(release)
+	if err := <-request; err != nil {
+		t.Fatal(err)
+	}
+	if err := <-rotated; err != nil {
+		t.Fatal(err)
+	}
+	if err := remote.Call(context.Background(), "GET", "/after", nil, nil, ""); err != nil {
+		t.Fatal(err)
+	}
+}
 
 func TestRemoteCannotProxyUnrelatedAPI(t *testing.T) {
 	c := &Controller{}
