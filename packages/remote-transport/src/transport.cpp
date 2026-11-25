@@ -1,4 +1,5 @@
 #include "remote_transport.hpp"
+#include <deque>
 #include <openssl/ssl.h>
 #include <openssl/x509.h>
 #include <openssl/rand.h>
@@ -142,6 +143,8 @@ struct Connection::Impl {
  SocketOwner socket;std::shared_ptr<SSL_CTX> context;std::unique_ptr<SSL,decltype(&SSL_free)> tls{nullptr,SSL_free};Continue allowed;
  std::array<std::uint8_t,12> header{};std::size_t headerBytes=0,bodyBytes=0;Message incoming{};
  bool headerReady=false,reading=false;Clock::time_point readDeadline;
+ struct Output {std::vector<uint8_t> bytes;std::size_t offset=0;Clock::time_point deadline;};
+ std::deque<Output> output;std::size_t outputBytes=0;
  Impl(SocketOwner&& s,std::shared_ptr<SSL_CTX> ctx,Continue check):socket(s.release()),context(std::move(ctx)),tls(SSL_new(context.get()),SSL_free),allowed(std::move(check)){
   require(bool(tls)&&SSL_set_fd(tls.get(),int(socket.value))==1,"remote_tls_failed");nonblock(socket.value);
   int one=1;require(setsockopt(socket.value,IPPROTO_TCP,TCP_NODELAY,reinterpret_cast<const char*>(&one),sizeof(one))==0,"remote_socket_failed");
@@ -187,11 +190,36 @@ Connection Connection::connect(const std::string& ip,std::uint16_t port,const Ke
 Key Connection::exporter()const{Key key{};constexpr char label[]="EXPORTER-NetGo-remote-v1";require(SSL_export_keying_material(impl_->tls.get(),key.data(),key.size(),label,sizeof(label)-1,nullptr,0,0)==1,"remote_exporter_failed");return key;}
 void Connection::authorize(Continue allowed){permission(allowed);impl_->allowed=std::move(allowed);}
 void Connection::send(const Message& message){
+ require(impl_->output.empty(),"remote_output_pending");
  auto kind=static_cast<std::uint32_t>(message.kind);require(kind>=1&&kind<=10&&message.body.size()<=max_message,"remote_invalid_message");
  require(message.kind==Kind::video||message.body.size()<=65536,"remote_invalid_message");
  auto deadline=Clock::now()+std::chrono::seconds(3);
  std::array<std::uint8_t,12> header{'N','G','R','2'};put(header.data()+4,kind);put(header.data()+8,std::uint32_t(message.body.size()));impl_->transfer(header.data(),header.size(),true,deadline);
  if(!message.body.empty())impl_->transfer(const_cast<std::uint8_t*>(message.body.data()),message.body.size(),true,deadline);
+}
+void Connection::enqueue(Message message){
+ auto kind=static_cast<std::uint32_t>(message.kind);auto& p=*impl_;
+ permission(p.allowed);
+ require(kind>=1&&kind<=10&&message.body.size()<=max_message,"remote_invalid_message");
+ require(message.kind==Kind::video||message.body.size()<=65536,"remote_invalid_message");
+ require(p.output.size()<64&&p.outputBytes+message.body.size()+12<=2*max_message,"remote_output_backpressure");
+ Impl::Output item;item.bytes.reserve(message.body.size()+12);item.bytes.resize(12);item.bytes[0]='N';item.bytes[1]='G';item.bytes[2]='R';item.bytes[3]='2';put(item.bytes.data()+4,kind);put(item.bytes.data()+8,std::uint32_t(message.body.size()));
+ item.bytes.insert(item.bytes.end(),message.body.begin(),message.body.end());item.deadline=Clock::now()+std::chrono::seconds(3);
+ p.outputBytes+=item.bytes.size();p.output.push_back(std::move(item));
+}
+bool Connection::outputPending()const{return !impl_->output.empty();}
+bool Connection::flush(){
+ [[maybe_unused]] SignalGuard signals;auto& p=*impl_;
+ // Bound work per iteration so input, revocation and audio retain service time.
+ for(unsigned budget=0;budget<8&&!p.output.empty();++budget){
+  permission(p.allowed);auto& item=p.output.front();require(Clock::now()<item.deadline,"remote_transport_timeout");
+  auto count=std::min<std::size_t>(16384,item.bytes.size()-item.offset);std::size_t n=0;
+  int result=SSL_write_ex(p.tls.get(),item.bytes.data()+item.offset,count,&n);
+  if(result!=1){auto error=SSL_get_error(p.tls.get(),result);require(error==SSL_ERROR_WANT_READ||error==SSL_ERROR_WANT_WRITE,"remote_connection_failed");return false;}
+  require(n>0&&n<=count,"remote_connection_failed");item.offset+=n;
+  if(item.offset==item.bytes.size()){p.outputBytes-=item.bytes.size();p.output.pop_front();}
+ }
+ return p.output.empty();
 }
 bool Connection::receive(Message& message,std::uint32_t idle_ms){
  [[maybe_unused]] SignalGuard signals;

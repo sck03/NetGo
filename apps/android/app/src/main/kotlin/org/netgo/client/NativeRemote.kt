@@ -13,6 +13,7 @@ class NativeRemote(private val site: String, private val host: String, private v
     private var decoder: MediaCodec? = null
     private var sound: AudioTrack? = null
     private var handle = 0L
+    private var pendingAudio = ByteArray(0)
     private external fun startNative(site: String, host: String): Long
     private external fun cancelNative(handle: Long)
     private external fun inputNative(handle: Long, json: ByteArray)
@@ -40,16 +41,34 @@ class NativeRemote(private val site: String, private val host: String, private v
     @Keep fun onVideo(bytes: ByteArray, stamp: Long): Boolean = try {
         if (!active) false else {
             val codec = decoder ?: error("decoder_unavailable")
-            val index = codec.dequeueInputBuffer(10000)
+            val drained = MediaCodec.BufferInfo()
+            while (true) { val output=codec.dequeueOutputBuffer(drained,0); if(output<0) break; codec.releaseOutputBuffer(output,true) }
+            var index = codec.dequeueInputBuffer(10000)
+            var attempts=0
+            while(index<0 && active && attempts++<2) {
+                while(true) {val output=codec.dequeueOutputBuffer(drained,0);if(output<0)break;codec.releaseOutputBuffer(output,true)}
+                index=codec.dequeueInputBuffer(10000)
+            }
+            // Never silently discard a reference frame; bound waiting and stop on overload.
+            if (index < 0 || !active) error("decoder_backpressure")
             if (index >= 0) { codec.getInputBuffer(index)!!.apply { clear(); put(bytes) }; codec.queueInputBuffer(index, 0, bytes.size, stamp / 10, 0) }
             val info = MediaCodec.BufferInfo()
             while (true) { val output = codec.dequeueOutputBuffer(info, 0); if (output < 0) break; codec.releaseOutputBuffer(output, true) }
             true
         }
     } catch (_: Exception) { false }
-    @Keep fun onAudio(bytes: ByteArray): Boolean = try { active && bytes.size in 4..3840 && bytes.size % 4 == 0 && (sound?.write(bytes, 0, bytes.size, AudioTrack.WRITE_NON_BLOCKING) ?: -1) >= 0 } catch (_: Exception) { false }
+    @Keep fun onAudio(bytes: ByteArray): Boolean = try {
+        if (!active || bytes.size !in 4..3840 || bytes.size % 4 != 0) false else {
+            val track=sound ?: error("audio_unavailable")
+            if(pendingAudio.size + bytes.size > 19200) error("audio_backpressure")
+            val packet=pendingAudio + bytes
+            val written=track.write(packet,0,packet.size,AudioTrack.WRITE_NON_BLOCKING)
+            if(written<0) error("audio_write_failed")
+            pendingAudio=packet.copyOfRange(written,packet.size);true
+        }
+    } catch (_: Exception) { false }
     @Keep fun onStatus(code: String) { if (active) NetGoRuntime.message.value = when (code) { "remote_connected" -> "远程桌面已连接"; "remote_waiting_consent" -> "等待主机确认…"; "remote_host_busy" -> "对方正在使用远程桌面，请稍后刷新"; "remote_host_unavailable" -> "对方暂不可连接，请检查 VPN 和桌面共享"; "remote_view_forbidden" -> "当前账号没有观看权限"; else -> code } }
-    @Keep fun onClosed() { active = false; runCatching { decoder?.stop() }; decoder?.release(); decoder = null; runCatching { sound?.stop() }; sound?.release(); sound = null; if (current === this) current = null }
+    @Keep fun onClosed() { active = false; pendingAudio=ByteArray(0); runCatching { decoder?.stop() }; decoder?.release(); decoder = null; runCatching { sound?.stop() }; sound?.release(); sound = null; if (current === this) current = null }
     companion object {
         init { System.loadLibrary("netgo-remote-jni") }
         @Volatile private var current: NativeRemote? = null

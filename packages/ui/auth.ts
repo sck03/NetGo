@@ -50,7 +50,13 @@ export class AdminSession {
       const result = await response.json()
       if (generation !== this.generation) throw Error('管理登录已取消')
       if (!response.ok) {
-        if (response.status === 401) this.logout()
+        if (response.status === 401 && token === this.token && key === this.key) {
+          // Rotation can already be committed while the refresh response is still in flight.
+          if (this.refreshing && path !== '/netgo/v2/auth/refresh') {
+            try { await this.refreshing } catch { /* A failed refresh cannot retain a rejected credential. */ }
+          }
+          if (generation === this.generation && token === this.token && key === this.key) this.logout()
+        }
         throw Error(result.error || '请求失败')
       }
       return result

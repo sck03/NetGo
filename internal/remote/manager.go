@@ -23,6 +23,9 @@ import (
 const LeaseDuration = 30 * time.Second
 const HeartbeatTimeout = 15 * time.Second
 
+// Reserved ticket bits are not executable product capabilities.
+const SupportedCapabilities = ticket.CapabilityView | ticket.CapabilityInput | ticket.CapabilityAudio
+
 var ErrUnavailable = errors.New("remote_host_unavailable")
 var ErrBusy = errors.New("remote_host_busy")
 var ErrReplay = errors.New("remote_ticket_replayed")
@@ -45,7 +48,7 @@ func (m *Manager) PublicKey() string {
 	return base64.RawURLEncoding.EncodeToString(m.Key.Public().(ed25519.PublicKey))
 }
 func capabilities(c uint32) bool {
-	return c&ticket.CapabilityView != 0 && c & ^ticket.AllCapabilities == 0
+	return c&ticket.CapabilityView != 0 && c & ^SupportedCapabilities == 0
 }
 func decode(s string, n int) ([]byte, error) {
 	b, e := base64.RawURLEncoding.Strict().DecodeString(s)
@@ -85,10 +88,10 @@ func (m *Manager) Register(c model.Credential, h model.Host) (model.Host, error)
 	if _, e := decode(h.Boot, 16); e != nil {
 		return h, e
 	}
-	if h.ID != c.DeviceID || len(strings.TrimSpace(h.Name)) == 0 || len(h.Name) > 128 || !capabilities(h.Capabilities) || h.Port < 1024 || (h.Platform != "windows" && h.Platform != "macos" && h.Platform != "linux") {
+	if h.ID != c.DeviceID || len(strings.TrimSpace(h.Name)) == 0 || len(h.Name) > 128 || !capabilities(h.Capabilities) || h.Port < 1024 || (h.Platform != "windows" || !h.RequireConsent) {
 		return h, errors.New("invalid_remote_host")
 	}
-	err := m.Store.Update(func(st *model.State) error {
+	err := m.Store.RemoteUpdate(func(st *model.State) error {
 		now := m.now()
 		if e := current(st, c, now); e != nil {
 			return e
@@ -126,7 +129,7 @@ func closeHost(st *model.State, id, actor string) {
 }
 
 func (m *Manager) Heartbeat(c model.Credential, boot string) error {
-	return m.Store.Update(func(st *model.State) error {
+	return m.Store.RemoteUpdate(func(st *model.State) error {
 		now := m.now()
 		if e := current(st, c, now); e != nil {
 			return e
@@ -149,7 +152,7 @@ func (m *Manager) Grant(c model.Credential, g model.RemoteGrant) (model.RemoteGr
 		return g, errors.New("invalid_remote_capabilities")
 	}
 	g.ID = model.Hash(g.UserID + ":" + g.HostID)
-	err := m.Store.Update(func(st *model.State) error {
+	err := m.Store.RemoteUpdate(func(st *model.State) error {
 		now := m.now()
 		if e := current(st, c, now); e != nil {
 			return e
@@ -190,7 +193,7 @@ func (m *Manager) Grant(c model.Credential, g model.RemoteGrant) (model.RemoteGr
 }
 
 func (m *Manager) DeleteGrant(c model.Credential, id string) error {
-	return m.Store.Update(func(st *model.State) error {
+	return m.Store.RemoteUpdate(func(st *model.State) error {
 		if e := current(st, c, m.now()); e != nil {
 			return e
 		}
@@ -230,7 +233,7 @@ func (m *Manager) verifyPeers(ctx context.Context, c model.Credential, host stri
 	if m.Peers == nil {
 		return nil, ErrUnavailable
 	}
-	st, e := m.Store.View()
+	st, e := m.Store.RemoteView()
 	if e != nil {
 		return nil, e
 	}
@@ -269,7 +272,7 @@ func (m *Manager) Acquire(ctx context.Context, c model.Credential, req Request, 
 	}
 	fingerprint := model.Hash(fmt.Sprintf("%s|%s|%s|%d|%d", c.UserID, c.DeviceID, req.HostID, req.Generation, req.Capabilities))
 	opKey := model.Hash(c.UserID + ":" + c.DeviceID + ":" + key)
-	e = m.Store.Update(func(st *model.State) error {
+	e = m.Store.RemoteUpdate(func(st *model.State) error {
 		now := m.now()
 		if e := current(st, c, now); e != nil {
 			return e
@@ -314,7 +317,7 @@ func (m *Manager) Acquire(ctx context.Context, c model.Credential, req Request, 
 				}
 			}
 		}
-		if active >= st.Users[c.UserID].MaxSessions || len(st.RemoteSessions) >= 65536 {
+		if active >= st.Users[c.UserID].SessionLimit() || len(st.RemoteSessions) >= 65536 {
 			return model.ErrConflict
 		}
 		hostKey, e := decode(st.Devices[h.ID].PublicKey, 32)
@@ -390,7 +393,7 @@ func (m *Manager) sweep(st *model.State, now time.Time) {
 }
 
 func (m *Manager) Sweep() error {
-	return m.Store.Update(func(st *model.State) error { m.sweep(st, m.now()); return nil })
+	return m.Store.RemoteUpdate(func(st *model.State) error { m.sweep(st, m.now()); return nil })
 }
 
 func (m *Manager) authorization(st *model.State, r model.RemoteSession) (Authorization, error) {
@@ -410,7 +413,7 @@ func (m *Manager) authorization(st *model.State, r model.RemoteSession) (Authori
 
 func (m *Manager) Consume(c model.Credential, id string, sequence uint64, boot string, proof Possession) (Authorization, error) {
 	var out Authorization
-	e := m.Store.Update(func(st *model.State) error {
+	e := m.Store.RemoteUpdate(func(st *model.State) error {
 		now := m.now()
 		if e := current(st, c, now); e != nil {
 			return e
@@ -446,7 +449,7 @@ func (m *Manager) Consume(c model.Credential, id string, sequence uint64, boot s
 // Hosts use it to reconstruct bindings from the authenticated control plane.
 func (m *Manager) Inspect(c model.Credential, id string) (Authorization, error) {
 	var out Authorization
-	err := m.Store.Update(func(st *model.State) error {
+	err := m.Store.RemoteRead(func(st *model.State) error {
 		now := m.now()
 		if e := current(st, c, now); e != nil {
 			return e
@@ -464,7 +467,7 @@ func (m *Manager) Inspect(c model.Credential, id string) (Authorization, error) 
 
 func (m *Manager) Renew(ctx context.Context, c model.Credential, id string, sequence uint64) (Authorization, error) {
 	var out Authorization
-	st, e := m.Store.View()
+	st, e := m.Store.RemoteView()
 	if e != nil {
 		return out, e
 	}
@@ -476,7 +479,7 @@ func (m *Manager) Renew(ctx context.Context, c model.Credential, id string, sequ
 	if e != nil {
 		return out, e
 	}
-	e = m.Store.Update(func(st *model.State) error {
+	e = m.Store.RemoteUpdate(func(st *model.State) error {
 		now := m.now()
 		if e := current(st, c, now); e != nil {
 			return e
@@ -500,7 +503,7 @@ func (m *Manager) Renew(ctx context.Context, c model.Credential, id string, sequ
 }
 
 func (m *Manager) Revoke(c model.Credential, id string) error {
-	return m.Store.Update(func(st *model.State) error {
+	return m.Store.RemoteUpdate(func(st *model.State) error {
 		if e := current(st, c, m.now()); e != nil {
 			return e
 		}

@@ -25,6 +25,12 @@ func (c *Controller) synchronizeProfile(ctx context.Context, remote *Remote, cur
 	if err != nil {
 		return current, selector, err
 	}
+	accepted := false
+	defer func() {
+		if !accepted {
+			updated.CloseIdleConnections()
+		}
+	}()
 	if _, err = updated.Select(ctx); err != nil {
 		return current, selector, err
 	}
@@ -38,5 +44,7 @@ func (c *Controller) synchronizeProfile(ctx context.Context, remote *Remote, cur
 	if err != nil {
 		return current, selector, err
 	}
+	selector.CloseIdleConnections()
+	accepted = true
 	return next, updated, nil
 }

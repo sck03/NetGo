@@ -23,7 +23,7 @@ final class PacketTunnelProvider: NEPacketTunnelProvider {
             self.bridge.applyNetwork = { [weak self] ip,ip6,dns,routes in self?.apply(ip,dns:dns,routes:routes) }
             self.monitor.pathUpdateHandler = { [weak self] path in self?.bridge.networkAvailable(path.status == .satisfied) }; self.monitor.start(queue:self.queue)
             self.queue.async {
-                let result = self.bridge.startRoot(root.path,profile:profile,alias:alias,password:password,internet:(options["internet"] as? NSNumber)?.boolValue ?? false,tunnelFD:self.descriptor,interfaceName:self.interfaceName)
+                let result = self.bridge.startRoot(root.path,profile:profile,alias:alias,password:password,importProfile:(options["import"] as? NSNumber)?.boolValue ?? false,importID:(options["import_id"] as? String) ?? "",trusted:(options["trusted"] as? NSNumber)?.boolValue ?? false,replace:(options["replace"] as? NSNumber)?.boolValue ?? false,internet:(options["internet"] as? NSNumber)?.boolValue ?? false,tunnelFD:self.descriptor,interfaceName:self.interfaceName)
                 completionHandler(result.isEmpty ? nil : NSError(domain:"NetGo",code:3,userInfo:[NSLocalizedDescriptionKey:result]))
             }
         }

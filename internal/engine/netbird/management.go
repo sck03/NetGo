@@ -12,6 +12,11 @@ import (
 	"netgo/internal/session"
 )
 
+type HTTPError struct{ Status int }
+
+func (e *HTTPError) Error() string   { return fmt.Sprintf("management returned HTTP %d", e.Status) }
+func (e *HTTPError) HTTPStatus() int { return e.Status }
+
 type Management struct {
 	URL, Token string
 	Client     *http.Client
@@ -34,7 +39,7 @@ func (m *Management) Request(ctx context.Context, method, path string, in, out a
 	}
 	defer resp.Body.Close()
 	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
-		return nil, fmt.Errorf("management returned HTTP %d", resp.StatusCode)
+		return nil, &HTTPError{Status: resp.StatusCode}
 	}
 	if out != nil {
 		if e = json.NewDecoder(io.LimitReader(resp.Body, 4<<20)).Decode(out); e != nil {

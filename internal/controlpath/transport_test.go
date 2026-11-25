@@ -124,6 +124,8 @@ func TestSlowAPIHandshakeDoesNotInheritProbeDeadline(t *testing.T) {
 	if requests.Load() != 1 {
 		t.Fatal("API write replayed", requests.Load())
 	}
+	// Reuse is intentional now; force a new connection to exercise handshake cancellation.
+	selector.CloseIdleConnections()
 	short, stop := context.WithTimeout(context.Background(), 20*time.Millisecond)
 	defer stop()
 	req, _ = http.NewRequestWithContext(short, http.MethodPost, srv.URL+"/netgo/v2/sessions", strings.NewReader("{}"))
@@ -133,5 +135,39 @@ func TestSlowAPIHandshakeDoesNotInheritProbeDeadline(t *testing.T) {
 	}
 	if requests.Load() != 1 {
 		t.Fatal("cancelled request reached handler")
+	}
+}
+
+func TestControlPoolReusesAndReleasesTLSConnections(t *testing.T) {
+	var handshakes atomic.Int32
+	srv := httptest.NewUnstartedServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) { w.WriteHeader(http.StatusNoContent) }))
+	srv.TLS = &tls.Config{GetConfigForClient: func(*tls.ClientHelloInfo) (*tls.Config, error) { handshakes.Add(1); return nil, nil }}
+	srv.StartTLS()
+	defer srv.Close()
+	candidate := site.Candidate{ID: "wan", Kind: "direct", Address: strings.TrimPrefix(srv.URL, "https://")}
+	selector, e := New(site.Profile{ID: "pool", Protocol: 2, Origin: srv.URL, CA: string(pem.EncodeToMemory(&pem.Block{Type: "CERTIFICATE", Bytes: srv.Certificate().Raw})), Candidates: []site.Candidate{candidate}})
+	if e != nil {
+		t.Fatal(e)
+	}
+	defer selector.CloseIdleConnections()
+	selector.selected = candidate
+	for i := 0; i < 10; i++ {
+		resp, e := selector.Client().Get(srv.URL + "/netgo/v2/me")
+		if e != nil {
+			t.Fatal(e)
+		}
+		resp.Body.Close()
+	}
+	if handshakes.Load() != 1 {
+		t.Fatal("requests did not reuse TLS", handshakes.Load())
+	}
+	selector.CloseIdleConnections()
+	resp, e := selector.Client().Get(srv.URL + "/netgo/v2/me")
+	if e != nil {
+		t.Fatal(e)
+	}
+	resp.Body.Close()
+	if handshakes.Load() != 2 {
+		t.Fatal("connection pool not closed")
 	}
 }

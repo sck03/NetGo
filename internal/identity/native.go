@@ -205,16 +205,9 @@ func (n *Native) Complete(ctx context.Context, id, alias, password, signature st
 		}
 	}
 	n.mu.Unlock()
-	st, e := n.Store.View()
+	u, e := n.Store.UserByAlias(alias)
 	if e != nil {
 		return e
-	}
-	var u model.User
-	for _, candidate := range st.Users {
-		if strings.EqualFold(candidate.Alias, alias) {
-			u = candidate
-			break
-		}
 	}
 	if u.ID == "" || !u.Active(time.Now()) || len(password) > 1024 {
 		return model.ErrUnauthorized

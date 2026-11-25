@@ -54,14 +54,21 @@ func credentialCurrent(st *model.State, c model.Credential, now time.Time) bool 
 
 // Only a validated state transition touches the gate. The nft transaction
 // atomically removes old leases and installs new ones, with no overlap window.
+// The gate call deliberately remains within the commit fence: moving it outside
+// would let a concurrent credential revocation race with newly installed access.
+// All remote peer/account IO happens before entering this critical section.
 func (m *Manager) update(ctx context.Context, fn func(*model.State) error) error {
 	touched := false
 	e := m.Store.Update(func(st *model.State) error {
 		if e := fn(st); e != nil {
 			return e
 		}
+		leases := active(st, m.now())
+		if e := gateway.ValidateCapacity(leases); e != nil {
+			return e
+		}
 		touched = true
-		return m.Gate.Apply(ctx, active(st, m.now()))
+		return m.Gate.Apply(ctx, leases)
 	})
 	if e != nil && touched {
 		cleanup, cancel := context.WithTimeout(context.Background(), 4*time.Second)
@@ -120,10 +127,7 @@ func (m *Manager) Acquire(ctx context.Context, c model.Credential, peer string, 
 			return nil
 		}
 		active(st, now)
-		limit := u.MaxSessions
-		if limit == 0 {
-			limit = 1
-		} // Unspecified limits default to one active session.
+		limit := u.SessionLimit()
 		if limit < 1 || limit > 100 {
 			return errors.New("invalid session limit")
 		}
@@ -187,8 +191,20 @@ func (m *Manager) Renew(ctx context.Context, c model.Credential, id string, gene
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	var result model.Lease
+	state, e := m.Store.View()
+	if e != nil {
+		return result, e
+	}
+	prior, ok := state.Leases[id]
+	if !ok || prior.UserID != c.UserID || prior.DeviceID != c.DeviceID {
+		return result, model.ErrForbidden
+	}
+	p, e := m.Peers.Verify(ctx, prior.PeerID)
+	if e != nil {
+		return result, e
+	}
 	now := m.now()
-	e := m.update(ctx, func(st *model.State) error {
+	e = m.update(ctx, func(st *model.State) error {
 		if !credentialCurrent(st, c, m.now()) {
 			return model.ErrUnauthorized
 		}
@@ -197,8 +213,7 @@ func (m *Manager) Renew(ctx context.Context, c model.Credential, id string, gene
 		if !ok || l.UserID != c.UserID || l.DeviceID != c.DeviceID || l.Generation != generation || !now.Before(l.ExpiresAt) || !now.Before(c.ExpiresAt) || !u.Active(now) {
 			return model.ErrForbidden
 		}
-		p, e := m.Peers.Verify(ctx, l.PeerID)
-		if e != nil || p.UserID != l.UserID || p.IP != l.IP || p.PublicKey != st.Devices[c.DeviceID].WireGuardKey || p.Expired {
+		if l.PeerID != prior.PeerID || p.ID != l.PeerID || p.UserID != l.UserID || p.IP != l.IP || p.PublicKey != st.Devices[c.DeviceID].WireGuardKey || p.Expired || !p.Connected {
 			return model.ErrForbidden
 		}
 		l.ExpiresAt = now.Add(m.TTL)
@@ -236,17 +251,6 @@ func (m *Manager) Revoke(ctx context.Context, actor, id string) error {
 		}
 		delete(st.Leases, id)
 		st.Record(actor, "session.revoke", id)
-		return nil
-	})
-}
-func (m *Manager) Mutate(ctx context.Context, fn func(*model.State) error) error {
-	m.mu.Lock()
-	defer m.mu.Unlock()
-	return m.update(ctx, func(st *model.State) error {
-		if e := fn(st); e != nil {
-			return e
-		}
-		st.Leases = map[string]model.Lease{}
 		return nil
 	})
 }

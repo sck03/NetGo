@@ -16,11 +16,13 @@ struct ClientView: View {
             Picker("站点",selection:$model.selected) { ForEach(model.sites) { Text($0.name).tag($0.id) } }
             TextField("账号",text:$model.alias).textFieldStyle(.roundedBorder)
             SecureField("密码",text:$model.password).textFieldStyle(.roundedBorder)
+            Toggle("替换此账号的其他连接",isOn:$model.replaceSessions).disabled(model.connected)
             Toggle("通过旁路由访问互联网（需要账号授权）",isOn:$model.internet).disabled(model.connected)
             HStack { Button("连接") { model.connect() }.disabled(model.connected); Button("断开") { model.disconnect() }; Spacer(); Text(model.message).font(.caption) }
+            ForEach(model.resources,id: \.self) { Text($0).font(.caption) }
             Divider()
             HStack { Text("远程桌面"); Spacer(); Button("刷新主机") { model.loadHosts() }.disabled(!model.connected) }
-            ScrollView(.horizontal) { HStack { ForEach(model.hosts) { host in Button(host.name) { model.view(host) } } } }
+            ScrollView(.horizontal) { HStack { ForEach(model.hosts) { host in Button(host.label) { model.view(host) }.disabled(!host.ready || !model.connected) } } }
             ScreenView(viewer:model.viewer).frame(minHeight:180).background(.black)
             HStack { TextField("发送文字",text:$text).textFieldStyle(.roundedBorder); Button("发送") { model.viewer.input(["type":"text","text":text]); text = "" }; Button("停止远控") { model.viewer.stop() } }
         }

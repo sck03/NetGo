@@ -94,10 +94,10 @@ Size fit_size(std::uint32_t w,std::uint32_t h,std::uint32_t maxw,std::uint32_t m
  ow&=~1u;oh&=~1u;dimensions(ow,oh);return {ow,oh};
 }
 
-Frame bgra_to_nv12(const std::uint8_t* data,std::uint32_t w,std::uint32_t h,std::uint32_t stride,std::uint32_t ow,std::uint32_t oh){
- dimensions(ow,oh);if(!data||w<ow||h<oh||w>16384||h>16384||stride<w*4)throw std::invalid_argument("BGRA input bounds");Frame out{ow,oh,std::vector<std::uint8_t>(size_t(ow)*oh*3/2)};auto clip=[](int v){return std::uint8_t(std::clamp(v,0,255));};
+void bgra_to_nv12(const std::uint8_t* data,std::uint32_t w,std::uint32_t h,std::uint32_t stride,std::uint32_t ow,std::uint32_t oh,Frame& out){
+ dimensions(ow,oh);if(!data||w<ow||h<oh||w>16384||h>16384||stride<w*4)throw std::invalid_argument("BGRA input bounds");out.width=ow;out.height=oh;out.nv12.resize(size_t(ow)*oh*3/2);auto clip=[](int v){return std::uint8_t(std::clamp(v,0,255));};
  for(std::uint32_t y=0;y<oh;y++)for(std::uint32_t x=0;x<ow;x++){const auto* p=data+size_t(y*h/oh)*stride+size_t(x*w/ow)*4;int b=p[0],g=p[1],r=p[2];out.nv12[size_t(y)*ow+x]=clip(((66*r+129*g+25*b+128)>>8)+16);if(!(y&1)&&!(x&1)){size_t uv=size_t(ow)*oh+size_t(y/2)*ow+x;out.nv12[uv]=clip(((-38*r-74*g+112*b+128)>>8)+128);out.nv12[uv+1]=clip(((112*r-94*g-18*b+128)>>8)+128);}}
- return out;
 }
+Frame bgra_to_nv12(const std::uint8_t* data,std::uint32_t w,std::uint32_t h,std::uint32_t stride,std::uint32_t ow,std::uint32_t oh){Frame out;bgra_to_nv12(data,w,h,stride,ow,oh,out);return out;}
 std::vector<std::uint8_t> nv12_to_bgra(const Frame& f){dimensions(f.width,f.height);if(f.nv12.size()!=size_t(f.width)*f.height*3/2)throw std::invalid_argument("NV12 input bounds");std::vector<std::uint8_t> out(size_t(f.width)*f.height*4);auto clip=[](int v){return std::uint8_t(std::clamp(v,0,255));};for(std::uint32_t y=0;y<f.height;y++)for(std::uint32_t x=0;x<f.width;x++){int c=f.nv12[size_t(y)*f.width+x]-16;size_t uv=size_t(f.width)*f.height+size_t(y/2)*f.width+(x&~1u);int d=f.nv12[uv]-128,e=f.nv12[uv+1]-128;auto* p=out.data()+(size_t(y)*f.width+x)*4;p[0]=clip((298*c+516*d+128)>>8);p[1]=clip((298*c-100*d-208*e+128)>>8);p[2]=clip((298*c+409*e+128)>>8);p[3]=255;}return out;}
 }

@@ -1,4 +1,5 @@
 #include "client.hpp"
+#include "operation_epoch.hpp"
 #include "netgo_remote_client.h"
 #include "netgo_remote.h"
 #include <gtk/gtk.h>
@@ -19,12 +20,12 @@ using netgo::desktop_linux::Json;using netgo::desktop_linux::Frame;
 namespace {
 struct State {
  GtkApplication* app=nullptr;GtkWidget *window=nullptr,*profiles=nullptr,*alias=nullptr,*password=nullptr,*notice=nullptr,*hosts=nullptr,*picture=nullptr,*connect=nullptr,*remoteButton=nullptr;
- GtkIMContext* ime=nullptr;GSubprocess* service=nullptr;GtkWidget* internet=nullptr;
+ GtkIMContext* ime=nullptr;GSubprocess* service=nullptr;GtkWidget* internet=nullptr;GtkWidget* replace=nullptr;GtkWidget* resources=nullptr;
  std::string root,socket,site;Json profileList=Json::array(),hostList=Json::array();
- std::atomic_bool alive=true,remoteActive=false,jobBusy=false,renderPending=false;std::thread job,remote;
+ std::atomic_bool alive=true,remoteActive=false,jobBusy=false,renderPending=false;std::thread job,remote,cancelJob;netgo::desktop_linux::OperationEpoch epoch;std::atomic_bool cancelling=false;
  std::mutex mutex;Frame frame;netgo::remote::InputQueue inputs;uint32_t caps=0;std::unique_ptr<netgo::desktop_linux::Decoder> decoder;
  ng_remote_client* client=nullptr;bool smoke=false;unsigned timer=0;
- ~State(){alive=false;remoteActive=false;if(job.joinable())job.join();if(remote.joinable())remote.join();if(service){g_subprocess_send_signal(service,SIGTERM);g_object_unref(service);}if(ime)g_object_unref(ime);}
+ ~State(){alive=false;remoteActive=false;if(job.joinable())job.join();if(remote.joinable())remote.join();if(cancelJob.joinable())cancelJob.join();if(service){g_subprocess_send_signal(service,SIGTERM);g_object_unref(service);}if(ime)g_object_unref(ime);}
 };
 State* state=nullptr;
 template<class F> GCallback callback(F function){return reinterpret_cast<GCallback>(function);}
@@ -55,9 +56,18 @@ void prepareNetwork(){
 std::string base64(const uint8_t* bytes,size_t size){std::string out(4*((size+2)/3),'\0');auto n=EVP_EncodeBlock(reinterpret_cast<uint8_t*>(out.data()),bytes,int(size));out.resize(size_t(n));for(auto& c:out){if(c=='+')c='-';else if(c=='/')c='_';}while(!out.empty()&&out.back()=='=')out.pop_back();return out;}
 std::vector<uint8_t> decode(std::string text,size_t expected){for(auto& c:text){if(c=='-')c='+';else if(c=='_')c='/';}while(text.size()%4)text+='=';std::vector<uint8_t> out(text.size()/4*3);auto n=EVP_DecodeBlock(out.data(),reinterpret_cast<const uint8_t*>(text.data()),int(text.size()));while(!text.empty()&&text.back()=='='){--n;text.pop_back();}if(n<0||size_t(n)!=expected)throw std::runtime_error("invalid_signature");out.resize(expected);return out;}
 void task(std::function<void()> action){
- if(state->jobBusy.exchange(true))return;
+ if(state->cancelling || state->jobBusy.exchange(true)){status("当前操作尚未完成，可随时断开连接");return;}
  if(state->job.joinable())state->job.join();
  state->job=std::thread([action=std::move(action)]{try{action();}catch(const std::exception& e){status(e.what());}state->jobBusy=false;});
+}
+void disconnectNetwork(){
+ state->epoch.advance();state->hostList=Json::array();names(state->hosts,state->hostList,"name");
+ if(state->cancelling.exchange(true))return;
+ if(state->cancelJob.joinable())state->cancelJob.join();
+ state->cancelJob=std::thread([]{
+  try {call("POST","/desktop/disconnect");status("已断开");}catch(const std::exception& e){status(e.what());}
+  state->cancelling=false;
+ });
 }
 void queue(Json input){if(!state->remoteActive)return;std::lock_guard lock(state->mutex);if(!(state->caps&NG_REMOTE_INPUT))return;
  state->inputs.push(std::move(input));
@@ -129,16 +139,18 @@ void activate(GtkApplication* app,void*){
  auto import=gtk_button_new_with_label("导入站点…");gtk_box_append(GTK_BOX(row),import);g_signal_connect(import,"clicked",callback(+[](GtkButton*,void*){auto dialog=gtk_file_dialog_new();gtk_file_dialog_set_title(dialog,"导入 NetGo 站点");gtk_file_dialog_open(dialog,GTK_WINDOW(state->window),nullptr,chooseProfile,nullptr);g_object_unref(dialog);}),nullptr);
  auto refreshButton=gtk_button_new_with_label("刷新");gtk_box_append(GTK_BOX(row),refreshButton);g_signal_connect(refreshButton,"clicked",callback(+[](GtkButton*,void*){refresh();}),nullptr);
  row=gtk_box_new(GTK_ORIENTATION_HORIZONTAL,8);gtk_box_append(GTK_BOX(box),row);state->alias=gtk_entry_new();gtk_entry_set_placeholder_text(GTK_ENTRY(state->alias),"账号");gtk_box_append(GTK_BOX(row),state->alias);state->password=gtk_password_entry_new();gtk_box_append(GTK_BOX(row),state->password);
+ state->replace=gtk_check_button_new_with_label("替换此账号的其他连接");gtk_box_append(GTK_BOX(box),state->replace);
  state->internet=gtk_check_button_new_with_label("通过旁路由访问互联网（需要账号授权）");gtk_box_append(GTK_BOX(box),state->internet);
  state->connect=gtk_button_new_with_label("连接网络");gtk_box_append(GTK_BOX(row),state->connect);g_signal_connect(state->connect,"clicked",callback(+[](GtkButton*,void*){
   auto id=selected(state->profiles,state->profileList,"ID");if(id.empty()){status("请先导入并选择站点");return;}if(state->remoteActive){status("请先结束远程桌面");return;}state->site=id;
-  Json request={{"Site",state->site},{"Alias",gtk_editable_get_text(GTK_EDITABLE(state->alias))},{"Password",gtk_editable_get_text(GTK_EDITABLE(state->password))},{"Replace",false},{"Internet",bool(gtk_check_button_get_active(GTK_CHECK_BUTTON(state->internet)))}};gtk_editable_set_text(GTK_EDITABLE(state->password),"");task([request=std::move(request)]{prepareNetwork();call("POST","/desktop/connect",request);});
+  Json request={{"Site",state->site},{"Alias",gtk_editable_get_text(GTK_EDITABLE(state->alias))},{"Password",gtk_editable_get_text(GTK_EDITABLE(state->password))},{"Replace",bool(gtk_check_button_get_active(GTK_CHECK_BUTTON(state->replace)))},{"Internet",bool(gtk_check_button_get_active(GTK_CHECK_BUTTON(state->internet)))}};gtk_editable_set_text(GTK_EDITABLE(state->password),"");auto version=state->epoch.advance();task([request=std::move(request),version]{prepareNetwork();if(!state->epoch.matches(version))return;call("POST","/desktop/connect",request);if(!state->epoch.matches(version))call("POST","/desktop/disconnect");});
  }),nullptr);
- auto disconnect=gtk_button_new_with_label("断开网络");gtk_box_append(GTK_BOX(row),disconnect);g_signal_connect(disconnect,"clicked",callback(+[](GtkButton*,void*){stopRemote();task([]{call("POST","/desktop/disconnect");});}),nullptr);
+ auto disconnect=gtk_button_new_with_label("断开网络");gtk_box_append(GTK_BOX(row),disconnect);g_signal_connect(disconnect,"clicked",callback(+[](GtkButton*,void*){stopRemote();disconnectNetwork();}),nullptr);
+ state->resources=gtk_label_new("");gtk_label_set_wrap(GTK_LABEL(state->resources),TRUE);gtk_box_append(GTK_BOX(box),state->resources);
  state->notice=gtk_label_new("导入站点后使用已有账号连接");gtk_label_set_xalign(GTK_LABEL(state->notice),0);gtk_box_append(GTK_BOX(box),state->notice);
  row=gtk_box_new(GTK_ORIENTATION_HORIZONTAL,8);gtk_box_append(GTK_BOX(box),row);state->hosts=gtk_drop_down_new(nullptr,nullptr);gtk_widget_set_hexpand(state->hosts,TRUE);gtk_box_append(GTK_BOX(row),state->hosts);
- auto hosts=gtk_button_new_with_label("更新远程主机");gtk_box_append(GTK_BOX(row),hosts);g_signal_connect(hosts,"clicked",callback(+[](GtkButton*,void*){if(state->site.empty()||state->remoteActive)return;task([]{auto result=call("POST","/desktop/remote/call",{{"site",state->site},{"method","GET"},{"path","/netgo/v2/remote"},{"body",nullptr},{"idempotency",""}});mainThread([result=std::move(result)]{if(!state->alive)return;state->hostList=Json::array();for(const auto& host:result.at("hosts"))if(host.value("status","")=="ready"&&(host.value("available_capabilities",0u)&NG_REMOTE_VIEW))state->hostList.push_back(host);names(state->hosts,state->hostList,"name");if(state->hostList.empty())status("暂无可连接的已授权主机；请确认对方已连接 VPN 并开启共享。");});});}),nullptr);
- state->remoteButton=gtk_button_new_with_label("打开远程桌面");gtk_box_append(GTK_BOX(row),state->remoteButton);g_signal_connect(state->remoteButton,"clicked",callback(+[](GtkButton*,void*){auto id=selected(state->hosts,state->hostList,"id");if(!id.empty())view(id);}),nullptr);
+ auto hosts=gtk_button_new_with_label("更新远程主机");gtk_box_append(GTK_BOX(row),hosts);g_signal_connect(hosts,"clicked",callback(+[](GtkButton*,void*){if(state->site.empty()||state->remoteActive)return;state->hostList=Json::array();names(state->hosts,state->hostList,"name");auto version=state->epoch.current();auto site=state->site;task([version,site]{auto result=call("POST","/desktop/remote/call",{{"site",site},{"method","GET"},{"path","/netgo/v2/remote"},{"body",nullptr},{"idempotency",""}});mainThread([result=std::move(result),version]{if(!state->alive||!state->epoch.matches(version))return;state->hostList=Json::array();for(auto host:result.at("hosts"))if(host.value("available_capabilities",0u)&NG_REMOTE_VIEW){host["name"]=host.value("name","")+" · "+host.value("status","");state->hostList.push_back(host);}names(state->hosts,state->hostList,"name");if(state->hostList.empty())status("暂无可连接的已授权主机；请确认对方已连接 VPN 并开启共享。");});});}),nullptr);
+ state->remoteButton=gtk_button_new_with_label("打开远程桌面");gtk_box_append(GTK_BOX(row),state->remoteButton);g_signal_connect(state->remoteButton,"clicked",callback(+[](GtkButton*,void*){auto id=selected(state->hosts,state->hostList,"id");auto index=gtk_drop_down_get_selected(GTK_DROP_DOWN(state->hosts));if(!id.empty()&&index<state->hostList.size()&&state->hostList[index].value("status","")=="ready")view(id);}),nullptr);
  auto stop=gtk_button_new_with_label("结束远程桌面");gtk_box_append(GTK_BOX(row),stop);g_signal_connect(stop,"clicked",callback(+[](GtkButton*,void*){stopRemote();}),nullptr);
  state->picture=gtk_picture_new();gtk_widget_set_vexpand(state->picture,TRUE);gtk_picture_set_content_fit(GTK_PICTURE(state->picture),GTK_CONTENT_FIT_CONTAIN);gtk_widget_set_focusable(state->picture,TRUE);gtk_box_append(GTK_BOX(box),state->picture);
  auto motion=gtk_event_controller_motion_new();g_signal_connect(motion,"motion",callback(+[](GtkEventControllerMotion*,double x,double y,void*){point(x,y,false);}),nullptr);gtk_widget_add_controller(state->picture,motion);
@@ -152,12 +164,12 @@ void activate(GtkApplication* app,void*){
  gtk_window_present(GTK_WINDOW(state->window));
  if(state->smoke){g_timeout_add(1000,[](void*)->gboolean{g_application_quit(G_APPLICATION(state->app));return G_SOURCE_REMOVE;},nullptr);return;}
  if(!std::filesystem::exists(state->socket)){try{startService();}catch(const std::exception& e){status(e.what());}}
- state->timer=g_timeout_add(1000,[](void*)->gboolean{if(!state->alive)return G_SOURCE_REMOVE;if(!state->jobBusy)task([]{auto value=call("GET","/desktop/status");status(value.value("state","")+"  "+value.value("error",""));});return G_SOURCE_CONTINUE;},nullptr);refresh();
+ state->timer=g_timeout_add(1000,[](void*)->gboolean{if(!state->alive)return G_SOURCE_REMOVE;if(!state->jobBusy)task([]{auto value=call("GET","/desktop/status");status(value.value("state","")+"  "+value.value("error",""));mainThread([value=std::move(value)]{if(!state->alive)return;std::string resources;for(const auto& r:value.value("lease",Json::object()).value("resources",Json::array()))resources+=r.value("name","")+" · "+r.value("cidr","")+"  ";gtk_label_set_text(GTK_LABEL(state->resources),resources.c_str());if(value.value("state","")!="connected"){state->hostList=Json::array();names(state->hosts,state->hostList,"name");}});});return G_SOURCE_CONTINUE;},nullptr);refresh();
 }
 }
 int main(int argc,char** argv){
  if(argc==2&&std::string(argv[1])=="--version"){g_print("{\"version\":\"%s\",\"platform\":\"linux\",\"arch\":\"amd64\"}\n",NETGO_BUILD_VERSION);return 0;}
  State storage;state=&storage;auto config=g_get_user_config_dir();state->root=std::string(config)+"/NetGo";state->socket=state->root+"/client.sock";
  for(int i=1;i<argc;++i){if(std::string(argv[i])=="--smoke")state->smoke=true;else if(std::string(argv[i])=="--socket"&&i+1<argc)state->socket=argv[++i];else return 2;}
- curl_global_init(CURL_GLOBAL_DEFAULT);auto app=gtk_application_new("org.netgo.desktop",G_APPLICATION_DEFAULT_FLAGS);g_signal_connect(app,"activate",callback(activate),nullptr);int result=g_application_run(G_APPLICATION(app),1,argv);state->alive=false;stopRemote();if(state->timer)g_source_remove(state->timer);if(state->job.joinable())state->job.join();if(state->remote.joinable())state->remote.join();while(g_main_context_pending(nullptr))g_main_context_iteration(nullptr,FALSE);g_object_unref(app);curl_global_cleanup();return result;
+ curl_global_init(CURL_GLOBAL_DEFAULT);auto app=gtk_application_new("org.netgo.desktop",G_APPLICATION_DEFAULT_FLAGS);g_signal_connect(app,"activate",callback(activate),nullptr);int result=g_application_run(G_APPLICATION(app),1,argv);state->alive=false;stopRemote();if(state->timer)g_source_remove(state->timer);if(state->job.joinable())state->job.join();if(state->remote.joinable())state->remote.join();if(state->cancelJob.joinable())state->cancelJob.join();while(g_main_context_pending(nullptr))g_main_context_iteration(nullptr,FALSE);g_object_unref(app);curl_global_cleanup();return result;
 }

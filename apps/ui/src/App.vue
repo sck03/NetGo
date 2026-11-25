@@ -5,16 +5,21 @@ import { LatestQuery } from '../../../packages/ui/query'
 import RemotePanel from './RemotePanel.vue'
 import ResourcePanel from './ResourcePanel.vue'
 import UserPanel from './UserPanel.vue'
+import type { User, AdminState, AuditPage } from '../../../packages/ui/contracts'
+import { emptyState } from '../../../packages/ui/contracts'
 import type { Resource } from '../../../packages/ui/resources'
 const page = ref('overview'), alias = ref(''), password = ref(''), error = ref(''), notice = ref(''), busy = ref(false), logged = ref(false)
-const state = ref<any>({ users: {}, resources: {}, devices: {}, leases: {}, audit: [] })
+const state = ref<AdminState>(emptyState())
+const audit = ref<AuditPage>({events:[],next_before:0}), auditBefore = ref(0)
+const auditQuery = new LatestQuery(() => admin.request('/netgo/v2/admin/audit' + (auditBefore.value ? '?before=' + auditBefore.value : '')), value => { audit.value = value })
+async function auditPage(before = 0) { auditQuery.invalidate(); auditBefore.value=before; await auditQuery.run() }
 const admin = new AdminSession()
 let timer: ReturnType<typeof setInterval> | undefined
 const stateQuery = new LatestQuery(() => admin.request('/netgo/v2/admin/state'), value => { state.value = value })
-const users = computed<any[]>(() => Object.values(state.value.users))
-const resources = computed<any[]>(() => Object.values(state.value.resources))
-const devices = computed<any[]>(() => Object.values(state.value.devices).filter((d: any) => d.client_type !== 'admin'))
-const leases = computed<any[]>(() => Object.values(state.value.leases))
+const users = computed(() => Object.values(state.value.users))
+const resources = computed(() => Object.values(state.value.resources))
+const devices = computed(() => Object.values(state.value.devices).filter(d => d.client_type !== 'admin'))
+const leases = computed(() => Object.values(state.value.leases))
 async function action(fn: () => Promise<void>) {
   if (busy.value) return false
   stateQuery.invalidate()
@@ -23,7 +28,7 @@ async function action(fn: () => Promise<void>) {
 }
 async function refresh() {
   if (!logged.value) return
-  try { await stateQuery.run() } catch (e) { if (!admin.active) logout(); throw e }
+  try { await stateQuery.run(); if (page.value === 'diagnostics') await auditQuery.run() } catch (e) { if (!admin.active) logout(); throw e }
 }
 async function login() {
   await action(async () => {
@@ -32,8 +37,8 @@ async function login() {
     } finally { password.value = '' }
   })
 }
-function logout() { stateQuery.invalidate(); admin.logout(); logged.value = false; state.value = { users: {}, resources: {}, devices: {}, leases: {}, audit: [] } }
-async function saveUser(u: any) {
+function logout() { stateQuery.invalidate(); admin.logout(); logged.value = false; state.value = emptyState(); auditQuery.invalidate(); audit.value={events:[],next_before:0}; auditBefore.value=0 }
+async function saveUser(u: User) {
   return action(async () => {
     await admin.request('/netgo/v2/admin/users/' + encodeURIComponent(u.id), 'PUT', { ...u, max_sessions: u.max_sessions || 1 })
     await refresh(); notice.value = '账号设置已保存，旧会话已撤销。'
@@ -46,7 +51,7 @@ async function createUser(account: { Alias: string; Email: string; Name: string 
     await refresh()
   })
 }
-async function deleteUser(user: any) {
+async function deleteUser(user: User) {
   if (!window.confirm('删除账号 ' + user.alias + ' 及其设备登记？所有连接将被撤销。')) return false
   return action(async () => {
     await admin.request('/netgo/v2/admin/users/' + encodeURIComponent(user.id), 'DELETE')
@@ -71,8 +76,8 @@ function download(value: any, name: string) {
   a.href = url; a.download = name; a.click(); setTimeout(() => URL.revokeObjectURL(url), 1000)
 }
 watch(page, () => { if (logged.value && !busy.value) refresh().catch(e => { error.value = String(e.message || e) }) })
-onMounted(() => { timer = setInterval(() => { if (!busy.value) refresh().catch(e => { error.value = String(e.message || e) }) }, 5000) })
-onUnmounted(() => { if (timer) clearInterval(timer); stateQuery.invalidate(); admin.logout() })
+onMounted(() => { timer = setInterval(() => { if (!document.hidden && !busy.value && ['overview','sessions','diagnostics'].includes(page.value)) refresh().catch(e => { error.value = String(e.message || e) }) }, 5000) })
+onUnmounted(() => { if (timer) clearInterval(timer); stateQuery.invalidate(); auditQuery.invalidate(); admin.logout() })
 </script>
 <template>
   <div class="shell">
@@ -131,7 +136,7 @@ onUnmounted(() => { if (timer) clearInterval(timer); stateQuery.invalidate(); ad
           <table><thead><tr><th>检查</th><th>状态</th><th>说明</th></tr></thead><tbody><tr v-for="check in (state.runtime?.checks || [])" :key="check.name"><td>{{ check.name }}</td><td>{{ check.status }}</td><td>{{ check.detail }}</td></tr></tbody></table>
           <button class="secondary" :disabled="busy" @click="action(async () => download(await admin.request('/netgo/v2/admin/diagnostics'), 'netgo-diagnostics.json'))">导出脱敏诊断</button>
         </section>
-        <section class="card"><h3>管理审计</h3><table><thead><tr><th>时间</th><th>操作</th><th>对象</th></tr></thead><tbody><tr v-for="(a, i) in [...(state.audit || [])].reverse().slice(0, 100)" :key="i"><td>{{ new Date(a.at).toLocaleString() }}</td><td>{{ a.action }}</td><td class="truncate">{{ a.object }}</td></tr></tbody></table></section>
+        <section class="card"><h3>管理审计</h3><table><thead><tr><th>时间</th><th>操作</th><th>对象</th></tr></thead><tbody><tr v-for="a in audit.events" :key="a.sequence"><td>{{ new Date(a.at).toLocaleString() }}</td><td>{{ a.action }}</td><td class="truncate">{{ a.object }}</td></tr></tbody></table><button class="secondary" :disabled="busy || !auditBefore" @click="action(() => auditPage())">最新记录</button><button class="secondary" :disabled="busy || !audit.next_before" @click="action(() => auditPage(audit.next_before))">更早记录</button></section>
       </template>
       <footer>NetGo · 账号保留在本地，连接由你掌控。</footer>
     </main>

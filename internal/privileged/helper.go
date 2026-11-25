@@ -17,6 +17,9 @@ import (
 type Client struct{ Path string }
 
 func (c *Client) Apply(ctx context.Context, leases []model.Lease) error {
+	if e := gateway.ValidateCapacity(leases); e != nil {
+		return e
+	}
 	b, e := json.Marshal(leases)
 	if e != nil {
 		return e
@@ -41,9 +44,9 @@ func Handler(g gateway.Gate) http.Handler {
 			http.NotFound(w, r)
 			return
 		}
-		r.Body = http.MaxBytesReader(w, r.Body, 1<<20)
+		r.Body = http.MaxBytesReader(w, r.Body, gateway.MaxPolicyBytes)
 		var leases []model.Lease
-		if e := site.Decode(r.Body, &leases); e != nil || len(leases) > 1024 {
+		if e := site.Decode(r.Body, &leases); e != nil || gateway.ValidateCapacity(leases) != nil {
 			http.Error(w, "invalid leases", 400)
 			return
 		}

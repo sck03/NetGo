@@ -3,7 +3,6 @@
 package store
 
 import (
-	"bytes"
 	"database/sql"
 	"encoding/json"
 	"errors"
@@ -11,6 +10,7 @@ import (
 	"netgo/internal/model"
 	"os"
 	"path/filepath"
+	"reflect"
 	"sync"
 	"time"
 
@@ -92,7 +92,9 @@ func (s *Store) initialize() error {
 
 func (s *Store) Close() error { return s.db.Close() }
 
-func (s *Store) View() (model.State, error) {
+func (s *Store) View() (model.State, error) { return s.view(allTables) }
+
+func (s *Store) view(tables scope) (model.State, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	tx, e := s.db.Begin()
@@ -100,7 +102,7 @@ func (s *Store) View() (model.State, error) {
 		return model.State{}, e
 	}
 	defer tx.Rollback()
-	st, e := read(tx)
+	st, e := read(tx, tables)
 	if e == nil {
 		e = tx.Commit()
 	}
@@ -128,45 +130,34 @@ func readMap[T any](tx *sql.Tx, table string, target map[string]T) error {
 	return rows.Err()
 }
 
-func read(tx *sql.Tx) (model.State, error) {
+func read(tx *sql.Tx, tables scope) (model.State, error) {
 	st := model.NewState()
 	e := tx.QueryRow("SELECT revision,observed_revision,last_error FROM metadata WHERE id=1").Scan(&st.Revision, &st.ObservedRevision, &st.LastError)
 	if e != nil {
 		return st, e
 	}
-	for _, load := range []func() error{
-		func() error { return readMap(tx, "users", st.Users) },
-		func() error { return readMap(tx, "resources", st.Resources) },
-		func() error { return readMap(tx, "devices", st.Devices) },
-		func() error { return readMap(tx, "vpn_leases", st.Leases) },
-		func() error { return readMap(tx, "credentials", st.Credentials) },
-		func() error { return readMap(tx, "operation_keys", st.Operations) },
-		func() error { return readMap(tx, "hosts", st.Hosts) },
-		func() error { return readMap(tx, "remote_grants", st.RemoteGrants) },
-		func() error { return readMap(tx, "remote_sessions", st.RemoteSessions) },
-		func() error { return readMap(tx, "remote_operations", st.RemoteOperations) },
+	for _, load := range []struct {
+		table scope
+		read  func() error
+	}{
+		{users, func() error { return readMap(tx, "users", st.Users) }},
+		{resources, func() error { return readMap(tx, "resources", st.Resources) }},
+		{devices, func() error { return readMap(tx, "devices", st.Devices) }},
+		{leases, func() error { return readMap(tx, "vpn_leases", st.Leases) }},
+		{credentials, func() error { return readMap(tx, "credentials", st.Credentials) }},
+		{operations, func() error { return readMap(tx, "operation_keys", st.Operations) }},
+		{hosts, func() error { return readMap(tx, "hosts", st.Hosts) }},
+		{grants, func() error { return readMap(tx, "remote_grants", st.RemoteGrants) }},
+		{remoteSessions, func() error { return readMap(tx, "remote_sessions", st.RemoteSessions) }},
+		{remoteOperations, func() error { return readMap(tx, "remote_operations", st.RemoteOperations) }},
 	} {
-		if e = load(); e != nil {
-			return st, e
+		if tables&load.table != 0 {
+			if e = load.read(); e != nil {
+				return st, e
+			}
 		}
 	}
-	rows, e := tx.Query("SELECT data FROM audit_events ORDER BY sequence")
-	if e != nil {
-		return st, e
-	}
-	defer rows.Close()
-	for rows.Next() {
-		var raw []byte
-		var event model.Event
-		if e = rows.Scan(&raw); e != nil {
-			return st, e
-		}
-		if e = json.Unmarshal(raw, &event); e != nil {
-			return st, e
-		}
-		st.Audit = append(st.Audit, event)
-	}
-	return st, rows.Err()
+	return st, nil
 }
 
 // Save only changed rows; heartbeat/lease writes do not rewrite unrelated users,
@@ -180,19 +171,12 @@ func saveMap[T any](tx *sql.Tx, table string, before, after map[string]T) error 
 		}
 	}
 	for id, item := range after {
+		if old, exists := before[id]; exists && reflect.DeepEqual(old, item) {
+			continue
+		}
 		raw, e := json.Marshal(item)
 		if e != nil {
 			return e
-		}
-		old, exists := before[id]
-		if exists {
-			prior, err := json.Marshal(old)
-			if err != nil {
-				return err
-			}
-			if bytes.Equal(prior, raw) {
-				continue
-			}
 		}
 		if _, e = tx.Exec("INSERT INTO "+table+"(id,data) VALUES(?,?) ON CONFLICT(id) DO UPDATE SET data=excluded.data", id, string(raw)); e != nil {
 			return fmt.Errorf("%s: %w", table, e)
@@ -201,47 +185,9 @@ func saveMap[T any](tx *sql.Tx, table string, before, after map[string]T) error 
 	return nil
 }
 
-func saveAudit(tx *sql.Tx, before, after []model.Event) error {
-	// Record only appends (and drops an old prefix). Arbitrary replacements remain
-	// possible for restore tools, but are not part of the normal write path.
-	common := 0
-	for drop := 0; drop <= len(before); drop++ {
-		n := len(before) - drop
-		if n > len(after) {
-			continue
-		}
-		match := true
-		for i := 0; i < n; i++ {
-			if before[drop+i] != after[i] {
-				match = false
-				break
-			}
-		}
-		if match {
-			common = n
-			break
-		}
-	}
-	var last int64
-	if e := tx.QueryRow("SELECT coalesce(max(sequence),0) FROM audit_events").Scan(&last); e != nil {
-		return e
-	}
-	if _, e := tx.Exec("DELETE FROM audit_events WHERE sequence<=?", last-int64(common)); e != nil {
-		return e
-	}
-	for _, event := range after[common:] {
-		raw, e := json.Marshal(event)
-		if e != nil {
-			return e
-		}
-		if _, e = tx.Exec("INSERT INTO audit_events(data) VALUES(?)", string(raw)); e != nil {
-			return e
-		}
-	}
-	return nil
-}
+func (s *Store) Update(fn func(*model.State) error) error { return s.update(allTables, fn) }
 
-func (s *Store) Update(fn func(*model.State) error) error {
+func (s *Store) update(tables scope, fn func(*model.State) error) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	tx, e := s.db.Begin()
@@ -253,19 +199,11 @@ func (s *Store) Update(fn func(*model.State) error) error {
 	if _, e = tx.Exec("UPDATE metadata SET id=id WHERE id=1"); e != nil {
 		return e
 	}
-	before, e := read(tx)
+	before, e := read(tx, tables)
 	if e != nil {
 		return e
 	}
-	// Copy by decoding ensures callbacks cannot mutate the comparison snapshot.
-	raw, e := json.Marshal(before)
-	if e != nil {
-		return e
-	}
-	var after model.State
-	if e = json.Unmarshal(raw, &after); e != nil {
-		return e
-	}
+	after := before.Clone()
 	if e = fn(&after); e != nil {
 		return e
 	}
@@ -273,15 +211,7 @@ func (s *Store) Update(fn func(*model.State) error) error {
 		return ErrSchema
 	}
 	pruneRemote(&before, &after)
-	policy := func(st model.State) []byte {
-		p, _ := json.Marshal(struct {
-			Users     map[string]model.User
-			Resources map[string]model.Resource
-			Remote    []model.RemoteRoute
-		}{st.Users, st.Resources, model.RemoteRoutes(st)})
-		return p
-	}
-	if !bytes.Equal(policy(before), policy(after)) {
+	if !reflect.DeepEqual(before.Users, after.Users) || !reflect.DeepEqual(before.Resources, after.Resources) || !reflect.DeepEqual(model.RemoteRoutes(before), model.RemoteRoutes(after)) {
 		after.Revision++
 	}
 	for _, save := range []func() error{
@@ -293,9 +223,9 @@ func (s *Store) Update(fn func(*model.State) error) error {
 		func() error { return saveMap(tx, "operation_keys", before.Operations, after.Operations) },
 		func() error { return saveMap(tx, "hosts", before.Hosts, after.Hosts) },
 		func() error { return saveMap(tx, "remote_grants", before.RemoteGrants, after.RemoteGrants) },
-		func() error { return saveMap(tx, "remote_sessions", before.RemoteSessions, after.RemoteSessions) },
+		func() error { return saveRemoteSessions(tx, before.RemoteSessions, after.RemoteSessions) },
 		func() error { return saveMap(tx, "remote_operations", before.RemoteOperations, after.RemoteOperations) },
-		func() error { return saveAudit(tx, before.Audit, after.Audit) },
+		func() error { return appendAudit(tx, after.Audit) },
 	} {
 		if e = save(); e != nil {
 			return e
@@ -308,6 +238,21 @@ func (s *Store) Update(fn func(*model.State) error) error {
 }
 
 func pruneRemote(before, st *model.State) {
+	// Resource ownership is resolved atomically with scoped lease revocation.
+	for id, u := range st.Users {
+		resources := make([]string, 0, len(u.Resources))
+		for _, rid := range u.Resources {
+			_, was := before.Resources[rid]
+			_, exists := st.Resources[rid]
+			if !was || exists {
+				resources = append(resources, rid)
+			}
+		}
+		if len(resources) != len(u.Resources) {
+			u.Resources = resources
+			st.Users[id] = u
+		}
+	}
 	// A device/user deletion revokes dependent credentials and leases in this
 	// transaction, even when a caller only removes the owning entity.
 	for id, d := range st.Devices {
@@ -356,14 +301,6 @@ func pruneRemote(before, st *model.State) {
 			delete(st.RemoteSessions, id)
 		}
 	}
-}
-
-func (s *Store) Snapshot() ([]byte, error) {
-	st, e := s.View()
-	if e != nil {
-		return nil, e
-	}
-	return json.MarshalIndent(st, "", "  ")
 }
 
 // ConsumeNonce atomically consumes a digest across callers and restarts. Expiry

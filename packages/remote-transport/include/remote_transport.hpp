@@ -26,6 +26,10 @@ public:
  Key exporter() const;
  void authorize(Continue allowed);
  void send(const Message& message);
+ // Bounded nonblocking output for media loops. The connection still has one owner.
+ void enqueue(Message message);
+ bool flush();
+ bool outputPending() const;
  // False means no complete message is ready; the caller's message is unchanged.
  // Partial reads retain their state and share a 3-second total deadline across
  // polls. idle_ms bounds waiting; cancellation is checked at least every 100ms.

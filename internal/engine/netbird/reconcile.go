@@ -14,16 +14,25 @@ import (
 	"sort"
 	"strings"
 	"sync"
+	"time"
 )
 
 type Reconciler struct {
 	mu                sync.Mutex
+	lastSuccess       time.Time
+	lastRevision      uint64
+	lastPeers         string
 	Management        *Management
 	Store             *store.Store
 	SiteID, GatewayID string
 	LANInterface      string
 	Bypass            site.Bypass
 }
+type ownedPeer struct {
+	ID     string `json:"id"`
+	UserID string `json:"user_id"`
+}
+
 type object struct {
 	ID          string         `json:"id"`
 	Name        string         `json:"name"`
@@ -134,15 +143,32 @@ func matchesDesired(o object, data map[string]any) bool {
 	return sameDesired(o.Raw, wanted, "")
 }
 
-func (r *Reconciler) Apply(ctx context.Context) error {
+func (r *Reconciler) Apply(ctx context.Context) error { return r.applyLatest(ctx, false) }
+
+// Ensure coalesces connection bursts; periodic Apply still detects external drift.
+func (r *Reconciler) Ensure(ctx context.Context) error { return r.applyLatest(ctx, true) }
+func (r *Reconciler) applyLatest(ctx context.Context, coalesce bool) error {
 	r.mu.Lock()
 	defer r.mu.Unlock()
-	st, e := r.Store.View()
+	st, e := r.Store.PolicyView()
 	if e != nil {
 		return e
 	}
-	e = r.apply(ctx, st)
-	_ = r.Store.Update(func(s *model.State) error {
+	var peers []ownedPeer
+	if _, e = r.Management.Request(ctx, "GET", "/peers", nil, &peers); e != nil {
+		return e
+	}
+	sort.Slice(peers, func(i, j int) bool { return peers[i].ID < peers[j].ID })
+	raw, e := json.Marshal(peers)
+	if e != nil {
+		return e
+	}
+	peerHash := model.Hash(string(raw))
+	if coalesce && r.lastPeers == peerHash && st.LastError == "" && st.ObservedRevision == st.Revision && r.lastRevision == st.Revision && time.Since(r.lastSuccess) < 2*time.Second {
+		return nil
+	}
+	e = r.apply(ctx, st, peers)
+	saveErr := r.Store.Update(func(s *model.State) error {
 		if e != nil {
 			s.LastError = "network reconciliation failed"
 		} else {
@@ -151,9 +177,17 @@ func (r *Reconciler) Apply(ctx context.Context) error {
 		}
 		return nil
 	})
+	if e == nil {
+		e = saveErr
+	}
+	if e == nil {
+		r.lastRevision = st.Revision
+		r.lastPeers = peerHash
+		r.lastSuccess = time.Now()
+	}
 	return e
 }
-func (r *Reconciler) apply(ctx context.Context, st model.State) error {
+func (r *Reconciler) apply(ctx context.Context, st model.State, peers []ownedPeer) error {
 	m := r.Management
 	prefix := "netgo:" + r.SiteID + ":"
 	var policies []object
@@ -266,13 +300,6 @@ func (r *Reconciler) apply(ctx context.Context, st model.State) error {
 	desiredPolicies := map[string]bool{}
 	dnsGroups := []string{}
 	// Register source groups from management-authoritative ownership, not submitted IDs.
-	var peers []struct {
-		ID     string `json:"id"`
-		UserID string `json:"user_id"`
-	}
-	if _, e = m.Request(ctx, "GET", "/peers", nil, &peers); e != nil {
-		return e
-	}
 	for _, u := range st.Users {
 		sourcePeers := []string{}
 		if !u.Disabled {

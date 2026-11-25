@@ -26,7 +26,7 @@ import kotlinx.coroutines.launch
 import org.json.JSONObject
 import org.netgo.client.ui.theme.NetGoTheme
 
-private data class ConnectionRequest(val site: String, val alias: String, val password: String, val internet: Boolean)
+private data class ConnectionRequest(val site: String, val alias: String, val password: String, val internet: Boolean, val replace: Boolean)
 class MainActivity : ComponentActivity() {
     private var pending: ConnectionRequest? = null
     private val permission = registerForActivityResult(ActivityResultContracts.StartActivityForResult()) {
@@ -36,24 +36,24 @@ class MainActivity : ComponentActivity() {
     }
     private fun startConnection(value: ConnectionRequest) {
         ContextCompat.startForegroundService(this, Intent(this, NetGoVpnService::class.java).setAction("connect")
-            .putExtra("site", value.site).putExtra("alias", value.alias).putExtra("password", value.password).putExtra("internet", value.internet))
+            .putExtra("site", value.site).putExtra("alias", value.alias).putExtra("password", value.password).putExtra("internet", value.internet).putExtra("replace", value.replace))
     }
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState); startService(Intent(this, NetGoVpnService::class.java))
-        setContent { NetGoTheme { Screen { site, alias, password, internet ->
-            val request = ConnectionRequest(site, alias, password, internet); val approval = VpnService.prepare(this)
+        setContent { NetGoTheme { Screen { site, alias, password, internet, replace ->
+            val request = ConnectionRequest(site, alias, password, internet, replace); val approval = VpnService.prepare(this)
             if (approval == null) startConnection(request) else { pending = request; permission.launch(approval) }
         } } }
     }
     override fun onStop() { NativeRemote.stopCurrent(); super.onStop() }
 }
 
-@Composable private fun Screen(connect: (String, String, String, Boolean) -> Unit) {
+@Composable private fun Screen(connect: (String, String, String, Boolean, Boolean) -> Unit) {
     val profiles by NetGoRuntime.profiles.collectAsState(); val hosts by NetGoRuntime.hosts.collectAsState()
     val status by NetGoRuntime.status.collectAsState(); val message by NetGoRuntime.message.collectAsState()
     var site by remember { mutableStateOf(NetGoRuntime.selectedSite) }; var alias by remember { mutableStateOf("") }; var password by remember { mutableStateOf("") }
     var select by remember { mutableStateOf(false) }; var target by remember { mutableStateOf("") }
-    var internet by remember { mutableStateOf(false) }
+    var internet by remember { mutableStateOf(false) }; var replace by remember { mutableStateOf(false) }
     var pendingImport by remember { mutableStateOf<String?>(null) }
     val context = androidx.compose.ui.platform.LocalContext.current
     LaunchedEffect(profiles) { if (site.isEmpty() && profiles.isNotEmpty()) { site = profiles.first().first; NetGoRuntime.selectedSite = site } }
@@ -76,19 +76,25 @@ class MainActivity : ComponentActivity() {
         Text("NetGo", style = MaterialTheme.typography.headlineMedium)
         Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
             Box { OutlinedButton(onClick = { select = true }) { Text(profiles.firstOrNull { it.first == site }?.second ?: "选择站点") }
-                DropdownMenu(select, onDismissRequest = { select = false }) { profiles.forEach { item -> DropdownMenuItem(text = { Text(item.second) }, onClick = { site = item.first; NetGoRuntime.selectedSite = site; select = false }) } }
+                DropdownMenu(select, onDismissRequest = { select = false }) { profiles.forEach { item -> DropdownMenuItem(text = { Text(item.second) }, onClick = { target = ""; site = item.first; NetGoRuntime.selectedSite = site; select = false }) } }
             }; OutlinedButton(onClick = { importer.launch(arrayOf("application/json", "text/plain")) }) { Text("导入站点") }
         }
         OutlinedTextField(alias, onValueChange = { alias = it }, label = { Text("账号") }, singleLine = true, modifier = Modifier.fillMaxWidth())
         OutlinedTextField(password, onValueChange = { password = it }, label = { Text("密码") }, visualTransformation = PasswordVisualTransformation(), singleLine = true, modifier = Modifier.fillMaxWidth())
+        Row { Checkbox(checked = replace, onCheckedChange = { replace = it }); Text("替换此账号的其他连接") }
         Row { Checkbox(checked = internet, onCheckedChange = { internet = it }); Text("通过旁路由访问互联网（需要账号授权）") }
         Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-            Button(onClick = { connect(site, alias, password, internet); password = "" }, enabled = site.isNotEmpty() && alias.isNotEmpty() && password.isNotEmpty()) { Text("连接网络") }
+            Button(onClick = { connect(site, alias, password, internet, replace); password = "" }, enabled = site.isNotEmpty() && alias.isNotEmpty() && password.isNotEmpty()) { Text("连接网络") }
             OutlinedButton(onClick = { target = ""; NetGoRuntime.disconnect() }) { Text("断开") }
         }
         Text(status.optString("state", "disconnected") + "  " + status.optString("error")); Text(message); HorizontalDivider()
         OutlinedButton(onClick = { NetGoRuntime.selectedSite = site; NetGoRuntime.refreshHosts() }, enabled = status.optString("state") == "connected") { Text("更新远程主机") }
-        hosts.forEach { host -> OutlinedButton(onClick = { NativeRemote.stopCurrent(); target = host.first }) { Text(host.second) } }
+        hosts.forEach { host -> OutlinedButton(enabled = host.ready, onClick = { NativeRemote.stopCurrent(); target = host.id }) { Text(host.label) } }
+        LaunchedEffect(site, status.optString("state")) { if (status.optString("state") != "connected") target = "" }
+        status.optJSONObject("lease")?.optJSONArray("resources")?.let { values ->
+            if (values.length() > 0) Text("已授权资源")
+            for (index in 0 until values.length()) { val resource = values.getJSONObject(index); Text(resource.optString("name") + " · " + resource.optString("cidr")) }
+        }
         if (target.isNotEmpty()) RemoteScreen(site, target) { target = "" }
     } }
 }

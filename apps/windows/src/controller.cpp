@@ -152,7 +152,7 @@ void Controller::run(uint64_t gen,Json p,std::string alias,std::string password,
    if(!job||job->abandoned)return;
    try{
     check();auto method=job->request.value("method",""),path=job->request.value("path","");
-    bool allowed=(method=="GET"&&(path=="/netgo/v2/remote"||path=="/netgo/v2/remote/key"))||(method=="PUT"&&path=="/netgo/v2/remote/host")||(method=="POST"&&(path=="/netgo/v2/remote/host/heartbeat"||path=="/netgo/v2/remote/sessions"));
+    bool allowed=(method=="GET"&&path=="/netgo/v2/remote")||(method=="PUT"&&path=="/netgo/v2/remote/host")||(method=="POST"&&(path=="/netgo/v2/remote/host/heartbeat"||path=="/netgo/v2/remote/sessions"));
     allowed=allowed||((method=="POST"||method=="DELETE")&&std::regex_match(path,std::regex(method=="POST"?R"(^/netgo/v2/remote/sessions/[A-Za-z0-9_-]{22}/(consume|renew)$)":R"(^/netgo/v2/remote/sessions/[A-Za-z0-9_-]{22}$)")));
     allowed=allowed||(method=="GET"&&std::regex_match(path,std::regex(R"(^/netgo/v2/remote/sessions/[A-Za-z0-9_-]{22}$)")));
     if(!allowed)throw Error("remote_invalid_operation");

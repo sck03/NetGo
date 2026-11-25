@@ -111,13 +111,13 @@ void run(ng_remote_client& c){
  }
  require(found,"remote_host_unavailable");
  auto requested=c.options.capabilities&available;require((requested&NG_REMOTE_VIEW)!=0,"remote_view_forbidden");
- auto site=key(c.call("GET",std::string(base)+"/key").at("public_key"));Key nonce{};require(RAND_bytes(nonce.data(),nonce.size())==1,"remote_random_failed");
+ Key nonce{};require(RAND_bytes(nonce.data(),nonce.size())==1,"remote_random_failed");
  auto next=inventory.find("next_generation");require(next!=inventory.end()&&next->is_number_unsigned(),"remote_generation_invalid");auto generation=next->get<uint64_t>();require(generation>0&&generation<=uint64_t(INT64_MAX),"remote_generation_invalid");
  auto requestedAt=netgo::remote::monotonic_time_ms();
  auto a=c.call("POST",std::string(base)+"/sessions",{{"host_id",c.host},{"generation",generation},{"capabilities",requested}},encode(nonce.data(),nonce.size()));
  auto session=a.at("session").at("id").get<std::string>();
  try{
-  require(a.at("session").at("host_id")==c.host,"remote_host_mismatch");require(a.at("session").at("capabilities")==requested,"remote_capabilities_mismatch");Gate gate(a,ctx,site,requested,requestedAt);auto ticket=decode(a.at("ticket"),NG_REMOTE_TICKET_SIZE);gate.begin(ticket);
+  require(a.at("session").at("host_id")==c.host,"remote_host_mismatch");require(a.at("session").at("capabilities")==requested,"remote_capabilities_mismatch");Gate gate(a,ctx,key(a.at("site_key")),requested,requestedAt);auto ticket=decode(a.at("ticket"),NG_REMOTE_TICKET_SIZE);gate.begin(ticket);
   Monitor monitor(c,session);auto endpoint=a.at("endpoint").get<std::string>();auto colon=endpoint.rfind(':');require(colon!=std::string::npos,"remote_invalid_endpoint");auto ip=endpoint.substr(0,colon);if(ip.size()>2&&ip.front()=='['&&ip.back()==']')ip=ip.substr(1,ip.size()-2);
   auto port=std::stoul(endpoint.substr(colon+1));require(port>0&&port<=65535,"remote_invalid_endpoint");
   auto connection=netgo::remote::Connection::connect(ip,uint16_t(port),key(a.at("host_key")),[&]{return monitor.live()&&gate.check();});

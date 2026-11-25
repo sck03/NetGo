@@ -17,6 +17,11 @@ import NetGoApple
 final class DesktopRuntime {
     private var process: Process?
     private var socket = ""
+    private let operationLock = NSLock()
+    private let requestLock = NSLock()
+    private var generation: UInt64 = 0
+    private func advance() -> UInt64 {operationLock.lock();defer{operationLock.unlock()};generation &+= 1;return generation}
+    private func current(_ value: UInt64) -> Bool {operationLock.lock();defer{operationLock.unlock()};return generation==value}
     @MainActor func attach(_ model: ClientModel) {
         guard process == nil else { return }
         if CommandLine.arguments.contains("--smoke") { DispatchQueue.main.asyncAfter(deadline:.now()+2) { NSApplication.shared.terminate(nil) }; return }
@@ -42,13 +47,20 @@ final class DesktopRuntime {
                 guard let request = request else { throw NSError(domain:"NetGo",code:1) }
                 _ = try request("POST",approved ? "/desktop/import-trusted" : "/desktop/import",raw)
             }
-            model.connectAction = { [weak model] site, alias, password, internet in
+            model.disconnectAction = { [weak self] in
+                guard let self=self else{return};let version=self.advance()
+                DispatchQueue.global().async { self.requestLock.lock();defer{self.requestLock.unlock()};if self.current(version) { _ = try? request?("POST","/desktop/disconnect","{}") } }
+            }
+            model.connectAction = { [weak self,weak model] site, alias, password, internet, replace in
+                guard let self=self else{return};let version=self.advance()
                 DispatchQueue.global().async {
                     do {
                         try DesktopRuntime.prepareNetwork()
-                        guard let request = request else { return }
-                        let body = String(decoding:try JSONSerialization.data(withJSONObject:["Site":site.id,"Alias":alias,"Password":password,"Replace":false,"Internet":internet]),as:UTF8.self)
+                        self.requestLock.lock();defer{self.requestLock.unlock()}
+                        guard self.current(version), let request = request else { return }
+                        let body = String(decoding:try JSONSerialization.data(withJSONObject:["Site":site.id,"Alias":alias,"Password":password,"Replace":replace,"Internet":internet]),as:UTF8.self)
                         _ = try request("POST","/desktop/connect",body)
+                        if !self.current(version) { _ = try? request("POST","/desktop/disconnect","{}"); return }
                         Task { @MainActor in model?.refresh() }
                     } catch { Task { @MainActor in model?.message = error.localizedDescription } }
                 }

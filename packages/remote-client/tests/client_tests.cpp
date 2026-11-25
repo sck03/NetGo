@@ -58,7 +58,6 @@ struct Fixture {
    std::lock_guard lock(f.mutex);Json value;
    if(std::string(method)=="CONTEXT")value={{"site_id","site"},{"user_id","user"},{"device_id",f.wrongDevice?"other":"controller"},{"public_key",encode(f.controllerKey.data(),32)}};
    else if(std::string(path)=="/netgo/v2/remote")value={{"next_generation",uint64_t(17)},{"hosts",Json::array({{{"id","host"},{"enabled",true},{"capabilities",3},{"status",f.hostStatus},{"available_capabilities",f.denied?0:f.advertised?f.advertised:f.caps}}})},{"grants",Json::array({{{"host_id","host"},{"user_id","user"},{"capabilities",f.caps}}})}};
-   else if(std::string(path)=="/netgo/v2/remote/key")value={{"public_key",encode(f.siteKey.data(),32)}};
    else if(std::string(path)=="/netgo/v2/remote/sessions"){auto request=Json::parse(body);check(request.at("capabilities")== (f.requested?f.requested:f.caps),"view-only negotiation");check(request.at("generation")==17,"server generation ignored");f.issue(request.at("generation"),1);value=f.authorization;if(f.cancelOnIssue)f.active=false;}
    else if(std::string(method)=="DELETE"){++f.deletes;value={{"revoked",true}};}
    else {if(std::string(path).find("/renew")!=std::string::npos)f.issue(f.authorization.at("session").at("generation"),f.authorization.at("session").at("sequence").get<uint64_t>()+1);else f.authorization["session"]["state"]=f.accepted?"active":"issued";value=f.authorization;}

@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { ref } from 'vue'
-type User = { id: string; alias: string; email: string; role: string; disabled: boolean; max_devices: number; max_sessions: number; expires_at: string; resources: string[] }
+import type { User } from '../../../packages/ui/contracts'
 type Account = { Alias: string; Email: string; Name: string }
 const props = defineProps<{ users: User[]; resources: { id: string; name: string }[]; busy: boolean; create: (account: Account) => Promise<boolean>; save: (user: User) => Promise<boolean>; remove: (user: User) => Promise<boolean> }>()
 const draft = ref<User | null>(null), creating = ref(false)
@@ -21,6 +21,7 @@ function setExpiry(event: Event) { const value = (event.target as HTMLInputEleme
   <section v-if="draft" class="card">
     <h3>{{ draft.alias }} 的访问权限</h3>
     <form @submit.prevent="save">
+      <label>用户名<input v-model="draft.alias" required></label><label>角色<select v-model="draft.role"><option value="user">用户</option><option value="admin">管理员</option></select></label>
       <label class="check"><input v-model="draft.disabled" type="checkbox">停用账号</label>
       <fieldset class="permission-list"><legend>允许访问的资源</legend><label v-for="resource in resources" :key="resource.id" class="check"><input v-model="draft.resources" type="checkbox" :value="resource.id">{{ resource.name }}</label><p v-if="!resources.length">请先到“局域网资源”添加要开放的设备或服务。</p></fieldset>
       <details><summary>设备限额和到期时间</summary><div class="account-limits"><label>最多登记设备<input v-model.number="draft.max_devices" type="number" min="1" max="100" required></label><label>最多同时连接<input v-model.number="draft.max_sessions" type="number" min="1" max="100" required></label><label>到期时间（留空为不限）<input type="datetime-local" :value="expiryValue(draft.expires_at)" @change="setExpiry"></label></div></details>

@@ -38,7 +38,7 @@ type remoteConnection struct {
 var remoteSessionPath = regexp.MustCompile(`^/netgo/v2/remote/sessions/[A-Za-z0-9_-]{22}(/(consume|renew))?$`)
 
 func remoteAllowed(method, path string) bool {
-	if method == "GET" && (path == "/netgo/v2/remote" || path == "/netgo/v2/remote/key") {
+	if method == "GET" && path == "/netgo/v2/remote" {
 		return true
 	}
 	if method == "PUT" && path == "/netgo/v2/remote/host" {

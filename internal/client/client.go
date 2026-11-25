@@ -313,6 +313,7 @@ func (c *Controller) run(ctx context.Context, gen uint64, p site.Profile, alias 
 	if e != nil {
 		return e
 	}
+	defer func() { selector.CloseIdleConnections() }()
 	if _, e = selector.Select(ctx); e != nil {
 		return e
 	}

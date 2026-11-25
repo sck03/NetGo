@@ -12,12 +12,15 @@ import android.net.NetworkRequest
 import android.net.VpnService
 import android.os.Build
 import androidx.core.app.NotificationCompat
-import kotlinx.coroutines.launch
+import kotlinx.coroutines.*
 import org.netgo.runtime.mobile.Client
 import org.netgo.runtime.mobile.Mobile
 
 class NetGoVpnService : VpnService() {
-    private var engine: Client? = null
+    @Volatile private var engine: Client? = null
+    private val lifecycle = Any()
+    private var destroyed = false
+    private val serviceScope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
     private lateinit var platform: VpnPlatform
     private lateinit var manager: ConnectivityManager
     private val changes = object : ConnectivityManager.NetworkCallback() {
@@ -28,9 +31,12 @@ class NetGoVpnService : VpnService() {
     override fun onCreate() {
         super.onCreate(); platform = VpnPlatform(this); manager = getSystemService(ConnectivityManager::class.java)
         manager.registerNetworkCallback(NetworkRequest.Builder().addCapability(NetworkCapabilities.NET_CAPABILITY_INTERNET).addCapability(NetworkCapabilities.NET_CAPABILITY_NOT_VPN).build(), changes)
-        NetGoRuntime.scope.launch {
-            try { val value = Mobile.newClient(filesDir.absolutePath, platform, Build.VERSION.SDK_INT.toLong(), Build.MODEL); engine = value; NetGoRuntime.attach(value) }
-            catch (error: Exception) { NetGoRuntime.message.value = error.message ?: "客户端启动失败" }
+        serviceScope.launch {
+            try {
+                val value = Mobile.newClient(filesDir.absolutePath, platform, Build.VERSION.SDK_INT.toLong(), Build.MODEL)
+                val accepted = synchronized(lifecycle) { if (destroyed) false else { engine=value; NetGoRuntime.attach(value); true } }
+                if (!accepted) runCatching { value.close() }
+            } catch (error: Exception) { synchronized(lifecycle) { if (!destroyed) NetGoRuntime.message.value = error.message ?: "客户端启动失败" } }
         }
     }
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
@@ -41,10 +47,13 @@ class NetGoVpnService : VpnService() {
             val open = PendingIntent.getActivity(this, 0, Intent(this, MainActivity::class.java), PendingIntent.FLAG_IMMUTABLE)
             val notification = NotificationCompat.Builder(this, "netgo-vpn").setSmallIcon(R.drawable.ic_launcher_foreground).setContentTitle("NetGo").setContentText("网络连接运行中").setContentIntent(open).setOngoing(true).build()
             if (Build.VERSION.SDK_INT >= 34) startForeground(1, notification, ServiceInfo.FOREGROUND_SERVICE_TYPE_SYSTEM_EXEMPTED) else startForeground(1, notification)
-            NetGoRuntime.connect(intent.getStringExtra("site") ?: "", intent.getStringExtra("alias") ?: "", intent.getStringExtra("password") ?: "", intent.getBooleanExtra("internet", false)); intent.removeExtra("password")
+            NetGoRuntime.connect(intent.getStringExtra("site") ?: "", intent.getStringExtra("alias") ?: "", intent.getStringExtra("password") ?: "", intent.getBooleanExtra("internet", false), intent.getBooleanExtra("replace", false)); intent.removeExtra("password")
         }
         return START_NOT_STICKY
     }
     override fun onRevoke() { NetGoRuntime.disconnect(); stopSelf(); super.onRevoke() }
-    override fun onDestroy() { manager.unregisterNetworkCallback(changes); engine?.let { NetGoRuntime.detach(it) }; engine = null; super.onDestroy() }
+    override fun onDestroy() {
+        synchronized(lifecycle) { destroyed=true; engine?.let { NetGoRuntime.detach(it) }; engine=null }
+        serviceScope.cancel(); manager.unregisterNetworkCallback(changes); super.onDestroy()
+    }
 }

@@ -53,7 +53,7 @@ const query = new LatestQuery(() => props.request('/netgo/v2/remote'), data => {
   inventory.value = data; loadError.value = ''; loaded.value = true; updated.value = new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' })
 })
 async function refresh() {
-  if (busy.value || !alive) return
+  if (busy.value || !alive || document.hidden) return
   const version = ++refreshVersion
   loading.value = true
   try { await query.run() }

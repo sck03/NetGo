@@ -131,3 +131,50 @@ test('incompatible servers cannot receive administrator passwords', async t => {
   assert.throws(() => validateHealth({ ...health, protocol: 3 }, 'site'), /不兼容/)
   assert.throws(() => validateHealth(health, 'another'), /身份/)
 })
+
+test('a delayed 401 for the previous token cannot log out a refreshed session', async t => {
+ server(t)
+ const upstream = globalThis.fetch
+ let release, entered
+ const started = new Promise(resolve => { entered=resolve })
+ globalThis.fetch = async (path, options) => {
+  if (path.endsWith('/slow')) { entered(); return new Promise(resolve => {release=resolve}) }
+  const response = await upstream(path, options)
+  if (path.endsWith('/exchange')) { const result=await response.json();result.expires_at=new Date(Date.now()+121000).toISOString();return new Response(JSON.stringify(result)) }
+  return response
+ }
+ const original=globalThis.performance
+ let clock=0
+ Object.defineProperty(globalThis,'performance',{configurable:true,value:{now:()=>clock}})
+ t.after(()=>Object.defineProperty(globalThis,'performance',{configurable:true,value:original}))
+ const session=new AdminSession()
+ await session.login('site','admin','password')
+ const slow=session.request('/netgo/v2/admin/slow')
+ await started;clock=2000
+ await session.request('/netgo/v2/admin/state')
+ release(new Response(JSON.stringify({error:'unauthorized'}),{status:401}))
+ await assert.rejects(slow,/unauthorized/)
+ assert(session.active)
+ await session.request('/netgo/v2/admin/state')
+})
+
+test('old-token rejection waits for an in-flight successful refresh', async t => {
+ server(t);const upstream=globalThis.fetch
+ let rejectOld, releaseRefresh, slowEntered, refreshEntered
+ const slowStarted=new Promise(r=>slowEntered=r), refreshStarted=new Promise(r=>refreshEntered=r)
+ globalThis.fetch=async (path,options)=>{
+  if(path.endsWith('/slow')){slowEntered();return new Promise(r=>rejectOld=r)}
+  const response=await upstream(path,options)
+  if(path.endsWith('/exchange')){const body=await response.json();body.expires_at=new Date(Date.now()+121000).toISOString();return new Response(JSON.stringify(body))}
+  if(path.endsWith('/refresh')){refreshEntered();return new Promise(r=>releaseRefresh=()=>r(response))}
+  return response
+ }
+ const original=globalThis.performance;let clock=0
+ Object.defineProperty(globalThis,'performance',{configurable:true,value:{now:()=>clock}})
+ t.after(()=>Object.defineProperty(globalThis,'performance',{configurable:true,value:original}))
+ const session=new AdminSession();await session.login('site','admin','password')
+ const slow=session.request('/netgo/v2/admin/slow');const rejected=assert.rejects(slow,/unauthorized/);await slowStarted;clock=2000
+ const fresh=session.request('/netgo/v2/admin/state');await refreshStarted
+ rejectOld(new Response(JSON.stringify({error:'unauthorized'}),{status:401}));await new Promise(setImmediate)
+ assert(session.active);releaseRefresh();await fresh;await rejected;assert(session.active)
+})

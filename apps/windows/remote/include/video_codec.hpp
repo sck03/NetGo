@@ -23,6 +23,7 @@ public:
 private:
  struct Impl;std::unique_ptr<Impl> impl_;
 };
+void bgra_to_nv12(const std::uint8_t* bgra,std::uint32_t width,std::uint32_t height,std::uint32_t stride,std::uint32_t output_width,std::uint32_t output_height,Frame& output);
 Frame bgra_to_nv12(const std::uint8_t* bgra,std::uint32_t width,std::uint32_t height,std::uint32_t stride,std::uint32_t output_width,std::uint32_t output_height);
 std::vector<std::uint8_t> nv12_to_bgra(const Frame&);
 }

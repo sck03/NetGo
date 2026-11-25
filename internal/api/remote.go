@@ -25,9 +25,6 @@ func (s *Server) remoteRoutes(secured func(string, bool, http.HandlerFunc)) {
 		}
 		reply(w, 200, v)
 	})
-	register("GET /netgo/v2/remote/key", false, func(w http.ResponseWriter, r *http.Request) {
-		reply(w, 200, map[string]string{"site_id": s.Config.Site.ID, "public_key": s.Remote.PublicKey()})
-	})
 	register("PUT /netgo/v2/remote/host", false, func(w http.ResponseWriter, r *http.Request) {
 		var b model.Host
 		if e := body(w, r, &b); e != nil {

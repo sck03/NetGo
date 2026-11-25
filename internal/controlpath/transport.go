@@ -27,6 +27,7 @@ type Selector struct {
 	ProbeTimeout  time.Duration
 	FallbackDelay time.Duration
 	clocks        map[string]clockSample
+	transports    map[string]*http.Transport
 }
 
 type clockSample struct{ server, received time.Time }
@@ -61,16 +62,26 @@ func New(p site.Profile) (*Selector, error) {
 }
 func (s *Selector) Current() site.Candidate { s.mu.RLock(); defer s.mu.RUnlock(); return s.selected }
 func (s *Selector) transport(c site.Candidate, budget time.Duration) *http.Transport {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	key := fmt.Sprintf("%s/%s/%d", c.ID, c.Address, budget)
+	if tr := s.transports[key]; tr != nil {
+		return tr
+	}
+	if s.transports == nil {
+		s.transports = map[string]*http.Transport{}
+	}
 	u, _ := url.Parse(s.Profile.Origin)
-	return &http.Transport{Proxy: nil, ForceAttemptHTTP2: true, TLSClientConfig: &tls.Config{MinVersion: tls.VersionTLS12, ServerName: u.Hostname(), RootCAs: s.Roots}, DialContext: func(ctx context.Context, network, _ string) (net.Conn, error) {
+	tr := &http.Transport{Proxy: nil, ForceAttemptHTTP2: true, TLSClientConfig: &tls.Config{MinVersion: tls.VersionTLS12, ServerName: u.Hostname(), RootCAs: s.Roots}, DialContext: func(ctx context.Context, network, _ string) (net.Conn, error) {
 		return dialControl(ctx, network, c.Address, budget)
-	}, TLSHandshakeTimeout: budget, ResponseHeaderTimeout: budget}
+	}, TLSHandshakeTimeout: budget, ResponseHeaderTimeout: budget, MaxIdleConns: 4, MaxIdleConnsPerHost: 2, MaxConnsPerHost: 8, IdleConnTimeout: 45 * time.Second}
+	s.transports[key] = tr
+	return tr
 }
 func (s *Selector) probe(ctx context.Context, c site.Candidate) error {
 	ctx, cancel := context.WithTimeout(ctx, s.ProbeTimeout)
 	defer cancel()
 	tr := s.transport(c, s.ProbeTimeout)
-	defer tr.CloseIdleConnections()
 	cl := &http.Client{Transport: tr, CheckRedirect: func(*http.Request, []*http.Request) error { return http.ErrUseLastResponse }}
 	req, _ := http.NewRequestWithContext(ctx, "GET", s.Profile.Origin+"/netgo/v2/health", nil)
 	resp, e := cl.Do(req)
@@ -160,19 +171,13 @@ func (s *Selector) RoundTrip(r *http.Request) (*http.Response, error) {
 			return nil, e
 		}
 	}
-	budget := 20 * time.Second
-	if deadline, ok := r.Context().Deadline(); ok {
-		budget = min(budget, time.Until(deadline))
-	}
-	if budget <= 0 {
-		return nil, context.DeadlineExceeded
-	}
-	// API requests use their remaining total budget, not the short probe budget.
-	tr := s.transport(c, budget)
-	// This request owns its transport; disabling reuse also prevents idle
-	// connections retaining goroutines after each lease renewal.
-	tr.DisableKeepAlives = true
-	resp, e := tr.RoundTrip(r)
+	// Stable per-candidate pools; request contexts enforce each total deadline.
+	tr := s.transport(c, 20*time.Second)
+	request := r.Clone(r.Context())
+	// Signed requests consume a nonce. Even an idempotency key must not permit
+	// net/http to replay the same signature on a stale pooled connection.
+	request.GetBody = nil
+	resp, e := tr.RoundTrip(request)
 	if e != nil {
 		tr.CloseIdleConnections()
 		return nil, fmt.Errorf("control transport unavailable: %w", e)
@@ -248,4 +253,13 @@ func (s *Selector) Dial(ctx context.Context) (net.Conn, error) {
 		}
 	}
 	return dialControl(ctx, "tcp", c.Address, 3*time.Second)
+}
+
+func (s *Selector) CloseIdleConnections() {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	for key, tr := range s.transports {
+		tr.CloseIdleConnections()
+		delete(s.transports, key)
+	}
 }

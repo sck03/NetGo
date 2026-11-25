@@ -8,14 +8,23 @@
 @property(nonatomic,copy) NSString *interface;
 @end
 @implementation TunnelBridge
-- (NSString *)startRoot:(NSString *)root profile:(NSString *)profile alias:(NSString *)alias password:(NSString *)password internet:(BOOL)internet tunnelFD:(int)fd interfaceName:(NSString *)name {
+- (NSString *)startRoot:(NSString *)root profile:(NSString *)profile alias:(NSString *)alias password:(NSString *)password importProfile:(BOOL)importProfile importID:(NSString *)importID trusted:(BOOL)trusted replace:(BOOL)replace internet:(BOOL)internet tunnelFD:(int)fd interfaceName:(NSString *)name {
  self.fd=fd;self.interface=name;NSError *error=nil;
  self.client=MobileNewClient(root,self,17,[[NSProcessInfo processInfo] hostName],&error);
  if(error||!self.client)return error.localizedDescription?:@"客户端启动失败";
- // The main app has already confirmed a changed trust root during file import.
- if(![self.client importProfileTrusted:profile error:&error])return error.localizedDescription?:@"站点导入失败";
+ // Only explicit file import can change trust; reconnect uses the canonical persisted profile.
  NSDictionary *site=[NSJSONSerialization JSONObjectWithData:[profile dataUsingEncoding:NSUTF8StringEncoding] options:0 error:&error];
- if(!site||![self.client connectMode:site[@"ID"] alias:alias password:password replace:NO internet:internet error:&error])return error.localizedDescription?:@"VPN 连接失败";
+ if(![site[@"ID"] isKindOfClass:[NSString class]])return @"无效站点";
+ NSString *receipt=[@"netgo.import." stringByAppendingString:site[@"ID"]];
+ if(importProfile && ![[[NSUserDefaults standardUserDefaults] stringForKey:receipt] isEqualToString:importID]){
+  if(importID.length==0)return @"缺少导入操作标识";
+  if(!(trusted ? [self.client importProfileTrusted:profile error:&error] : [self.client importProfile:profile error:&error]))return error.localizedDescription?:@"站点导入失败";
+  // Persist before login can synchronize to a newer server profile. A lost UI
+  // acknowledgement must not repeat an already accepted import on reconnect.
+  [[NSUserDefaults standardUserDefaults] setObject:importID forKey:receipt];
+  [[NSUserDefaults standardUserDefaults] synchronize];
+ }
+ if(!site||![self.client connectMode:site[@"ID"] alias:alias password:password replace:replace internet:internet error:&error])return error.localizedDescription?:@"VPN 连接失败";
  return @"";
 }
 - (NSData *)readKey:(NSString *)site error:(NSError **)error {
@@ -39,6 +48,7 @@
  if(!self.client||!request)return [NSJSONSerialization dataWithJSONObject:@{@"error":@"VPN 未连接"} options:0 error:nil];
  NSString *path=request[@"path"]?:@"", *body=request[@"body"]?:@"", *result=nil;
  if([path isEqualToString:@"/desktop/status"])result=[self.client status];
+ else if([path isEqualToString:@"/desktop/profiles"])result=[self.client profiles:&error];
  else if([path hasPrefix:@"/desktop/remote/context"]){NSURLComponents *parts=[NSURLComponents componentsWithString:[@"http://localhost" stringByAppendingString:path]];NSString *site=@"";for(NSURLQueryItem *item in parts.queryItems)if([item.name isEqualToString:@"site"])site=item.value;result=[self.client remoteContext:site error:&error];}
  else {
   NSDictionary *value=[NSJSONSerialization JSONObjectWithData:[body dataUsingEncoding:NSUTF8StringEncoding] options:0 error:&error];

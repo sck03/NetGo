@@ -65,7 +65,7 @@ func run() error {
 		return e
 	}
 	remotes := &remote.Manager{Store: s, SiteID: c.Site.ID, Key: remoteKey, Peers: m}
-	srv := &api.Server{Config: c, Store: s, Auth: auth, Sessions: leases, Remote: remotes, Management: m, Web: webui.Handler("admin"), Reconcile: reconciler.Apply, Monitor: monitor, Logger: slog.Default()}
+	srv := &api.Server{Config: c, Store: s, Auth: auth, Sessions: leases, Remote: remotes, Management: m, Web: webui.Handler("admin"), Reconcile: reconciler.Ensure, Monitor: monitor, Logger: slog.Default()}
 	httpServer := &http.Server{Addr: c.Listen, Handler: srv.Handler(), ReadHeaderTimeout: 5 * time.Second, ReadTimeout: 20 * time.Second, WriteTimeout: 30 * time.Second, IdleTimeout: 60 * time.Second}
 	errc := make(chan error, 1)
 	go func() { errc <- httpServer.ListenAndServe() }()

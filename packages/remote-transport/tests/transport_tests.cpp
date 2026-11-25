@@ -97,11 +97,17 @@ int main(){
  Key seed{},pub{};seed.fill(0x71);auto key=EVP_PKEY_new_raw_private_key(EVP_PKEY_ED25519,nullptr,seed.data(),seed.size());std::size_t size=pub.size();if(!key||EVP_PKEY_get_raw_public_key(key,pub.data(),&size)!=1)throw std::runtime_error("key");EVP_PKEY_free(key);
  std::atomic_bool alive=true;auto allowed=[&]{return alive.load();};Listener listener("127.0.0.1",0,seed,allowed);
  auto server=std::async(std::launch::async,[&]{auto c=listener.accept(5000);if(!c)throw std::runtime_error("accept");Message m;if(!c->receive(m,2000)||m.kind!=Kind::hello||m.body!=std::vector<std::uint8_t>{1,2,3})throw std::runtime_error("message");auto channel=c->exporter();c->send({Kind::challenge,{channel.begin(),channel.end()}});if(!c->receive(m,2000)||m.kind!=Kind::video||m.body.size()!=1024*1024)throw std::runtime_error("bounded media");c->send({Kind::accepted,{}});return channel;});
- auto client=Connection::connect("127.0.0.1",listener.port(),pub,allowed);client.send({Kind::hello,{1,2,3}});Message m;if(!client.receive(m,2000)||m.kind!=Kind::challenge)throw std::runtime_error("challenge");auto channel=client.exporter();if(m.body!=std::vector<std::uint8_t>(channel.begin(),channel.end()))throw std::runtime_error("exporter mismatch");client.send({Kind::video,std::vector<std::uint8_t>(1024*1024,7)});if(!client.receive(m,2000)||m.kind!=Kind::accepted||server.get()!=channel)throw std::runtime_error("exchange");
+ auto client=Connection::connect("127.0.0.1",listener.port(),pub,allowed);client.send({Kind::hello,{1,2,3}});Message m;if(!client.receive(m,2000)||m.kind!=Kind::challenge)throw std::runtime_error("challenge");auto channel=client.exporter();if(m.body!=std::vector<std::uint8_t>(channel.begin(),channel.end()))throw std::runtime_error("exporter mismatch");client.enqueue({Kind::video,std::vector<std::uint8_t>(1024*1024,7)});while(!client.flush())std::this_thread::yield();if(!client.receive(m,2000)||m.kind!=Kind::accepted||server.get()!=channel)throw std::runtime_error("exchange");
  bool rejected=false;try{client.send({Kind::video,std::vector<std::uint8_t>(max_message+1)});}catch(...){rejected=true;}if(!rejected)throw std::runtime_error("oversize accepted");
  auto peer=std::async(std::launch::async,[&]{return listener.accept(5000);});Key wrong{};wrong.fill(0x19);rejected=false;try{auto c=Connection::connect("127.0.0.1",listener.port(),wrong,allowed);}catch(const std::exception& e){rejected=std::string(e.what())=="remote_host_identity_failed";}auto accepted=peer.get();if(!accepted||!rejected)throw std::runtime_error("pin bypass");
  alive=false;rejected=false;try{client.send({Kind::ping,{}});}catch(const std::exception& e){rejected=std::string(e.what())=="remote_closed";}if(!rejected)throw std::runtime_error("revocation bypass");
  alive=true;rejected=false;try{Listener wildcard("0.0.0.0",0,seed,allowed);}catch(...){rejected=true;}if(!rejected)throw std::runtime_error("wildcard bind");
+ {
+  auto peer=std::async(std::launch::async,[&]{return listener.accept(5000);});auto queued=Connection::connect("127.0.0.1",listener.port(),pub,allowed);auto receiver=peer.get();
+  queued.enqueue({Kind::video,std::vector<uint8_t>(max_message,7)});bool full=false;try{queued.enqueue({Kind::video,std::vector<uint8_t>(max_message,7)});}catch(...){full=true;}require(full,"unbounded output queue");
+  auto began=std::chrono::steady_clock::now();for(int i=0;i<8;++i)queued.flush();require(std::chrono::steady_clock::now()-began<std::chrono::seconds(1),"output flush blocked input polling");
+  alive=false;bool cancelled=false;try{queued.flush();}catch(...){cancelled=true;}require(cancelled,"queued media ignored cancellation");alive=true;
+ }
  partialFrames(seed);
  rejectOldFrames(seed);
  brokenPeer(seed,pub);
