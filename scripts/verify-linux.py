@@ -12,6 +12,7 @@ import sys
 import time
 
 from fingerprint import ROOT, fingerprint
+from linux_arch import target_arch
 from verification import CHECKS, sha256, validate_report
 
 BASH_FILES = ('install-server.sh', 'scripts/bootstrap-linux.sh', 'scripts/build.sh', 'scripts/build-upstream.sh', 'deploy/linux/install.sh',
@@ -19,11 +20,12 @@ BASH_FILES = ('install-server.sh', 'scripts/bootstrap-linux.sh', 'scripts/build.
 
 
 def steps(output, python):
-    ctl = str(ROOT / 'dist/linux-amd64/netgoctl')
-    upstream = ROOT / 'dist/upstream-linux-amd64'
+    arch = target_arch()
+    ctl = str(ROOT / f'dist/linux-{arch}/netgoctl')
+    upstream = ROOT / f'dist/upstream-linux-{arch}'
     haproxy = shutil.which('haproxy') or '/usr/sbin/haproxy'
     # Dynamic manifest hashing runs only after the product-build step.
-    release = ('import hashlib,pathlib,subprocess; p=pathlib.Path("dist/linux-amd64"); '
+    release = (f'import hashlib,pathlib,subprocess; p=pathlib.Path("dist/linux-{arch}"); '
                'h=hashlib.sha256((p/"SHA256SUMS").read_bytes()).hexdigest(); '
                'subprocess.run([str(p.resolve()/"netgoctl"),"release","verify",'
                '"--input",str(p.resolve()),"--sha256",h],check=True)')
@@ -55,7 +57,7 @@ def run(output, commands):
     if set(name for name, _ in commands) != CHECKS['linux']:
         raise ValueError('incomplete Linux verification definition')
     output.mkdir(mode=0o700, parents=True, exist_ok=False)
-    report = {'schema': 2, 'platform': 'linux', 'status': 'FAIL', 'checks': [],
+    report = {'schema': 2, 'platform': 'linux', 'arch': target_arch(), 'status': 'FAIL', 'checks': [],
               'code_sha256': None, 'real_network_acceptance': 'NOT-RUN',
               'limits': ['Builds, unit tests and configuration parsing do not prove installation or network acceptance',
                          'G1-G6, A01-A33, cross-user installation and 72-hour reliability require the target lab']}
@@ -111,7 +113,7 @@ def main():
     output = (args.output or ROOT / '.cache' / ('verification-linux-' + datetime.now(timezone.utc).strftime('%Y%m%d-%H%M%S'))).resolve()
     commands = steps(output, sys.executable)
     if args.plan:
-        print(json.dumps({'platform': 'linux', 'target': 'Debian 12/13 amd64', 'output': str(output),
+        print(json.dumps({'platform': 'linux', 'target': 'Debian 12/13 '+target_arch(), 'output': str(output),
                           'checks': [{'name': name, 'commands': actions} for name, actions in commands],
                           'system_changed': False, 'real_network_acceptance': 'NOT-RUN'}, ensure_ascii=False, indent=2))
         return 0

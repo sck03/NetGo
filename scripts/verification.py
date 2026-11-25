@@ -8,6 +8,7 @@ import re
 import zipfile
 
 from fingerprint import ROOT, fingerprint
+from linux_arch import target_arch
 
 PRODUCTS = ('netgo-server', 'netgo-helper', 'netgoctl', 'netgo-ddns')
 UPSTREAM = ('netbird-server', 'netbird', 'netbird-relay', 'caddy', 'frpc', 'frps')
@@ -37,8 +38,9 @@ def read_json(path):
 def artifact_paths(platform):
     if platform not in CHECKS:
         raise ValueError('unsupported verification platform')
-    files = ['dist/linux-amd64/' + name for name in (*PRODUCTS, 'release.json', 'SHA256SUMS')]
-    folder, binaries = ('windows-amd64', WINDOWS) if platform == 'windows' else ('upstream-linux-amd64', UPSTREAM)
+    arch = 'amd64' if platform == 'windows' else target_arch()
+    files = [f'dist/linux-{arch}/' + name for name in (*PRODUCTS, 'release.json', 'SHA256SUMS')]
+    folder, binaries = ('windows-amd64', WINDOWS) if platform == 'windows' else (f'upstream-linux-{arch}', UPSTREAM)
     return sorted(files + ['dist/' + folder + '/' + name for name in (*binaries, 'SHA256SUMS')])
 
 
@@ -67,7 +69,7 @@ def verify_archive(path, expected_files=None):
         if archive.testzip() is not None:
             raise ValueError('archive CRC failed')
         manifests = [name for name in ('SHA256SUMS', 'bin/SHA256SUMS', 'dist/SHA256SUMS',
-                                      'dist/linux-amd64/SHA256SUMS') if name in names]
+                                      'dist/linux-amd64/SHA256SUMS', 'dist/linux-arm64/SHA256SUMS') if name in names]
         if 'SHA256SUMS' not in manifests:
             raise ValueError('root archive checksum manifest missing')
         for manifest in manifests:

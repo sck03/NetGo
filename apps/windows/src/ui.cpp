@@ -37,7 +37,7 @@ std::wstring errorText(const std::string& e) {
   {"engine_rpc_failed",L"无法操作网络服务。请确认已安装本套装的 NetBird 服务并授权当前 Windows 用户。"},
   {"engine_cleanup_failed",L"尚未确认网络服务已断开。请恢复 NetGoNetBird 服务后再次断开，暂时不要切换服务器。"},
   {"engine_connect_timeout",L"网络服务未在规定时间内连接。请检查服务端 Management、Signal 和网络核心日志后重试。"},
-  {"no_trusted_control_entry",L"未找到可验证的服务器入口。请检查服务器地址、网络和证书。"},
+  {"no_trusted_control_entry",L"未找到可验证的服务器入口。内网 IP 仅在内网可达；外网请配置公网直达或 VPS 入口，并核对端口和证书。"},
   {"tls_certificate_failed",L"服务器证书验证失败。请核对域名、公共 CA 和系统时间。"},
   {"unauthorized",L"账号认证失败或已失效，请检查账号密码。"},
   {"forbidden",L"账号没有访问权限或已禁用。"},

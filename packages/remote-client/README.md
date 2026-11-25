@@ -28,3 +28,5 @@ and UTF-8 text. Clipboard and files are not implemented by this viewer.
 
 The TLS test fixture exercises real sockets, key pinning and possession; its
 six-byte video marker tests protocol dispatch and is not a media benchmark.
+
+Input uses the shared thread-safe C/C++ queue (also used by Swift). It bounds both serialized bytes and event count, coalesces pointer movement, and discards pending actions on focus release, overload or a 1-second local backlog. Each NGR2 input message contains one validated event array; the host checks authorization before every event. Local expiry does not measure time already spent on the network. NGR1 is rejected; update hosts and viewers together. Cancellation closes its server session and reports normal disconnection.

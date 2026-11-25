@@ -40,12 +40,14 @@ class FakeAPI:
     def __init__(self,race=False):self.release=None;self.tag=SHA;self.assets=[];self.writes=[];self.race=race
     def maybe(self,path):
         if path.startswith('/releases/tags/'):return self.release if self.release and not self.release['draft'] else None
-        if path.startswith('/commits/'):return {'sha':self.tag}
+        if path.startswith('/git/ref/tags/'):return {'object':{'sha':self.tag}} if self.tag else None
+        if path.startswith('/commits/'):return {'sha':SHA}
         raise AssertionError(path)
     def request(self,path,method='GET',data=None,upload=False):
+        if method=='GET' and path.startswith('/commits/'):return {'sha':self.tag}
         if method=='GET' and path.startswith('/releases?'):return [self.release] if self.release else []
         if path=='/releases' and method=='POST':
-            self.writes.append(path);self.release={'id':1,'draft':data['draft'],'prerelease':data['prerelease'],'target_commitish':SHA,'tag_name':data['tag_name'],'html_url':'https://github.com/example/repo/releases/tag/'+data['tag_name']}
+            self.writes.append(path);self.tag=self.tag or SHA;self.release={'id':1,'draft':data['draft'],'prerelease':data['prerelease'],'target_commitish':SHA,'tag_name':data['tag_name'],'html_url':'https://github.com/example/repo/releases/tag/'+data['tag_name']}
             if self.race:self.race=False;raise publisher.APIError(422)
             return self.release
         if method=='GET' and path.startswith('/releases/1/assets'):return self.assets
@@ -68,8 +70,16 @@ class ReleaseTests(unittest.TestCase):
         self.assertEqual(version('0.3.1-rc.2+build.7'),'0.3.1-rc.2+build.7')
         for value in ('v0.3.1','01.2.3','0.3.1-01','0.3.1-rc..1','0.3.1+..','0.3.1; echo token','0.3.1\n','65536.0.0'):
             with self.subTest(value=value),self.assertRaises(ValueError):version(value)
-        with self.assertRaises(ValueError):config('linux-server','0.3.1','arm64')
+        self.assertEqual(config('linux-server','0.3.1','arm64')['arch'],'arm64')
+        self.assertEqual(config('vps','0.3.1','arm64')['arch'],'arm64')
+        with self.assertRaises(ValueError):config('linux-server','0.3.1','arm')
         self.assertEqual(config('macos','0.3.1','x86_64')['arch'],'x86_64')
+    def test_first_release_uses_missing_git_ref_instead_of_unknown_commit(self):
+        with tempfile.TemporaryDirectory() as temporary,environment():
+            output=self.payload(Path(temporary));api=FakeAPI();api.tag=None
+            release=publisher.publish(api,output,'stable')
+            self.assertEqual(release['tag_name'],'v0.3.1')
+            self.assertIn('/releases',api.writes)
     def test_push_cannot_publish_and_stable_rejects_dev_suffix(self):
         with self.assertRaises(ValueError):resolve('vps',{'NETGO_PUBLISH':'true','GITHUB_EVENT_NAME':'push'})
         with self.assertRaises(ValueError):resolve('vps',{'NETGO_REQUESTED_VERSION':'0.3.1-dev','NETGO_PUBLISH':'true','GITHUB_EVENT_NAME':'workflow_dispatch','NETGO_RELEASE_TYPE':'stable'})

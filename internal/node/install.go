@@ -5,9 +5,11 @@ import (
 	"fmt"
 	"io/fs"
 	"netgo/deploy/linux"
+	"netgo/internal/platform"
 	"os"
 	"os/exec"
 	"path/filepath"
+	"runtime"
 	"sort"
 	"strings"
 )
@@ -177,8 +179,8 @@ func (m Manager) Install(source string) (result error) {
 	}
 	files := map[string]string{}
 	if m.Role == "server" {
-		release := filepath.Join(source, "dist/linux-amd64")
-		upstream := filepath.Join(source, "dist/upstream-linux-amd64")
+		release := filepath.Join(source, "dist/linux-"+runtime.GOARCH)
+		upstream := filepath.Join(source, "dist/upstream-linux-"+runtime.GOARCH)
 		for _, name := range ServerProducts {
 			files[filepath.Join(m.base(), "current", name)] = filepath.Join(release, name)
 		}
@@ -195,12 +197,8 @@ func (m Manager) Install(source string) (result error) {
 		if e != nil || !info.Mode().IsRegular() {
 			return errors.New("缺少平台运行程序：" + src)
 		}
-		b, e := os.ReadFile(src)
-		if e != nil {
-			return e
-		}
-		if len(b) < 20 || string(b[:5]) != "\x7fELF\x02" || b[18] != 62 || b[19] != 0 {
-			return errors.New("需要原生 Linux amd64 程序")
+		if err := platform.VerifyELF(src, runtime.GOARCH); err != nil {
+			return err
 		}
 	}
 	if m.Root == "" {
@@ -330,7 +328,7 @@ func (m Manager) dependencies() error {
 		}
 	}
 	if values["ID"] != "debian" || (values["VERSION_ID"] != "12" && values["VERSION_ID"] != "13") {
-		return errors.New("当前支持 Debian 12/13 amd64")
+		return errors.New("当前支持 Debian 12/13 amd64/arm64")
 	}
 	if m.Role == "vps" {
 		return nil

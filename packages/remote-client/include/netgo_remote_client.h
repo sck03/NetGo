@@ -7,6 +7,16 @@ extern "C" {
 #endif
 #define NG_REMOTE_CLIENT_ABI 1u
 typedef struct ng_remote_client ng_remote_client;
+typedef struct ng_remote_input ng_remote_input;
+/* Thread-safe viewer queue; coalesces movement and releases held input on
+ * focus release, overload or a 1s stale backlog. No OS input is injected.
+ * Destroy only after producers and consumer have stopped. */
+ng_remote_input *ng_remote_input_create(void);
+void ng_remote_input_destroy(ng_remote_input *input);
+void ng_remote_input_clear(ng_remote_input *input);
+int32_t ng_remote_input_push(ng_remote_input *input, const char *json, size_t size);
+/* capacity >= 61440; writes a JSON array without a trailing NUL. */
+int32_t ng_remote_input_read(ng_remote_input *input, char *output, size_t capacity, size_t *length);
 /* Control and active may run on the monitoring thread. Control calls are
  * serialized. Other callbacks run on the thread calling run; borrowed data
  * expires when the callback returns. Callbacks must not throw across this ABI.

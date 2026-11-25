@@ -5,11 +5,12 @@ import os
 from pathlib import Path
 import re
 import subprocess
+from linux_arch import native_arch
 
 ROOT = Path(__file__).resolve().parents[1]
 ARCHITECTURES = {
     'windows': ('amd64',), 'linux-client': ('amd64',),
-    'linux-server': ('amd64',), 'vps': ('amd64',),
+    'linux-server': ('amd64', 'arm64'), 'vps': ('amd64', 'arm64'),
     'android': ('arm64',), 'macos': ('arm64', 'x86_64'), 'ios': ('arm64',),
 }
 VERSION_PATTERN = re.compile(r'(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)(?:-([0-9A-Za-z.-]+))?(?:\+([0-9A-Za-z.-]+))?\Z')
@@ -28,7 +29,7 @@ def version(value=None):
 
 def config(target, selected_version=None, arch=None):
     if target not in ARCHITECTURES: raise ValueError('未知构建目标')
-    arch = arch or os.environ.get('NETGO_ARCH') or ARCHITECTURES[target][0]
+    arch = arch or os.environ.get('NETGO_ARCH') or (native_arch() if target in ('linux-server', 'vps') else ARCHITECTURES[target][0])
     if arch not in ARCHITECTURES[target]:
         raise ValueError(f'{target} 当前支持架构：{", ".join(ARCHITECTURES[target])}')
     return {'target': target, 'version': version(selected_version), 'arch': arch}

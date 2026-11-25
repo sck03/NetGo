@@ -11,7 +11,7 @@ on:
         description: '当前支持的目标架构'
         type: choice
         default: amd64
-        options: [amd64]
+        options: [amd64, arm64]
       publish:
         description: '构建通过后发布到 Releases'
         type: boolean
@@ -22,7 +22,7 @@ on:
         default: prerelease
         options: [draft, prerelease, stable]
   push:
-    paths: ['VERSION', 'scripts/build_config.py', 'scripts/ci_metadata.py', 'scripts/stage-release.py', 'scripts/publish-release.py', 'scripts/cmake/**', 'internal/**', 'cmd/**', 'apps/ui/**', 'packages/ui/**', 'deploy/linux/**', 'deploy/templates/**', 'scripts/build-linux-server.sh', 'scripts/build-upstream.sh', 'scripts/package-server.py', 'scripts/verify-linux.py', 'upstream/**', 'go.*', 'package*.json', '.github/workflows/build-linux-server.yml']
+    paths: ['VERSION', 'scripts/build_config.py', 'scripts/linux_arch.py', 'scripts/ci_metadata.py', 'scripts/stage-release.py', 'scripts/publish-release.py', 'scripts/cmake/**', 'internal/**', 'cmd/**', 'apps/ui/**', 'packages/ui/**', 'deploy/linux/**', 'deploy/templates/**', 'scripts/build-linux-server.sh', 'scripts/build-upstream.sh', 'scripts/package-server.py', 'scripts/verify-linux.py', 'upstream/**', 'go.*', 'package*.json', '.github/workflows/build-linux-server.yml']
 permissions:
   contents: read
 jobs:
@@ -61,7 +61,7 @@ jobs:
       NETGO_IOS_SDK: ${{ needs.prepare.outputs.sdk }}
       NETGO_VERSION_CODE: ${{ needs.prepare.outputs.version_code }}
       NETGO_BUILD_NUMBER: ${{ needs.prepare.outputs.build_number }}
-    runs-on: ubuntu-24.04
+    runs-on: ${{ needs.prepare.outputs.arch == 'arm64' && 'ubuntu-24.04-arm' || 'ubuntu-24.04' }}
     container: debian:13
     timeout-minutes: 120
     steps:

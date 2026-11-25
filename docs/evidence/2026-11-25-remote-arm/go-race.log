@@ -1,0 +1,32 @@
+ok  	netgo/internal/api	1.799s
+ok  	netgo/internal/backup	4.572s
+ok  	netgo/internal/client	1.528s
+ok  	netgo/internal/controlpath	1.846s
+ok  	netgo/internal/ddns	1.181s
+?   	netgo/internal/deployment	[no test files]
+?   	netgo/internal/desktopinstall	[no test files]
+ok  	netgo/internal/diagnostics	1.563s
+ok  	netgo/internal/engine/netbird	1.362s
+ok  	netgo/internal/gateway	1.086s
+ok  	netgo/internal/identity	1.869s
+?   	netgo/internal/ipc	[no test files]
+ok  	netgo/internal/model	1.098s
+ok  	netgo/internal/node	1.630s
+ok  	netgo/internal/operations	2.048s
+ok  	netgo/internal/platform	1.158s
+?   	netgo/internal/privileged	[no test files]
+?   	netgo/internal/process	[no test files]
+ok  	netgo/internal/protocol	1.075s
+ok  	netgo/internal/remote	4.501s
+ok  	netgo/internal/remote/ticket	(cached)
+?   	netgo/internal/securefile	[no test files]
+ok  	netgo/internal/session	3.209s
+ok  	netgo/internal/site	1.547s
+ok  	netgo/internal/store	1.717s
+?   	netgo/internal/vault	[no test files]
+?   	netgo/internal/webui	[no test files]
+?   	netgo/cmd/netgo-ddns	[no test files]
+?   	netgo/cmd/netgo-helper	[no test files]
+?   	netgo/cmd/netgo-server	[no test files]
+?   	netgo/cmd/netgo-vpsctl	[no test files]
+?   	netgo/cmd/netgoctl	[no test files]

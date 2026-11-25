@@ -59,5 +59,6 @@ struct Address { std::string host; unsigned short port; };
 Address address(const std::string& s);
 std::string originHost(const std::string& origin);
 void validateProfile(const Json& p);
+Json profileEndpoints(const Json& profile,const std::string& direct,const std::string& auxiliary);
 void validateProfileUpdate(const Json& previous,const Json& next);
 }

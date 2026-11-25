@@ -190,7 +190,7 @@ void Connection::send(const Message& message){
  auto kind=static_cast<std::uint32_t>(message.kind);require(kind>=1&&kind<=10&&message.body.size()<=max_message,"remote_invalid_message");
  require(message.kind==Kind::video||message.body.size()<=65536,"remote_invalid_message");
  auto deadline=Clock::now()+std::chrono::seconds(3);
- std::array<std::uint8_t,12> header{'N','G','R','1'};put(header.data()+4,kind);put(header.data()+8,std::uint32_t(message.body.size()));impl_->transfer(header.data(),header.size(),true,deadline);
+ std::array<std::uint8_t,12> header{'N','G','R','2'};put(header.data()+4,kind);put(header.data()+8,std::uint32_t(message.body.size()));impl_->transfer(header.data(),header.size(),true,deadline);
  if(!message.body.empty())impl_->transfer(const_cast<std::uint8_t*>(message.body.data()),message.body.size(),true,deadline);
 }
 bool Connection::receive(Message& message,std::uint32_t idle_ms){
@@ -217,7 +217,7 @@ bool Connection::receive(Message& message,std::uint32_t idle_ms){
   else{
    p.headerBytes+=n;if(p.headerBytes==p.header.size()){
     auto kind=get(p.header.data()+4),size=get(p.header.data()+8);
-    require(std::memcmp(p.header.data(),"NGR1",4)==0&&kind>=1&&kind<=10&&size<=max_message,"remote_invalid_message");
+    require(std::memcmp(p.header.data(),"NGR2",4)==0&&kind>=1&&kind<=10&&size<=max_message,"remote_invalid_message");
     require(kind==static_cast<std::uint32_t>(Kind::video)||size<=65536,"remote_invalid_message");
     p.incoming.kind=static_cast<Kind>(kind);p.incoming.body.resize(size);p.headerReady=true;
    }

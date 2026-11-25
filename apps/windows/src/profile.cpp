@@ -3,6 +3,7 @@
 #include <algorithm>
 #include <cctype>
 #include <regex>
+#include <sstream>
 
 namespace netgo {
 Address address(const std::string& s) {
@@ -50,6 +51,29 @@ void validateProfile(const Json& p) {
   if(!cert)throw Error("invalid_ca");
   CertFreeCertificateContext(cert);
  }
+}
+Json profileEndpoints(const Json& profile,const std::string& direct,const std::string& auxiliary) {
+ Json next=profile;next["Candidates"]=Json::array();
+ for(const auto& group:std::vector<std::pair<std::string,std::string>>{{"direct",direct},{"auxiliary",auxiliary}}){
+  std::istringstream stream(group.second);std::string endpoint;
+  while(stream>>endpoint){
+   address(endpoint);
+   for(const auto& item:next["Candidates"])if(item.at("Address")==endpoint)throw Error("duplicate_candidate");
+   Json candidate;
+   for(const auto& old:profile.at("Candidates"))if(old.at("Kind")==group.first&&old.at("Address")==endpoint){candidate=old;break;}
+   if(candidate.is_null()){
+    unsigned suffix=1;std::string id;
+    for(;;){id=group.first+"-"+std::to_string(suffix++);bool used=false;for(const auto& old:profile.at("Candidates"))used|=old.at("ID")==id;for(const auto& old:next["Candidates"])used|=old.at("ID")==id;if(!used)break;}
+    candidate={{"ID",id},{"Kind",group.first},{"Address",endpoint}};
+   }
+   next["Candidates"].push_back(std::move(candidate));
+  }
+ }
+ // An unchanged form must preserve imported cross-kind ordering and revision.
+ auto grouped=profile.at("Candidates");
+ std::stable_sort(grouped.begin(),grouped.end(),[](const Json& a,const Json& b){return a.at("Kind")=="direct"&&b.at("Kind")!="direct";});
+ if(next["Candidates"]==grouped)next["Candidates"]=profile.at("Candidates");
+ validateProfile(next);return next;
 }
 void validateProfileUpdate(const Json& old,const Json& next) {
  validateProfile(next);

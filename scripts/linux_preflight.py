@@ -38,7 +38,7 @@ def inspect_environment(mode, release, system, machine, which=shutil.which, run=
         checks.append({'name': name, 'status': 'PASS' if ok else 'FAIL', 'detail': detail})
     check('os', system == 'Linux' and release.get('ID') == 'debian' and release.get('VERSION_ID', '').split('.')[0] in ('12', '13'),
           'Required: Debian 12 or 13; observed: ' + release.get('PRETTY_NAME', system))
-    check('architecture', machine in ('x86_64', 'amd64'), 'Required: amd64; observed: ' + machine)
+    check('architecture', machine in ('x86_64', 'amd64', 'aarch64', 'arm64'), 'Required: amd64 or arm64; observed: ' + machine)
     commands = (['go', 'node', 'npm', 'gcc', 'g++', 'git', 'python3', 'pkg-config'] if mode == 'build' else
                 ['nft', 'conntrack', 'systemctl', 'python3', 'sha256sum', 'runuser', 'ip', 'openssl'])
     for command in commands:
@@ -58,7 +58,7 @@ def inspect_environment(mode, release, system, machine, which=shutil.which, run=
             check('openssl_crypto_development', bool(re.fullmatch(r'3\.[0-9]+\.[0-9]+', observed)), observed)
         except (OSError, subprocess.SubprocessError, IndexError):
             check('openssl_crypto_development', False, 'OpenSSL 3 Crypto headers/library required for remote-ticket verification')
-    return {'schema': 1, 'target': 'Debian 12/13 amd64', 'mode': mode,
+    return {'schema': 1, 'target': 'Debian 12/13 amd64/arm64', 'mode': mode,
             'status': 'PASS' if all(item['status'] == 'PASS' for item in checks) else 'FAIL',
             'checks': checks, 'system_changed': False, 'real_network_acceptance': 'NOT-RUN'}
 

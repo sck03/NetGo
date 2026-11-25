@@ -5,7 +5,7 @@
 
 namespace netgo {
 namespace {
-enum { Name=501,SiteID,Origin,Direct,Gateway,Relay,CAStatus,ImportCA,ClearCA };
+enum { Name=501,SiteID,Origin,Direct,Gateway,Relay,Auxiliary,AuxRelay,Revision,CAStatus,ImportCA,ClearCA };
 struct Field { HWND window; int x,y,width,height; };
 struct Dialog {
  HWND window=nullptr,owner=nullptr;HFONT font=nullptr;UINT dpi=96;
@@ -41,18 +41,21 @@ struct Dialog {
   control(L"STATIC",L"建议导入管理员提供的站点文件。以下信息请向管理员索取。",600,18,14,524,30);
   field(Name,L"显示名称：",profile.value("Name",""),54);
   field(SiteID,L"站点 ID：",profile.value("ID",""),88);
-  field(Origin,L"控制网址：",profile.value("Origin",""),122);
-  std::string direct;for(const auto& candidate:profile.value("Candidates",Json::array()))if(candidate.value("Kind","")=="direct"){direct=candidate.value("Address","");break;}
+  field(Origin,L"站点网址：",profile.value("Origin",""),122);
+  std::string direct,auxiliary;for(const auto& candidate:profile.value("Candidates",Json::array())){auto& text=candidate.value("Kind","")=="direct"?direct:auxiliary;if(!text.empty())text+=" ";text+=candidate.value("Address","");}
   field(Direct,L"直达入口：",direct,156);
-  field(Gateway,L"路由虚拟 IP：",profile.value("GatewayIP",""),190);
-  control(L"STATIC",L"证书信任：",601,18,229,96,24);
-  control(L"STATIC",L"",CAStatus,116,229,270,24);
-  control(L"BUTTON",L"导入 CA…",ImportCA,382,225,84,26,WS_TABSTOP);
-  control(L"BUTTON",L"清除",ClearCA,476,225,66,26,WS_TABSTOP);updateCA();
-  field(Relay,L"本地中继：",profile.value("LocalRelay",""),264);
-  control(L"STATIC",L"多入口、备用中继和配置版本可在“配置 → 高级配置”维护。\r\n证书或控制网址改变时，请导入新的站点身份。",602,18,305,524,36);
-  control(L"BUTTON",L"保存",IDOK,372,352,80,28,WS_TABSTOP|BS_DEFPUSHBUTTON);
-  control(L"BUTTON",L"取消",IDCANCEL,462,352,80,28,WS_TABSTOP);
+  field(Auxiliary,L"VPS 入口：",auxiliary,190);
+  field(Gateway,L"路由虚拟 IP：",profile.value("GatewayIP",""),224);
+  control(L"STATIC",L"证书信任：",601,18,263,96,24);
+  control(L"STATIC",L"",CAStatus,116,263,270,24);
+  control(L"BUTTON",L"导入 CA…",ImportCA,382,259,84,26,WS_TABSTOP);
+  control(L"BUTTON",L"清除",ClearCA,476,259,66,26,WS_TABSTOP);updateCA();
+  field(Relay,L"本地中继：",profile.value("LocalRelay",""),298);
+  field(AuxRelay,L"VPS 中继：",profile.value("AuxiliaryRelay",""),332);
+  field(Revision,L"配置版本：",std::to_string(profile.value("ConfigRevision",uint64_t(1))),366);
+  control(L"STATIC",L"入口填主机:端口，多个用空格分隔。内网 IP 仅在内网可达；\r\n外网需公网直达（端口映射）或已配置的 VPS。站点网址按管理员\r\n提供值填写，用于证书身份；修改入口后填管理员提供的新配置版本。",602,18,404,524,60);
+  control(L"BUTTON",L"保存",IDOK,372,478,80,28,WS_TABSTOP|BS_DEFPUSHBUTTON);
+  control(L"BUTTON",L"取消",IDCANCEL,462,478,80,28,WS_TABSTOP);
   if(!create){SendMessageW(controls[SiteID],EM_SETREADONLY,TRUE,0);SendMessageW(controls[Origin],EM_SETREADONLY,TRUE,0);
    EnableWindow(controls[ImportCA],FALSE);EnableWindow(controls[ClearCA],FALSE);}
  }
@@ -67,9 +70,9 @@ struct Dialog {
  }
  void save(){
   Json next=profile;next["Name"]=value(Name);next["ID"]=value(SiteID);next["Origin"]=value(Origin);
-  next["GatewayIP"]=value(Gateway);next["LocalRelay"]=value(Relay);
-  bool found=false;for(auto& candidate:next["Candidates"])if(candidate.value("Kind","")=="direct"){candidate["Address"]=value(Direct);found=true;break;}
-  if(!found)next["Candidates"].push_back({{"ID","direct"},{"Address",value(Direct)},{"Kind","direct"}});
+  next["GatewayIP"]=value(Gateway);next["LocalRelay"]=value(Relay);next["AuxiliaryRelay"]=value(AuxRelay);
+  auto revision=value(Revision);if(revision.empty()||revision.find_first_not_of("0123456789")!=std::string::npos)throw Error("invalid_profile_revision");next["ConfigRevision"]=std::stoull(revision);
+  next=profileEndpoints(next,value(Direct),value(Auxiliary));
   validateProfile(next);if(!create)validateProfileUpdate(profile,next);
   profile=std::move(next);accepted=true;DestroyWindow(window);
  }
@@ -102,7 +105,7 @@ std::optional<Json> profileDialog(HWND owner,const Json& profile,bool create){
  WNDCLASSW cls{};cls.lpfnWndProc=procedure;cls.hInstance=GetModuleHandleW(nullptr);cls.lpszClassName=L"NetGoServerForm";
  cls.hCursor=LoadCursorW(nullptr,IDC_ARROW);cls.hbrBackground=reinterpret_cast<HBRUSH>(COLOR_BTNFACE+1);RegisterClassW(&cls);
  constexpr DWORD style=WS_CAPTION|WS_SYSMENU;constexpr DWORD extra=WS_EX_DLGMODALFRAME|WS_EX_CONTROLPARENT;
- RECT rect{0,0,d.px(560),d.px(398)},parent{},work{};GetWindowRect(owner,&parent);SystemParametersInfoW(SPI_GETWORKAREA,0,&work,0);
+ RECT rect{0,0,d.px(560),d.px(522)},parent{},work{};GetWindowRect(owner,&parent);SystemParametersInfoW(SPI_GETWORKAREA,0,&work,0);
  AdjustWindowRectExForDpi(&rect,style,FALSE,extra,d.dpi);int width=rect.right-rect.left,height=rect.bottom-rect.top;
  int x=std::clamp((parent.left+parent.right-width)/2,work.left,std::max(work.left,work.right-width));
  int y=std::clamp((parent.top+parent.bottom-height)/2,work.top,std::max(work.top,work.bottom-height));

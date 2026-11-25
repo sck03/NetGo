@@ -1,6 +1,6 @@
 # LAN 与 VPS 一键安装、配置和卸载
 
-LAN 使用独立脚本 **install-server.sh**、快捷菜单 **ng**；VPS 使用 **install-vps.sh**、快捷菜单 **ngv**。程序安装和日常维护由 Go 实现，最终用户不需要 Python、Node 或 Go 编译器。当前支持 Debian 12/13、amd64、systemd，使用 API v2 / schema 2。
+LAN 使用独立脚本 **install-server.sh**、快捷菜单 **ng**；VPS 使用 **install-vps.sh**、快捷菜单 **ngv**。程序安装和日常维护由 Go 实现，最终用户不需要 Python、Node 或 Go 编译器。当前支持 Debian 12/13、amd64/arm64、systemd，使用 API v2 / schema 2。
 
 ## 当前下载状态
 
@@ -8,7 +8,7 @@ LAN 使用独立脚本 **install-server.sh**、快捷菜单 **ng**；VPS 使用 
 
 1. 打开 [Linux server](https://github.com/sck03/NetGo/actions/workflows/build-linux-server.yml) 或 [VPS auxiliary node](https://github.com/sck03/NetGo/actions/workflows/build-vps.yml) 最近一次成功运行。
 2. 在底部下载 Artifacts，解压外层 ZIP。
-3. 找到真正的程序安装包：LAN 为 `NetGo-0.3.0-dev-linux-amd64.zip`（通常在 `dist/linux-server/`）；VPS 为 `NetGo-0.3.0-dev-vps-linux-amd64.zip`。
+3. 按机器架构选择运行包，ARM64 机器使用名称带 arm64 的包；以下命令以 amd64 举例。找到真正的程序安装包：LAN 为 `NetGo-0.3.0-dev-linux-amd64.zip`（通常在 `dist/linux-server/`）；VPS 为 `NetGo-0.3.0-dev-vps-linux-amd64.zip`。
 4. 将对应运行包复制到目标机器。以下命令假设文件放在 `/root/`，在 root 终端运行；实际版本号按下载文件替换。
 
 如果缺少 unzip：`apt-get update && apt-get install -y --no-upgrade unzip`。安装器按需准备所缺的运行依赖，不进行整机升级或自动清理系统包。
@@ -33,7 +33,7 @@ bash install-server.sh
 
 例如：控制地址和本地 Relay 都为 LAN 服务器 `192.168.18.220`，网卡 `ens32`，网段 `192.168.18.0/23`。`255.255.254.0` 对应 `/23`。实际网卡和地址以目标机器为准。
 
-完成后打开控制网址的首页，例如 `https://192.168.18.220:10443/`，登录管理网页创建账号、资源和授权。私有 CA 站点应先在管理浏览器中信任其公共 CA。账号默认没有资源权限；管理员需明确授予 LAN 或互联网资源。
+完成后在同一局域网打开站点网址的首页，例如 `https://192.168.18.220:10443/`，登录管理网页创建账号、资源和授权。私有 CA 站点应先在管理浏览器中信任其公共 CA。账号默认没有资源权限；管理员需明确授予 LAN 或互联网资源。
 
 输入 `ng` 打开菜单：
 
@@ -105,7 +105,7 @@ VPS 的程序安装包 `NetGo-版本-vps-linux-amd64.zip` 用来安装程序；L
 
 它包括站点 ID、固定控制网址、直达和备用入口、VPN 网关、公共 CA、Relay 标识及互联网 DNS，不含密码、令牌或私钥。截图字段的逐项解释见 [Windows 客户端说明](WINDOWS_CLIENT.zh-CN.md)。
 
-客户端也支持在“新建服务器”窗口手工填写，导入不是必须。手工配置需要这些相同的真实参数；VPS 备用入口在高级配置中填写。
+客户端也支持在“新建服务器”窗口手工填写，导入不是必须。手工配置需要这些相同的真实参数；VPS 备用入口可在普通新建／编辑表单中填写。
 
 Windows 安装版双击 Setup；绿色版解压后打开 NetGo.exe，首次网络授权由程序调用内部准备器。普通用户不用手工运行 PowerShell 维护脚本或分别启动后台程序。
 

@@ -3,7 +3,7 @@
 #include <shellapi.h>
 #include <commctrl.h>
 #include <windowsx.h>
-#include <deque>
+#include "remote_input.hpp"
 #include <mutex>
 #include <future>
 #include "netgo_remote.h"
@@ -14,7 +14,7 @@ namespace {
 constexpr UINT update=WM_APP+51,ask=WM_APP+52,done=WM_APP+53;
 HWND window=nullptr,list=nullptr,connectButton=nullptr,hostButton=nullptr,stopButton=nullptr,notice=nullptr;
 std::atomic_bool running=true,busy=false,closing=false,receiving=false;std::thread worker;
-std::mutex mutex;desktop::Frame frame;std::string status="正在加载远程主机…",site;Json hosts=Json::array();std::deque<Json> inputs;
+std::mutex mutex;desktop::Frame frame;std::string status="正在加载远程主机…",site;Json hosts=Json::array();netgo::remote::InputQueue inputs;
 bool viewing=false,listing=false,composing=false,releasingCapture=false;std::atomic_uint32_t activeCaps=0;
 struct Consent {std::string user;uint32_t caps=0;std::promise<bool> result;std::atomic_bool expired=false;};
 HRESULT CALLBACK consentTimer(HWND dialog,UINT event,WPARAM elapsed,LPARAM,LONG_PTR data){
@@ -30,16 +30,14 @@ bool inputEnabled(){return viewing&&receiving&&running&&(activeCaps&NG_REMOTE_IN
 void stop(){receiving=false;running=false;activeCaps=0;{std::lock_guard lock(mutex);frame={};inputs.clear();}EnableWindow(stopButton,FALSE);postStatus("正在停止远程桌面并清理会话…");}
 void queue(Json value){
  if(!inputEnabled())return;
- std::lock_guard lock(mutex);
- if(value.value("type","")=="move"&&!inputs.empty()&&inputs.back().value("type","")=="move")inputs.back()=std::move(value);
- else {if(inputs.size()>=128){inputs.clear();inputs.push_back({{"type","release"}});}inputs.push_back(std::move(value));}
+ inputs.push(std::move(value));
 }
 desktop::Callbacks callbacks(){
  return {[]{return running.load();},postStatus,
  [](desktop::Frame value){if(!running||closing)return;{std::lock_guard lock(mutex);if(!running||closing)return;frame=std::move(value);}receiving=true;PostMessageW(window,update,0,0);},
  [](const std::string& user,uint32_t caps){auto request=std::make_shared<Consent>();request->user=user;request->caps=caps;auto future=request->result.get_future();auto p=new std::shared_ptr<Consent>(request);if(!PostMessageW(window,ask,0,reinterpret_cast<LPARAM>(p))){delete p;return false;}
   auto until=Clock::now()+std::chrono::seconds(15);while(running&&Clock::now()<until){if(future.wait_for(std::chrono::milliseconds(100))==std::future_status::ready)return future.get();}request->expired=true;return false;},
- []{std::lock_guard lock(mutex);std::vector<Json> out(inputs.begin(),inputs.end());inputs.clear();return out;},
+ []{return inputs.take().get<std::vector<Json>>();},
  [](uint32_t caps){activeCaps=caps;}};
 }
 void start(bool host,const std::string& id={}){

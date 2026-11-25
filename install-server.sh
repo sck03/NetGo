@@ -29,25 +29,26 @@ done
 case ${1:-} in
  --help|-h) printf '%s\n' 'NetGo 局域网服务端：bash install-server.sh [install|configure|status|doctor|uninstall] [Go 维护参数]' '包内首次运行自动安装并打开菜单；安装后使用 ng。' '--source DIR  本地平台包；--package FILE --sha256 HASH  校验 ZIP；--install-only  仅安装程序'; exit 0;;
 esac
+case $(uname -m) in x86_64|amd64) arch=amd64;; aarch64|arm64) arch=arm64;; *) echo '需要 Linux amd64 或 arm64' >&2;exit 1;; esac
 root=$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)
 if [[ -x /opt/netgo/current/netgoctl ]]; then exec /opt/netgo/current/netgoctl server "$@"; fi
-tool="$root/dist/linux-amd64/netgoctl"
+tool="$root/dist/linux-$arch/netgoctl"
 source_root="$root"
 args=("$@")
 for ((i=0;i<${#args[@]};i++)); do
- if [[ ${args[i]} == --source ]]; then source_root=${args[i+1]:?Missing source directory};tool="$source_root/dist/linux-amd64/netgoctl";fi
+ if [[ ${args[i]} == --source ]]; then source_root=${args[i+1]:?Missing source directory};tool="$source_root/dist/linux-$arch/netgoctl";fi
 done
 if [[ -x $tool ]]; then
  if (($#==0)); then exec "$tool" server install --source "$source_root"; fi
  exec "$tool" server "$@"
 fi
-[[ $(uname -s) == Linux && $(uname -m) == x86_64 ]] || { echo '需要 Linux amd64'; exit 1; }
+[[ $(uname -s) == Linux ]] || { echo '需要 Linux amd64 或 arm64'; exit 1; }
 [[ $EUID == 0 ]] || { echo '请使用 root 执行安装'; exit 1; }
 command -v curl >/dev/null && command -v sha256sum >/dev/null || { echo '请先安装 curl 和 ca-certificates';exit 1; }
 scratch=$(mktemp -d /tmp/netgo-server-bootstrap.XXXXXXXX)
 trap '[[ $scratch == /tmp/netgo-server-bootstrap.* && -d $scratch && ! -L $scratch ]] && rm -rf -- "$scratch"' EXIT
 base=https://github.com/sck03/NetGo/releases/latest/download
-name=netgo-server-installer-linux-amd64
+name=netgo-server-installer-linux-$arch
 curl --fail --location --proto '=https' --proto-redir '=https' --connect-timeout 20 --max-time 600 "$base/$name" -o "$scratch/$name"
 curl --fail --location --proto '=https' --proto-redir '=https' --connect-timeout 20 --max-time 60 "$base/$name.sha256" -o "$scratch/checksum"
 (cd "$scratch" && sha256sum --check checksum)

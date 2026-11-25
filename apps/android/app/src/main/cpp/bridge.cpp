@@ -7,7 +7,7 @@
 #include <mutex>
 #include <thread>
 #include <unordered_map>
-#include <deque>
+#include "remote_input.hpp"
 #include <cstring>
 
 namespace {
@@ -17,7 +17,7 @@ struct Env {
  explicit Env(JavaVM* v):vm(v){if(vm->GetEnv(reinterpret_cast<void**>(&value),JNI_VERSION_1_6)!=JNI_OK){if(vm->AttachCurrentThread(&value,nullptr)==JNI_OK)detach=true;else value=nullptr;}}
  ~Env(){if(detach)vm->DetachCurrentThread();}
 };
-struct Session {JavaVM* vm=nullptr;jobject object=nullptr;std::string site,host;std::atomic_bool active=true;std::mutex mutex;ng_remote_client* client=nullptr;std::deque<Json> inputs;};
+struct Session {JavaVM* vm=nullptr;jobject object=nullptr;std::string site,host;std::atomic_bool active=true;std::mutex mutex;ng_remote_client* client=nullptr;netgo::remote::InputQueue inputs;};
 std::mutex registryMutex;std::unordered_map<jlong,std::shared_ptr<Session>> sessions;std::atomic<jlong> next{1};
 std::shared_ptr<Session> get(jlong handle){std::lock_guard lock(registryMutex);auto found=sessions.find(handle);return found==sessions.end()?nullptr:found->second;}
 bool healthy(JNIEnv* env){if(env->ExceptionCheck()){env->ExceptionClear();return false;}return true;}
@@ -39,7 +39,7 @@ int32_t packet(Session& s,const char* name,const uint8_t* bytes,size_t size,int6
 void run(jlong handle,std::shared_ptr<Session> s){
  ng_remote_client_options o{};o.struct_size=sizeof(o);o.abi_version=NG_REMOTE_CLIENT_ABI;o.site_id=s->site.c_str();o.host_id=s->host.c_str();o.capabilities=NG_REMOTE_VIEW|NG_REMOTE_INPUT|NG_REMOTE_AUDIO;o.context=s.get();
  o.active=[](void* p)->int32_t{return static_cast<Session*>(p)->active?1:0;};o.control=control;o.sign=sign;
- o.input=[](void* p,char* output,size_t capacity,size_t* length)->int32_t{try{auto& s=*static_cast<Session*>(p);std::lock_guard lock(s.mutex);auto value=Json(s.inputs).dump(-1,' ',true);s.inputs.clear();if(value.size()>capacity)return -1;std::memcpy(output,value.data(),value.size());*length=value.size();return 0;}catch(...){return -1;}};
+ o.input=[](void* p,char* output,size_t capacity,size_t* length)->int32_t{try{auto& s=*static_cast<Session*>(p);std::lock_guard lock(s.mutex);auto value=s.inputs.take().dump();if(value.size()>capacity)return -1;std::memcpy(output,value.data(),value.size());*length=value.size();return 0;}catch(...){return -1;}};
  o.format=[](void* p,uint32_t w,uint32_t h,uint32_t rate,uint32_t caps)->int32_t{auto& s=*static_cast<Session*>(p);Env env(s.vm);if(!env.value||!s.active)return -1;auto id=method(env.value,s,"onFormat","(IIII)Z");if(!id||!healthy(env.value))return -1;auto ok=env.value->CallBooleanMethod(s.object,id,jint(w),jint(h),jint(rate),jint(caps));return healthy(env.value)&&ok?0:-1;};
  o.video=[](void* p,const uint8_t* bytes,size_t size,int64_t stamp)->int32_t{return packet(*static_cast<Session*>(p),"onVideo",bytes,size,stamp);};o.audio=[](void* p,const uint8_t* bytes,size_t size)->int32_t{return packet(*static_cast<Session*>(p),"onAudio",bytes,size,0);};o.status=[](void* p,const char* code){status(*static_cast<Session*>(p),code);};
  ng_remote_client* client=nullptr;if(s->active&&ng_remote_client_create(&o,&client)==0){{std::lock_guard lock(s->mutex);s->client=client;}ng_remote_client_run(client);{std::lock_guard lock(s->mutex);s->client=nullptr;}ng_remote_client_destroy(client);}
@@ -51,4 +51,4 @@ extern "C" JNIEXPORT jlong JNICALL Java_org_netgo_client_NativeRemote_startNativ
  auto s=std::make_shared<Session>();env->GetJavaVM(&s->vm);s->object=env->NewGlobalRef(object);s->site=text(env,site);s->host=text(env,host);if(!s->object||s->site.empty()||s->site.size()>63||s->host.empty()||s->host.size()>128){if(s->object)env->DeleteGlobalRef(s->object);return 0;}auto handle=next.fetch_add(1);{std::lock_guard lock(registryMutex);sessions.emplace(handle,s);}try{std::thread(run,handle,s).detach();}catch(...){std::lock_guard lock(registryMutex);sessions.erase(handle);env->DeleteGlobalRef(s->object);return 0;}return handle;
  }catch(...){return 0;}}
 extern "C" JNIEXPORT void JNICALL Java_org_netgo_client_NativeRemote_cancelNative(JNIEnv*,jobject,jlong handle){auto s=get(handle);if(!s)return;s->active=false;std::lock_guard lock(s->mutex);if(s->client)ng_remote_client_cancel(s->client);s->inputs.clear();}
-extern "C" JNIEXPORT void JNICALL Java_org_netgo_client_NativeRemote_inputNative(JNIEnv* env,jobject,jlong handle,jbyteArray value){try{auto s=get(handle);if(!s||!s->active||!value)return;auto size=env->GetArrayLength(value);if(size<=0||size>16384)return;std::string input(size_t(size),'\0');env->GetByteArrayRegion(value,0,size,reinterpret_cast<jbyte*>(input.data()));if(!healthy(env))return;auto event=Json::parse(input);std::lock_guard lock(s->mutex);if(event.value("type","")=="move"&&!s->inputs.empty()&&s->inputs.back().value("type","")=="move")s->inputs.back()=std::move(event);else{if(s->inputs.size()>=128){s->inputs.clear();s->inputs.push_back({{"type","release"}});}s->inputs.push_back(std::move(event));}}catch(...){}}
+extern "C" JNIEXPORT void JNICALL Java_org_netgo_client_NativeRemote_inputNative(JNIEnv* env,jobject,jlong handle,jbyteArray value){try{auto s=get(handle);if(!s||!s->active||!value)return;auto size=env->GetArrayLength(value);if(size<=0||size>16384)return;std::string input(size_t(size),'\0');env->GetByteArrayRegion(value,0,size,reinterpret_cast<jbyte*>(input.data()));if(!healthy(env))return;auto event=Json::parse(input);std::lock_guard lock(s->mutex);s->inputs.push(std::move(event));}catch(...){}}

@@ -129,8 +129,12 @@ func fakePackage(t *testing.T) string {
 	t.Helper()
 	root := physicalTemp(t)
 	elf := make([]byte, 64)
-	copy(elf, []byte("\x7fELF\x02"))
+	copy(elf, []byte("\x7fELF\x02\x01\x01"))
+	elf[16] = 2
 	elf[18] = 62
+	if runtime.GOARCH == "arm64" {
+		elf[18] = 183
+	}
 	for _, name := range []string{"frps", "netbird-relay", "netgo-vpsctl"} {
 		path := filepath.Join(root, "dist/vps/bin", name)
 		if err := os.MkdirAll(filepath.Dir(path), 0755); err != nil {

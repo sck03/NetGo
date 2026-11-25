@@ -5,13 +5,13 @@ root=$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")/.." && pwd)
 mode=${1:---runtime}
 [[ $# -le 1 && ( $mode == --runtime || $mode == --build || $mode == --plan ) ]] || { echo 'Usage: bootstrap-linux.sh [--runtime|--build|--plan]' >&2; exit 2; }
 if [[ $mode == --plan ]]; then
- printf '%s\n' 'Debian 12/13 amd64: install missing runtime packages. --build also prepares SHA256-pinned Go/Node in .tools; no global toolchain links or service activation.'
+ printf '%s\n' 'Debian 12/13 amd64/arm64: install missing runtime packages. --build also prepares SHA256-pinned Go/Node in .tools; no global toolchain links or service activation.'
  exit 0
 fi
-[[ $(uname -s) == Linux && $(uname -m) == x86_64 && $EUID -eq 0 ]] || { echo 'Requires root on Debian 12/13 amd64' >&2; exit 1; }
+[[ $(uname -s) == Linux && ( $(uname -m) == x86_64 || $(uname -m) == aarch64 ) && $EUID -eq 0 ]] || { echo 'Requires root on Debian 12/13 amd64/arm64' >&2; exit 1; }
 os_id=$(sed -n 's/^ID=//p' /etc/os-release | tr -d '"')
 os_version=$(sed -n 's/^VERSION_ID=//p' /etc/os-release | tr -d '"')
-[[ $os_id == debian && ( $os_version == 12 || $os_version == 13 ) ]] || { echo 'Supported: Debian 12/13 amd64' >&2; exit 1; }
+[[ $os_id == debian && ( $os_version == 12 || $os_version == 13 ) ]] || { echo 'Supported: Debian 12/13 amd64/arm64' >&2; exit 1; }
 packages=(ca-certificates curl python3 nftables conntrack iproute2 iptables procps util-linux openssl systemd unzip)
 if [[ $mode == --build ]]; then packages+=(build-essential pkg-config libssl-dev git python3-cryptography xz-utils); fi
 missing=()
@@ -30,13 +30,15 @@ import shlex, subprocess, tempfile, sys
 root=Path(__import__('sys').argv[1])
 sys.path.insert(0,str(root/'scripts'))
 from archive_utils import extract_tar
+from linux_arch import native_arch
+arch=native_arch()
 lock=json.loads((root/'upstream/versions.lock.json').read_text())
 tools=root/'.tools'
 tools.mkdir(mode=0o700,exist_ok=True)
 bins=[]
 for name in ('go','node'):
-    item=lock['linux_toolchain_archives'][name]
-    destination=tools/(name+'-linux-'+lock['toolchain'][name])
+    item=lock['linux_toolchain_archives'][arch][name]
+    destination=tools/(name+'-linux-'+arch+'-'+lock['toolchain'][name])
     executable=destination/'bin'/name
     stamp=destination/'.archive-sha256'
     if not (executable.is_file() and stamp.is_file() and stamp.read_text().strip()==item['sha256']):

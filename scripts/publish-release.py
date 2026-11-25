@@ -105,13 +105,20 @@ def find_release(api,tag):
         if len(entries)<100:return None
         page+=1
 
+def tag_commit(api,tag):
+    # Unknown commit-ish returns 422; the exact Git ref endpoint returns 404.
+    # Resolve a present ref via /commits to peel annotated tags as well.
+    encoded=urllib.parse.quote(tag,safe='')
+    if api.maybe('/git/ref/tags/'+encoded) is None:return None
+    return api.request('/commits/'+encoded)
+
 def ensure_release(api,manifest,channel):
     tag='v'+manifest['version']
     flags={'draft':channel=='draft','prerelease':channel=='prerelease'}
     if channel=='stable' and '-' in manifest['version'].split('+',1)[0]:raise ValueError('正式 Release 版本不可含预发布后缀')
     release=find_release(api,tag)
     if release is None:
-        existing=api.maybe('/commits/'+urllib.parse.quote(tag,safe=''))
+        existing=tag_commit(api,tag)
         if existing and existing['sha']!=manifest['commit']:raise ValueError('同版本标签已指向其他提交，请使用新版本号')
         body={'tag_name':tag,'target_commitish':manifest['commit'],'name':'NetGo '+tag,
               'body':'各平台可分别构建并发布到同一版本。源码：'+manifest['commit']+'。\n\n构建通过不代替完整设备与远控验收，验证范围见仓库文档。',

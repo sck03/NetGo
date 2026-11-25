@@ -9,6 +9,7 @@ import (
 	"io"
 	"netgo/internal/deployment"
 	"netgo/internal/model"
+	"netgo/internal/platform"
 	"netgo/internal/site"
 	"os"
 	"path/filepath"
@@ -86,8 +87,8 @@ func Main(role string, args []string) error {
 		}
 		return nil
 	}
-	if runtime.GOOS != "linux" || runtime.GOARCH != "amd64" || os.Geteuid() != 0 {
-		return errors.New("请以 root 在 Linux amd64 运行节点安装/维护")
+	if runtime.GOOS != "linux" || !platform.Supported(runtime.GOARCH) || os.Geteuid() != 0 {
+		return errors.New("请以 root 在 Linux amd64/arm64 运行节点安装/维护")
 	}
 	if action == "network-apply" || action == "network-remove" {
 		unlock, err := lock("/run/netgo-bypass.lock")

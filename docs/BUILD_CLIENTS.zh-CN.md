@@ -20,19 +20,21 @@
 
 自动 push 构建使用 VERSION 文件的版本，**不发布 Releases**。只有手动运行且勾选 publish 才进入具有 `contents: write` 权限的发布任务。失败的构建不进入发布。
 
+LAN 服务端和 VPS 支持 `amd64` 与 `arm64`（64 位 ARM，不包括 armv7）。两种架构均原生构建并执行检查，ARM 使用 `ubuntu-24.04-arm` + Debian 13；本地 ARM 主机可运行 `bash scripts/build-linux-server.sh --arch arm64` 或 `bash scripts/build-vps.sh --arch arm64`。CGO／SQLite 及上游程序跟随原生架构，拒绝在 x86 上把产物改名为 ARM 包。包名、目录、发行元数据、下载入口和 ELF 校验保持一致。
+
 ## 架构与独立入口
 
 | 目标 | 手动可选架构 | 构建脚本 | 工作流 |
 | --- | --- | --- | --- |
 | Windows | amd64 | scripts/build-windows-client.ps1 | [Windows client](https://github.com/sck03/NetGo/actions/workflows/build-windows-client.yml) |
 | Linux 桌面 | amd64 | scripts/build-linux-client.sh | [Linux desktop client](https://github.com/sck03/NetGo/actions/workflows/build-linux-client.yml) |
-| Debian 服务端 | amd64 | scripts/build-linux-server.sh | [Linux server](https://github.com/sck03/NetGo/actions/workflows/build-linux-server.yml) |
-| VPS 辅助节点 | amd64 | scripts/build-vps.sh | [VPS auxiliary node](https://github.com/sck03/NetGo/actions/workflows/build-vps.yml) |
+| Debian 服务端 | amd64 / arm64 | scripts/build-linux-server.sh | [Linux server](https://github.com/sck03/NetGo/actions/workflows/build-linux-server.yml) |
+| VPS 辅助节点 | amd64 / arm64 | scripts/build-vps.sh | [VPS auxiliary node](https://github.com/sck03/NetGo/actions/workflows/build-vps.yml) |
 | Android | arm64（arm64-v8a） | scripts/build-android-client.py | [Android client](https://github.com/sck03/NetGo/actions/workflows/build-android-client.yml) |
 | macOS | arm64、x86_64 | scripts/build-macos-client.py | [macOS client](https://github.com/sck03/NetGo/actions/workflows/build-macos-client.yml) |
 | iOS/iPadOS | arm64；设备/模拟器分别构建 | scripts/build-ios-client.py | [iOS client](https://github.com/sck03/NetGo/actions/workflows/build-ios-client.yml) |
 
-架构会在构建开始前校验。Windows/Linux 节点和桌面当前只支持 amd64，Android 当前只支持 arm64；其他架构应先完成实现与验证再加入选项。macOS x86_64 使用官方 macos-26-intel runner，arm64 使用 macos-latest。
+架构会在构建开始前校验。Windows 和 Linux 桌面当前只支持 amd64，LAN/VPS 节点支持 amd64 / arm64，Android 当前只支持 arm64；其他架构应先完成实现与验证再加入选项。macOS x86_64 使用官方 macos-26-intel runner，arm64 使用 macos-latest。
 
 ## 发布到 Releases
 
@@ -51,7 +53,7 @@
 
 发布任务只上传该平台的运行包、必要的独立安装器、BUILDINFO/SBOM 和逐文件摘要。原始 App 目录、构建日志、开发报告及发布暂存清单留在 Actions，不上传 Releases。
 
-LAN/VPS 在线安装分别需要 `netgo-server-installer-linux-amd64` / `netgo-vps-installer-linux-amd64` 及其 `.sha256`，以及对应运行 ZIP 和 ZIP 的 `.sha256`。若希望两类节点都在线安装，应将两个独立工作流发布到同一正式版本。
+LAN/VPS 在线安装分别需要 `netgo-server-installer-linux-<arch>` / `netgo-vps-installer-linux-<arch>`（`<arch>` 为 amd64 或 arm64） 及其 `.sha256`，以及对应运行 ZIP 和 ZIP 的 `.sha256`。若希望两类节点都在线安装，应将两个独立工作流发布到同一正式版本。
 
 ## 本地构建和计划
 

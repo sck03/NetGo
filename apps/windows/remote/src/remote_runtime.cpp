@@ -1,6 +1,7 @@
 #include "remote_runtime.hpp"
 #include "connection.hpp"
 #include "remote_transport.hpp"
+#include "remote_input.hpp"
 #include "netgo_remote_ticket.h"
 #include "netgo_remote_client.h"
 #include "netgo_remote_clock.hpp"
@@ -70,19 +71,15 @@ struct Gate {
 std::int64_t ticks(){return std::chrono::duration_cast<std::chrono::milliseconds>(Clock::now().time_since_epoch()).count();}
 // A slow/unreachable control plane cannot leave an unlimited live capture worker.
 struct Monitor {
- std::atomic_bool stop=false;std::atomic<std::int64_t> validUntil{0};std::mutex mutex;std::string session;Json renewal;std::string site,boot;bool hosting;Callbacks* callbacks;std::thread worker;
- Monitor(std::string s,std::string b,bool h,Callbacks& cb):site(std::move(s)),boot(std::move(b)),hosting(h),callbacks(&cb){
+ std::atomic_bool stop=false;std::atomic<std::int64_t> validUntil{0};std::mutex mutex;std::string session;std::string site,boot;Callbacks* callbacks;std::thread worker;
+ Monitor(std::string s,std::string b,Callbacks& cb):site(std::move(s)),boot(std::move(b)),callbacks(&cb){
   validUntil=ticks()+6000;worker=std::thread([this]{try{
    while(!stop&&callbacks->running()){
-    if(hosting)call(site,"POST",std::string(base)+"/host/heartbeat",{{"boot",boot}},{},[this]{return !stop&&callbacks->running();});
+    call(site,"POST",std::string(base)+"/host/heartbeat",{{"boot",boot}},{},[this]{return !stop&&callbacks->running();});
     std::string id;{std::lock_guard lock(mutex);id=session;}
     if(!id.empty()){
      auto a=call(site,"GET",std::string(base)+"/sessions/"+id,nullptr,{},[this]{return !stop&&callbacks->running();});
      if(a.at("session").value("state","")=="closed")break;
-     if(!hosting&&a.at("session").value("state","")=="active"){
-      auto updated=call(site,"POST",std::string(base)+"/sessions/"+id+"/renew",{{"sequence",a.at("session").at("sequence")}});
-      std::lock_guard lock(mutex);renewal=std::move(updated);
-     }
     }else context(site,[this]{return !stop&&callbacks->running();});
     validUntil=ticks()+6000;
     for(int i=0;i<30&&!stop&&callbacks->running();++i)Sleep(100);
@@ -91,22 +88,21 @@ struct Monitor {
  }
  ~Monitor(){stop=true;if(worker.joinable())worker.join();}
  bool live(){return !stop&&callbacks->running()&&ticks()<validUntil.load();}
- void bind(std::string id){std::lock_guard lock(mutex);session=std::move(id);renewal=nullptr;}
- Json take(){std::lock_guard lock(mutex);return std::exchange(renewal,Json());}
+ void bind(std::string id){std::lock_guard lock(mutex);session=std::move(id);}
 };
 struct Input {
  std::set<unsigned> keys;std::set<unsigned> buttons;int left=0,top=0;unsigned screenWidth=0,screenHeight=0;
  ~Input(){release();}
  void release(){for(auto k:keys){INPUT in{};in.type=INPUT_KEYBOARD;in.ki.wVk=WORD(k&255);in.ki.dwFlags=KEYEVENTF_KEYUP|((k&256)?KEYEVENTF_EXTENDEDKEY:0);SendInput(1,&in,sizeof(in));}keys.clear();for(auto b:buttons){INPUT in{};in.type=INPUT_MOUSE;in.mi.dwFlags=b==1?MOUSEEVENTF_LEFTUP:b==2?MOUSEEVENTF_RIGHTUP:MOUSEEVENTF_MIDDLEUP;SendInput(1,&in,sizeof(in));}buttons.clear();}
  void apply(const Json& j){
-  INPUT in{};auto type=j.value("type","");
-  if(type=="key"){auto code=j.at("code").get<unsigned>();if(code==0||code>255)throw Error("remote_invalid_input");auto down=j.at("down").get<bool>(),extended=j.value("extended",false);in.type=INPUT_KEYBOARD;in.ki.wVk=WORD(code);in.ki.dwFlags=(down?0:KEYEVENTF_KEYUP)|(extended?KEYEVENTF_EXTENDEDKEY:0);auto tracked=code|(extended?256:0);if(down)keys.insert(tracked);else keys.erase(tracked);}
+  INPUT in{};auto type=j.value("type","");unsigned tracked=0;bool down=false;
+  if(type=="key"){auto code=j.at("code").get<unsigned>();if(code==0||code>255)throw Error("remote_invalid_input");down=j.at("down").get<bool>();auto extended=j.value("extended",false);in.type=INPUT_KEYBOARD;in.ki.wVk=WORD(code);in.ki.dwFlags=(down?0:KEYEVENTF_KEYUP)|(extended?KEYEVENTF_EXTENDEDKEY:0);tracked=code|(extended?256:0);}
   else if(type=="move"){
    auto x=j.at("x").get<unsigned>(),y=j.at("y").get<unsigned>();if(x>65535||y>65535||!screenWidth||!screenHeight)throw Error("remote_invalid_input");
    auto vw=GetSystemMetrics(SM_CXVIRTUALSCREEN),vh=GetSystemMetrics(SM_CYVIRTUALSCREEN);if(vw<2||vh<2)throw Error("remote_invalid_display");
    auto px=left+int(std::uint64_t(x)*(screenWidth-1)/65535),py=top+int(std::uint64_t(y)*(screenHeight-1)/65535);
    in.type=INPUT_MOUSE;in.mi.dx=LONG(std::int64_t(px-GetSystemMetrics(SM_XVIRTUALSCREEN))*65535/(vw-1));in.mi.dy=LONG(std::int64_t(py-GetSystemMetrics(SM_YVIRTUALSCREEN))*65535/(vh-1));in.mi.dwFlags=MOUSEEVENTF_MOVE|MOUSEEVENTF_ABSOLUTE|MOUSEEVENTF_VIRTUALDESK;
-  }else if(type=="button"){auto b=j.at("button").get<unsigned>();if(b<1||b>3)throw Error("remote_invalid_input");auto down=j.at("down").get<bool>();in.type=INPUT_MOUSE;in.mi.dwFlags=b==1?(down?MOUSEEVENTF_LEFTDOWN:MOUSEEVENTF_LEFTUP):b==2?(down?MOUSEEVENTF_RIGHTDOWN:MOUSEEVENTF_RIGHTUP):(down?MOUSEEVENTF_MIDDLEDOWN:MOUSEEVENTF_MIDDLEUP);if(down)buttons.insert(b);else buttons.erase(b);}
+  }else if(type=="button"){auto b=j.at("button").get<unsigned>();if(b<1||b>3)throw Error("remote_invalid_input");down=j.at("down").get<bool>();tracked=b;in.type=INPUT_MOUSE;in.mi.dwFlags=b==1?(down?MOUSEEVENTF_LEFTDOWN:MOUSEEVENTF_LEFTUP):b==2?(down?MOUSEEVENTF_RIGHTDOWN:MOUSEEVENTF_RIGHTUP):(down?MOUSEEVENTF_MIDDLEDOWN:MOUSEEVENTF_MIDDLEUP);}
   else if(type=="wheel"){auto delta=j.at("delta").get<int>();if(delta<-1200||delta>1200)throw Error("remote_invalid_input");in.type=INPUT_MOUSE;in.mi.dwFlags=j.value("horizontal",false)?MOUSEEVENTF_HWHEEL:MOUSEEVENTF_WHEEL;in.mi.mouseData=DWORD(delta);}
   else if(type=="text"){
    auto text=j.at("text").get<std::string>();if(text.empty()||text.size()>8192||text.find('\0')!=std::string::npos)throw Error("remote_invalid_input");auto unicode=wide(text);std::vector<INPUT> letters;letters.reserve(unicode.size()*2);
@@ -114,6 +110,8 @@ struct Input {
    if(SendInput(UINT(letters.size()),letters.data(),sizeof(INPUT))!=letters.size()){release();throw Error("remote_input_unavailable");}return;
   }else if(type=="release"){release();return;}else throw Error("remote_invalid_input");
   if(SendInput(1,&in,sizeof(in))!=1)throw Error("remote_input_unavailable");
+  if(type=="key"){if(down)keys.insert(tracked);else keys.erase(tracked);}
+  if(type=="button"){if(down)buttons.insert(tracked);else buttons.erase(tracked);}
  }
 };
 struct Capture {
@@ -148,7 +146,7 @@ void host(const std::string& site,Callbacks cb){
  Json registration={{"id",device},{"name",utf8(computer)},{"platform","windows"},{"boot",boot},{"enabled",true},{"capabilities",available},{"require_consent",true},{"port",listener.port()}};
  call(site,"PUT",std::string(base)+"/host",registration,{},cb.running);
  try{
-  Monitor monitor(site,boot,true,cb);cb.status("等待已授权的远程连接；每次连接需要本机确认");
+  Monitor monitor(site,boot,cb);cb.status("等待已授权的远程连接；每次连接需要本机确认");
   while(monitor.live()){
    std::unique_ptr<Connection> connection;
    try{connection=listener.accept(100);}catch(...){if(!monitor.live())break;Sleep(100);continue;}
@@ -189,7 +187,7 @@ void host(const std::string& site,Callbacks cb){
        gate.clock.observe(fresh.value("server_unix_ms",uint64_t(0)),requested);
        if(claims.sequence>fresh.at("session").at("sequence").get<uint64_t>()||ng_remote_gate_renew(gate.value,bytes.data(),bytes.size())!=NG_REMOTE_OK)throw Error("remote_renewal_invalid");
       }
-      else if(m.kind==Kind::input){if(!gate.check(NG_REMOTE_INPUT))throw Error("remote_input_forbidden");input.apply(json(m));}
+      else if(m.kind==Kind::input){auto events=json(m);if(!remote::valid_input_batch(events))throw Error("remote_invalid_input");for(const auto& event:events){if(!monitor.live()||!gate.check(NG_REMOTE_INPUT))throw Error("remote_input_forbidden");input.apply(event);}}
       else throw Error("remote_unexpected_message");
      }
      if(sound&&gate.check(NG_REMOTE_AUDIO)){for(auto& packet:sound->capture()){if(!monitor.live()||!gate.check(NG_REMOTE_AUDIO))break;connection->send({Kind::audio,std::move(packet)});}}

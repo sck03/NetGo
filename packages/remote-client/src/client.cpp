@@ -2,6 +2,7 @@
 #include "remote_transport.hpp"
 #include "netgo_remote_ticket.h"
 #include "netgo_remote_clock.hpp"
+#include "remote_input.hpp"
 #include <nlohmann/json.hpp>
 #include <openssl/evp.h>
 #include <openssl/rand.h>
@@ -119,7 +120,7 @@ void run(ng_remote_client& c){
   require(c.options.format(c.options.context,width,height,fps,caps)==0,"remote_decoder_unavailable");c.status("remote_connected");int64_t stamp=0;
   while(monitor.live()&&gate.check()){
    auto renewal=monitor.take();if(!renewal.is_null()){auto bytes=decode(renewal.at("ticket"),NG_REMOTE_TICKET_SIZE);gate.clock.observe(renewal.value("server_unix_ms",uint64_t(0)),renewal.at("netgo_requested_mono_ms").get<uint64_t>());require(ng_remote_gate_renew(gate.handle,bytes.data(),bytes.size())==NG_REMOTE_OK,"remote_renewal_invalid");connection.send(message(Kind::renew,{{"ticket",renewal.at("ticket")}}));}
-   if(c.options.input&&gate.check(NG_REMOTE_INPUT)){std::vector<char> input(65536);size_t size=0;require(c.options.input(c.options.context,input.data(),input.size(),&size)==0&&size<=input.size(),"remote_invalid_input");if(size){auto events=Json::parse(input.data(),input.data()+size);require(events.is_array()&&events.size()<=128,"remote_invalid_input");for(const auto& e:events)connection.send(message(Kind::input,e));}}
+   if(c.options.input&&gate.check(NG_REMOTE_INPUT)){std::array<char,65536> input{};size_t size=0;require(c.options.input(c.options.context,input.data(),input.size(),&size)==0&&size<=input.size(),"remote_invalid_input");if(size){auto events=Json::parse(input.data(),input.data()+size);require(events.is_array(),"remote_invalid_input");if(!events.empty()){require(netgo::remote::valid_input_batch(events),"remote_invalid_input");connection.send(message(Kind::input,events));}}}
    Message m;if(!connection.receive(m,20))continue;if(m.kind==Kind::close)break;
    if(m.kind==Kind::video){require(c.options.video(c.options.context,m.body.data(),m.body.size(),stamp)==0,"remote_decoder_failed");stamp+=10000000/fps;}
    else if(m.kind==Kind::audio){require(gate.check(NG_REMOTE_AUDIO)&&c.options.audio&&c.options.audio(c.options.context,m.body.data(),m.body.size())==0,"remote_audio_unavailable");}
@@ -135,6 +136,6 @@ extern "C" int32_t ng_remote_client_create(const ng_remote_client_options* o,ng_
  if(!o||o->struct_size!=sizeof(*o)||o->abi_version!=NG_REMOTE_CLIENT_ABI||!o->site_id||!o->host_id||!o->active||!o->control||!o->sign||!o->format||!o->video||!(o->capabilities&NG_REMOTE_VIEW)||(o->capabilities&~uint32_t(NG_REMOTE_VIEW|NG_REMOTE_INPUT|NG_REMOTE_AUDIO))||(o->capabilities&NG_REMOTE_AUDIO&&!o->audio))return NG_REMOTE_CLIENT_INVALID;
  try{auto p=std::make_unique<ng_remote_client>();p->options=*o;p->site=o->site_id;p->host=o->host_id;if(p->site.empty()||p->site.size()>63||p->host.empty()||p->host.size()>128)return NG_REMOTE_CLIENT_INVALID;*output=p.release();return NG_REMOTE_CLIENT_OK;}catch(...){return NG_REMOTE_CLIENT_FAILED;}
 }
-extern "C" int32_t ng_remote_client_run(ng_remote_client* c){if(!c)return NG_REMOTE_CLIENT_INVALID;if(c->started.exchange(true))return NG_REMOTE_CLIENT_BUSY;try{run(*c);return NG_REMOTE_CLIENT_OK;}catch(const std::exception& e){c->status(e.what());return NG_REMOTE_CLIENT_FAILED;}catch(...){c->status("remote_failed");return NG_REMOTE_CLIENT_FAILED;}}
+extern "C" int32_t ng_remote_client_run(ng_remote_client* c){if(!c)return NG_REMOTE_CLIENT_INVALID;if(c->started.exchange(true))return NG_REMOTE_CLIENT_BUSY;try{run(*c);return NG_REMOTE_CLIENT_OK;}catch(const std::exception& e){if(!c->active()){c->status("remote_disconnected");return NG_REMOTE_CLIENT_OK;}c->status(e.what());return NG_REMOTE_CLIENT_FAILED;}catch(...){c->status("remote_failed");return NG_REMOTE_CLIENT_FAILED;}}
 extern "C" void ng_remote_client_cancel(ng_remote_client* c){if(c)c->cancelled=true;}
 extern "C" void ng_remote_client_destroy(ng_remote_client* c){delete c;}

@@ -2,10 +2,16 @@
   "schema": 1,
   "checked_at": "2026-11-22",
   "timezone": "Asia/Shanghai",
-  "linux_target": {"distribution":"debian","version_ids":["12","13"],"architecture":"amd64","compiler":"Debian build-essential; native CGO build on Debian 12; record exact installed GCC/libc/kernel versions in acceptance evidence"},
+  "linux_target": {"distribution":"debian","version_ids":["12","13"],"architectures":["amd64","arm64"],"compiler":"Debian build-essential; native CGO build on Debian 12; record exact installed GCC/libc/kernel versions in acceptance evidence"},
   "linux_toolchain_archives": {
+    "amd64": {
     "go": {"filename":"go1.27.4.linux-amd64.tar.gz","url":"https://dl.google.com/go/go1.27.4.linux-amd64.tar.gz","sha256":"7226736c2339719cda28fbf3a54d71aa63bcefe376e98cef00034268dab24840"},
     "node": {"filename":"node-v26.13.1-linux-x64.tar.xz","url":"https://nodejs.org/dist/v26.13.1/node-v26.13.1-linux-x64.tar.xz","sha256":"5c063e46bab0fbc1c17cc445d7ff129cbdcd0471be6ed83b6ab864f8143bc864"}
+    },
+    "arm64": {
+      "go": {"filename":"go1.27.4.linux-arm64.tar.gz","url":"https://dl.google.com/go/go1.27.4.linux-arm64.tar.gz","sha256":"3392582988a273a87ab5043ee1b2c9c17a2c3c00580bf9326c47a2e0aaaeac92"},
+      "node": {"filename":"node-v26.13.1-linux-arm64.tar.xz","url":"https://nodejs.org/dist/v26.13.1/node-v26.13.1-linux-arm64.tar.xz","sha256":"89e1853138db51e8b82d3e98ba9c0d3f2956a28e5e55ea1b7e12d25aae92d5dd"}
+    }
   },
   "netbird": {"version":"0.83.2","commit":"6d4814d22726c16961be79409dfbf6a2b2f7537b","source":"https://github.com/netbirdio/netbird","patch":"patches/netbird.patch","license":"BSD-3-Clause; AGPL-3.0 in server directories"},
   "dex": {"commit":"0319b501f1a6822b9f941dcac82d0d4edca5018b","source":"https://github.com/netbirdio/dex","patch":"patches/dex.patch","license":"Apache-2.0","note":"NetBird-pinned fork"},

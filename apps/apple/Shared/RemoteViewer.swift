@@ -7,7 +7,8 @@ final class RemoteViewer {
     private var running = false
     private var generation: UInt64 = 0
     private var width: UInt32 = 640, height: UInt32 = 360
-    private var inputs: [[String:Any]] = []
+    private let inputs = ng_remote_input_create()
+    deinit { ng_remote_input_destroy(inputs) }
     private var client: OpaquePointer?
     private var sitePointer: UnsafeMutablePointer<CChar>?
     private var hostPointer: UnsafeMutablePointer<CChar>?
@@ -22,7 +23,7 @@ final class RemoteViewer {
         stop(); let selectedControl = control
         lock.lock(); let requested = generation; lock.unlock()
         queue.async { [self] in
-            lock.lock(); guard generation == requested else { lock.unlock(); return }; running = true; inputs.removeAll(); lock.unlock()
+            lock.lock(); guard generation == requested else { lock.unlock(); return }; running = true; ng_remote_input_clear(inputs); lock.unlock()
             self.site = site; sessionControl = selectedControl
             sitePointer = strdup(site); hostPointer = strdup(host)
             var options = ng_remote_client_options()
@@ -49,9 +50,7 @@ final class RemoteViewer {
             }
             options.input = { ctx, output, capacity, length in
                 let v = Unmanaged<RemoteViewer>.fromOpaque(ctx!).takeUnretainedValue()
-                v.lock.lock(); let events = v.inputs; v.inputs.removeAll(); v.lock.unlock()
-                guard let data = try? JSONSerialization.data(withJSONObject:events), data.count <= capacity else { return -1 }
-                data.withUnsafeBytes { memcpy(output!,$0.baseAddress!,data.count) }; length!.pointee = data.count; return 0
+                return ng_remote_input_read(v.inputs, output, capacity, length)
             }
             options.format = { ctx, width, height, _, caps in let v = Unmanaged<RemoteViewer>.fromOpaque(ctx!).takeUnretainedValue(); v.lock.lock(); v.width = width; v.height = height; v.capabilities = caps; v.lock.unlock(); return 0 }
             options.video = { ctx, bytes, size, time in Unmanaged<RemoteViewer>.fromOpaque(ctx!).takeUnretainedValue().media.video(Data(bytes:bytes!,count:size),time:time); return 0 }
@@ -73,7 +72,13 @@ final class RemoteViewer {
         return try control("LOCAL_CALL","",try json(["Site":site,"Method":method,"Path":path,"Body":(try? JSONSerialization.jsonObject(with:Data(body.utf8))) ?? NSNull(),"Idempotency":key]),"")
     }
     private func json(_ value: Any) throws -> String { String(decoding:try JSONSerialization.data(withJSONObject:value),as:UTF8.self) }
-    func input(_ event: [String:Any]) { lock.lock(); defer { lock.unlock() }; guard running, capabilities & 2 != 0 else { return }; if inputs.count >= 128 { inputs = [["type":"release"]] }; inputs.append(event) }
+    func input(_ event: [String:Any]) {
+        lock.lock(); defer { lock.unlock() }
+        guard running, capabilities & 2 != 0, let data = try? JSONSerialization.data(withJSONObject:event) else { return }
+        data.withUnsafeBytes { bytes in
+            _ = ng_remote_input_push(inputs, bytes.baseAddress?.assumingMemoryBound(to: CChar.self), bytes.count)
+        }
+    }
     func pointer(x: CGFloat,y: CGFloat,viewWidth: CGFloat,viewHeight: CGFloat,down: Bool?,button: Int = 1) {
         lock.lock(); let w = CGFloat(width), h = CGFloat(height); lock.unlock()
         let scale = min(viewWidth/max(w,1),viewHeight/max(h,1)), left = (viewWidth-w*scale)/2, top = (viewHeight-h*scale)/2

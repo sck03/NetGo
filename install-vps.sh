@@ -29,6 +29,7 @@ done
 case ${1:-} in
  --help|-h) printf '%s\n' 'NetGo VPS：bash install-vps.sh [install|configure|status|doctor|uninstall] [Go 维护参数]' '包内首次运行自动安装并打开菜单；安装后使用 ngv。' '--bundle FILE  导入 LAN 导出的节点 ZIP；--source DIR  本地平台包；--install-only  仅安装程序';exit 0;;
 esac
+case $(uname -m) in x86_64|amd64) arch=amd64;; aarch64|arm64) arch=arm64;; *) echo '需要 Linux amd64 或 arm64' >&2;exit 1;; esac
 root=$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)
 if [[ -x /opt/netgo-vps/bin/netgo-vpsctl ]];then exec /opt/netgo-vps/bin/netgo-vpsctl "$@";fi
 tool="$root/dist/vps/bin/netgo-vpsctl";source_root="$root";args=("$@")
@@ -39,12 +40,12 @@ if [[ -x $tool ]];then
  if (($#==0));then exec "$tool" install --source "$source_root";fi
  exec "$tool" "$@"
 fi
-[[ $(uname -s) == Linux && $(uname -m) == x86_64 ]] || { echo '需要 Linux amd64';exit 1; }
+[[ $(uname -s) == Linux ]] || { echo '需要 Linux amd64 或 arm64';exit 1; }
 [[ $EUID == 0 ]] || { echo '请使用 root 执行安装';exit 1; }
 command -v curl >/dev/null && command -v sha256sum >/dev/null || { echo '请先安装 curl 和 ca-certificates';exit 1; }
 scratch=$(mktemp -d /tmp/netgo-vps-bootstrap.XXXXXXXX)
 trap '[[ $scratch == /tmp/netgo-vps-bootstrap.* && -d $scratch && ! -L $scratch ]] && rm -rf -- "$scratch"' EXIT
-base=https://github.com/sck03/NetGo/releases/latest/download;name=netgo-vps-installer-linux-amd64
+base=https://github.com/sck03/NetGo/releases/latest/download;name=netgo-vps-installer-linux-$arch
 curl --fail --location --proto '=https' --proto-redir '=https' --connect-timeout 20 --max-time 600 "$base/$name" -o "$scratch/$name"
 curl --fail --location --proto '=https' --proto-redir '=https' --connect-timeout 20 --max-time 60 "$base/$name.sha256" -o "$scratch/checksum"
 (cd "$scratch" && sha256sum --check checksum)

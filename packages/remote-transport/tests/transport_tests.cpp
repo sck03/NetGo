@@ -38,7 +38,7 @@ struct RawTLS {
  ~RawTLS(){tls.reset();if(socket!=invalid)closeSocket(socket);}
  void write(const std::uint8_t* bytes,size_t size){size_t n=0;require(SSL_write_ex(tls.get(),bytes,size,&n)==1&&n==size,"raw write");}
 };
-std::array<std::uint8_t,12> header(Kind kind,unsigned size){return {'N','G','R','1',0,0,0,uint8_t(kind),uint8_t(size>>24),uint8_t(size>>16),uint8_t(size>>8),uint8_t(size)};}
+std::array<std::uint8_t,12> header(Kind kind,unsigned size){return {'N','G','R','2',0,0,0,uint8_t(kind),uint8_t(size>>24),uint8_t(size>>16),uint8_t(size>>8),uint8_t(size)};}
 void partialFrames(const Key& seed){
  auto live=[]{return true;};Listener listener("127.0.0.1",0,seed,live);
  auto peer=std::async(std::launch::async,[&]{return listener.accept(5000);});RawTLS raw(listener.port());auto connection=peer.get();require(bool(connection),"partial accept");
@@ -55,6 +55,13 @@ void partialFrames(const Key& seed){
  for(int i=0;i<2;++i){std::this_thread::sleep_for(std::chrono::milliseconds(1100));raw.write(h.data()+i+1,1);require(!connection->receive(message,0),"slow incomplete header");}
  std::this_thread::sleep_for(std::chrono::milliseconds(1100));bool expired=false;try{connection->receive(message,0);}catch(const std::exception& e){expired=std::string(e.what())=="remote_transport_timeout";}
  require(expired,"slow sender reset the total message deadline");
+}
+void rejectOldFrames(const Key& seed){
+ auto allowed=[]{return true;};Listener listener("127.0.0.1",0,seed,allowed);
+ auto peer=std::async(std::launch::async,[&]{return listener.accept(5000);});RawTLS raw(listener.port());auto connection=peer.get();require(bool(connection),"old-frame accept");
+ auto old=header(Kind::ping,0);old[3]='1';raw.write(old.data(),old.size());Message message{Kind::ping,{99}};bool rejected=false;
+ try{connection->receive(message,1000);}catch(const std::exception& e){rejected=std::string(e.what())=="remote_invalid_message";}
+ require(rejected&&message.body==std::vector<uint8_t>{99},"old protocol was accepted or changed caller data");
 }
 void brokenPeer(const Key& seed,const Key& publicKey){
  auto allowed=[]{return true;};Listener listener("127.0.0.1",0,seed,allowed);
@@ -96,6 +103,7 @@ int main(){
  alive=false;rejected=false;try{client.send({Kind::ping,{}});}catch(const std::exception& e){rejected=std::string(e.what())=="remote_closed";}if(!rejected)throw std::runtime_error("revocation bypass");
  alive=true;rejected=false;try{Listener wildcard("0.0.0.0",0,seed,allowed);}catch(...){rejected=true;}if(!rejected)throw std::runtime_error("wildcard bind");
  partialFrames(seed);
+ rejectOldFrames(seed);
  brokenPeer(seed,pub);
  highDescriptors(seed,pub);
  std::cout<<"PASS real TLS 1.3 loopback, device-key pin, exporter binding, bounded frames, cancellation and interface-only binding; no overlay/media acceptance\n";

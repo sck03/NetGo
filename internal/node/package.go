@@ -11,6 +11,7 @@ import (
 	"os"
 	"path/filepath"
 	"regexp"
+	"runtime"
 	"strings"
 	"time"
 )
@@ -152,9 +153,9 @@ func (m Manager) releasePackage(version string) (source string, cleanup func(), 
 		return "", nil, err
 	}
 	version = strings.TrimPrefix(release.Tag, "v")
-	name := "NetGo-" + version + "-linux-amd64.zip"
+	name := "NetGo-" + version + "-linux-" + runtime.GOARCH + ".zip"
 	if m.Role == "vps" {
-		name = "NetGo-" + version + "-vps-linux-amd64.zip"
+		name = "NetGo-" + version + "-vps-linux-" + runtime.GOARCH + ".zip"
 	}
 	urls := map[string]string{}
 	for _, asset := range release.Assets {

@@ -84,6 +84,14 @@ int main(int argc,char** argv){
    std::filesystem::remove_all(root);std::cout<<"PASS native IPC actions, bounds, path rejection and shutdown\n";return 0;
   }
   auto p=profile();validateProfile(p);require(originHost("https://site.example:8443")=="site.example","origin host");
+  auto endpoints=profileEndpoints(p,"192.168.18.220:10443 wan1.example:20443 wan2.example:30443","vps.example:24443");
+  require(endpoints.at("Origin")==p.at("Origin")&&endpoints.at("Candidates").size()==4,"entry update changed site identity");
+  require(profileEndpoints(endpoints,"192.168.18.220:10443 wan1.example:20443 wan2.example:30443","vps.example:24443")==endpoints,"entry IDs changed without edits");
+  auto interleaved=endpoints;std::swap(interleaved["Candidates"][0],interleaved["Candidates"][3]);interleaved["ConfigRevision"]=3;
+  auto unchanged=profileEndpoints(interleaved,"wan1.example:20443 wan2.example:30443 192.168.18.220:10443","vps.example:24443");
+  require(unchanged==interleaved,"unchanged form reordered imported entries");validateProfileUpdate(interleaved,unchanged);
+  rejects([&]{profileEndpoints(p,"192.168.18.220:10443","192.168.18.220:10443");},"duplicate endpoints");
+  rejects([&]{profileEndpoints(p,"","vps.example:24443");},"missing direct entry");
   auto health=Json{{"protocol",2},{"site_id","test"},{"capabilities",{"native-auth-v1","device-signature-v1","leases-v1","profile-revision-v1"}}};
   validateHealth(health,"test");
   auto timed=health;timed["server_unix"]=int64_t(std::time(nullptr));validateHealth(timed,"test");

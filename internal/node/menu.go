@@ -78,7 +78,8 @@ func (t terminal) password(label string) (string, error) {
 func (t terminal) initialConfig() (site.Config, error) {
 	c := site.Config{Site: site.Profile{Protocol: 2, ConfigRevision: 1, ID: "site1", Name: "NetGo"}, Listen: "127.0.0.1:18081", Database: "/var/lib/netgo/netgo.db", ManagementURL: "http://127.0.0.1:18080", ManagementTokenFile: "/etc/netgo/management.token", NativeSecretFile: "/etc/netgo/native.secret", HelperSocket: "/run/netgo-helper/helper.sock", Interface: "wt0", OverlayCIDR: "100.96.0.0/16", LeaseSeconds: 120,
 		Deployment: site.Deployment{Mode: "diagnostic", LocalRelayPort: 18443, LocalSTUNPort: 3478, ManagementHealthPort: 19000, ManagementMetricsPort: 19090, RelayHealthPort: 19001, RelayMetricsPort: 19091, CaddyAdminPort: 12019}}
-	host, err := t.text("控制域名或服务器 IPv4", "")
+	t.m.print("内网 IP 只能用于内网访问；外网需公网地址/域名及端口映射，或在配置完成后添加 VPS。站点网址同时用作证书身份。")
+	host, err := t.text("站点证书域名或服务器 IPv4", "")
 	if err != nil {
 		return c, err
 	}
@@ -254,7 +255,7 @@ func (t terminal) setup() error {
 }
 func (t terminal) serverMenu() error {
 	for {
-		t.m.print("\nNetGo 局域网服务端 · ng\n1) 首次配置/启动 VPN\n2) 信息和状态\n3) 修改域名/IP 与端口\n4) 生成/导入证书\n5) 导出客户端配置\n6) 设置旁路由 IP/DNS\n7) VPS 设置与导出\n8) 诊断/恢复连接\n9) 卸载（保留数据）\n0) 退出")
+		t.m.print("\nNetGo 局域网服务端 · ng\n1) 首次配置/启动 VPN\n2) 信息和状态\n3) 修改域名/IP 与端口\n4) 生成/导入证书\n5) 导出客户端配置\n6) 设置旁路由 IP/DNS\n7) VPS 设置与导出\n8) 诊断/恢复连接\n9) 卸载（保留数据）\n10) LAN/公网直达入口\n0) 退出")
 		value, err := t.text("请选择", "0")
 		if err != nil {
 			return err
@@ -293,6 +294,24 @@ func (t terminal) serverOperation(value string) error {
 			t.m.print("%s：%t", unit, t.m.active(unit))
 		}
 		return nil
+	case "10":
+		var addresses []string
+		for _, candidate := range c.Site.Candidates {
+			if candidate.Kind == "direct" {
+				addresses = append(addresses, candidate.Address)
+			}
+		}
+		t.m.print("内网 IP 仅在局域网可达。公网直达需公网地址/域名和端口映射；无公网入口时请在菜单 7 配置 VPS。此处不改变站点证书身份。")
+		value, e := t.text("直达入口（主机:端口，多个用空格分隔）", strings.Join(addresses, " "))
+		if e != nil {
+			return e
+		}
+		next, e := c.Site.WithDirectEndpoints(strings.Fields(value))
+		if e != nil {
+			return e
+		}
+		c.Site = next
+		return t.m.ApplyServerConfig(c, nil)
 	case "3":
 		old, _ := url.Parse(c.Site.Origin)
 		host, e := t.text("控制域名或 IP", old.Hostname())
@@ -303,12 +322,7 @@ func (t terminal) serverOperation(value string) error {
 		if e != nil {
 			return e
 		}
-		c.Site.Origin = "https://" + net.JoinHostPort(host, strconv.Itoa(number))
-		for i := range c.Site.Candidates {
-			if c.Site.Candidates[i].Kind == "direct" {
-				c.Site.Candidates[i].Address = net.JoinHostPort(host, strconv.Itoa(number))
-			}
-		}
+		c.Site = c.Site.ChangeOrigin("https://" + net.JoinHostPort(host, strconv.Itoa(number)))
 		if c.Site.LocalRelay, err = t.text("Relay 域名或 IP", c.Site.LocalRelay); err != nil {
 			return err
 		}

@@ -8,7 +8,7 @@
 #include <fstream>
 #include <thread>
 #include <mutex>
-#include <deque>
+#include "remote_input.hpp"
 #include <algorithm>
 #include <csignal>
 #include <cstring>
@@ -22,7 +22,7 @@ struct State {
  GtkIMContext* ime=nullptr;GSubprocess* service=nullptr;GtkWidget* internet=nullptr;
  std::string root,socket,site;Json profileList=Json::array(),hostList=Json::array();
  std::atomic_bool alive=true,remoteActive=false,jobBusy=false,renderPending=false;std::thread job,remote;
- std::mutex mutex;Frame frame;std::deque<Json> inputs;uint32_t caps=0;std::unique_ptr<netgo::desktop_linux::Decoder> decoder;
+ std::mutex mutex;Frame frame;netgo::remote::InputQueue inputs;uint32_t caps=0;std::unique_ptr<netgo::desktop_linux::Decoder> decoder;
  ng_remote_client* client=nullptr;bool smoke=false;unsigned timer=0;
  ~State(){alive=false;remoteActive=false;if(job.joinable())job.join();if(remote.joinable())remote.join();if(service){g_subprocess_send_signal(service,SIGTERM);g_object_unref(service);}if(ime)g_object_unref(ime);}
 };
@@ -60,8 +60,7 @@ void task(std::function<void()> action){
  state->job=std::thread([action=std::move(action)]{try{action();}catch(const std::exception& e){status(e.what());}state->jobBusy=false;});
 }
 void queue(Json input){if(!state->remoteActive)return;std::lock_guard lock(state->mutex);if(!(state->caps&NG_REMOTE_INPUT))return;
- if(input.value("type","")=="move"&&!state->inputs.empty()&&state->inputs.back().value("type","")=="move")state->inputs.back()=std::move(input);
- else{if(state->inputs.size()>=128){state->inputs.clear();state->inputs.push_back({{"type","release"}});}state->inputs.push_back(std::move(input));}
+ state->inputs.push(std::move(input));
 }
 void present(Frame frame){
  {std::lock_guard lock(state->mutex);state->frame=std::move(frame);}
@@ -90,7 +89,7 @@ void view(std::string host){
    auto value=std::string(method)=="CONTEXT"?call("GET","/desktop/remote/context?site="+state->site):call("POST","/desktop/remote/call",{{"site",state->site},{"method",method},{"path",path},{"body",*body?Json::parse(body):Json()},{"idempotency",idem}});auto text=value.dump();if(text.size()>capacity)return -1;std::copy(text.begin(),text.end(),output);*length=text.size();return 0;
   }catch(...){return -1;}};
   o.sign=[](void*,const uint8_t* message,size_t size,uint8_t output[64])->int32_t{try{auto result=call("POST","/desktop/remote/sign",{{"Site",state->site},{"Message",base64(message,size)}});auto bytes=decode(result.at("signature"),64);std::copy(bytes.begin(),bytes.end(),output);return 0;}catch(...){return -1;}};
-  o.input=[](void*,char* output,size_t capacity,size_t* length)->int32_t{try{std::lock_guard lock(state->mutex);auto text=Json(state->inputs).dump();state->inputs.clear();if(text.size()>capacity)return -1;std::copy(text.begin(),text.end(),output);*length=text.size();return 0;}catch(...){return -1;}};
+  o.input=[](void*,char* output,size_t capacity,size_t* length)->int32_t{try{std::lock_guard lock(state->mutex);auto text=state->inputs.take().dump();if(text.size()>capacity)return -1;std::copy(text.begin(),text.end(),output);*length=text.size();return 0;}catch(...){return -1;}};
   o.format=[](void*,uint32_t w,uint32_t h,uint32_t fps,uint32_t caps)->int32_t{try{if(w>4096||h>2160||fps>60)return -1;state->decoder=std::make_unique<netgo::desktop_linux::Decoder>();std::lock_guard lock(state->mutex);state->caps=caps;return 0;}catch(...){return -1;}};
   o.video=[](void*,const uint8_t* bytes,size_t size,int64_t)->int32_t{try{state->decoder->decode(bytes,size,present);return 0;}catch(...){return -1;}};
   o.status=[](void*,const char* code){status(std::string(code)=="remote_connected"?"远程桌面已连接":std::string(code)=="remote_waiting_consent"?"等待主机确认…":code);};

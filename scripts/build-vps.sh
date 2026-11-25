@@ -3,7 +3,7 @@ set -euo pipefail
 cd "$(dirname "$0")/.."
 root=$PWD
 version=${NETGO_VERSION:-}
-arch=${NETGO_ARCH:-amd64}
+arch=${NETGO_ARCH:-}
 plan=false
 while (($#)); do
  case "$1" in
@@ -14,9 +14,10 @@ while (($#)); do
  esac
 done
 version=$(python3 -B scripts/build_config.py --target vps --version "$version" --arch "$arch" --field version)
+arch=$(python3 -B scripts/build_config.py --target vps --arch "$arch" --field arch)
 export NETGO_VERSION="$version" NETGO_ARCH="$arch"
 if $plan; then python3 -B scripts/build_config.py --target vps; exit 0; fi
-[[ $(uname -s) == Linux && $(uname -m) == x86_64 ]] || { echo 'Build on Linux amd64'; exit 1; }
+python3 -B scripts/linux_arch.py >/dev/null
 export GOCACHE="$root/.cache/toolchain/go-build" GOPATH="$root/.cache/toolchain/go"
 export GOMODCACHE="$GOPATH/pkg/mod" GOTMPDIR="$root/.cache/toolchain/tmp"
 export GOMAXPROCS=${GOMAXPROCS:-2} GOFLAGS=${GOFLAGS:--p=1} GOMEMLIMIT=${GOMEMLIMIT:-2GiB}

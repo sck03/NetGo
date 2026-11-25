@@ -19,7 +19,7 @@ class DebianPreflightTests(unittest.TestCase):
 
     def test_old_distribution_toolchains_and_missing_commands_fail(self):
         release = {'ID': 'debian', 'VERSION_ID': '11'}
-        result = preflight.inspect_environment('build', release, 'Linux', 'aarch64', lambda _: None, lambda _: 'old-version')
+        result = preflight.inspect_environment('build', release, 'Linux', 'armv7l', lambda _: None, lambda _: 'old-version')
         self.assertEqual(result['status'], 'FAIL')
         self.assertTrue(all(item['status'] == 'FAIL' for item in result['checks']))
 
