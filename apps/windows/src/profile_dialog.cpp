@@ -93,7 +93,7 @@ LRESULT CALLBACK procedure(HWND h,UINT message,WPARAM w,LPARAM l){
   }
  }catch(const std::exception& error){
   std::wstring detail=wide(error.what());
-  if(detail==L"profile_revision_conflict")detail=L"此站点使用配置版本保护。请向管理员获取更新的站点文件，或在高级配置中填写管理员提供的版本。";
+  if(detail==L"profile_revision_conflict")detail=L"此站点使用配置版本保护。请向管理员获取更新的站点文件，或在“配置版本”字段填写管理员提供的新版本。";
   else if(detail.rfind(L"invalid_",0)==0||detail==L"unsupported_profile")detail=L"请核对名称、站点 ID、HTTPS 网址、主机:端口和路由节点 IPv4 地址。";
   MessageBoxW(h,detail.c_str(),L"检查服务器配置",MB_OK|MB_ICONWARNING);
  }
