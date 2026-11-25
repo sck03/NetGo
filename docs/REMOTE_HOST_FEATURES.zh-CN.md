@@ -39,6 +39,6 @@ Windows/macOS 硬件路径不把原始画面回读到 CPU。Windows 软件回退
 
 本轮新增 remote-host 集成测试，在回环真实 TLS 上运行共享主机与控制端，验证持钥证明、本机拒绝、无人值守授权、剪贴板和文件往返，无需读取真实桌面。remote-files 覆盖目录边界、偏移/令牌、哈希、覆盖拒绝、取消与传输中降权。Go 覆盖平台能力、主机传输密钥轮换、保存凭据的当前代次、显式取消及信任绑定。
 
-下一步真实设备验收须记录 GPU/驱动、实际编码后端、CPU/GPU/内存、帧延迟、不同 RTT 下传输速度、睡眠/网络变化和权限撤销。至少覆盖 Intel/AMD/NVIDIA Windows，Apple Silicon macOS，Linux X11 与 GNOME/KDE Wayland，以及 Android/iOS 文件选择器切换生命周期。当前测试没有代替这些项目。
+下一步真实设备验收须记录 GPU/驱动、实际编码后端、CPU/GPU/内存、帧延迟、不同 RTT 下传输速度、睡眠/网络变化和权限撤销。至少覆盖 Intel/AMD/NVIDIA Windows，Apple Silicon macOS，Linux X11 与 GNOME/KDE Wayland，以及 Android/iOS 文件选择器切换生命周期。当前测试没有代替这些项目。开发机 AMD RX 580 2048SP 已通过合成画面的 GPU NV12 → 硬件 H.264 → 解码 40/40 帧验证，未读取真实桌面；命令与证据见 [GPU 记录](evidence/2026-11-26-remote-host/gpu-probe.txt)。
 
 实现与参考来源见 [设计决策 0006](adr/0006-remote-host-and-exchange.md)。当前验证结果见 [本轮交付记录](REMOTE_FEATURES_2026-11-26.zh-CN.md)。
