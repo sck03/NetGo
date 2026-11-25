@@ -219,6 +219,13 @@ int main() {
             check(events.size() == 1 && events.front().at("action") == "download" &&
                       events.front().contains("error"),
                   "queued disconnect lost completion");
+            check(exchange.push({{"action", "clipboard.set"}, {"text", std::string(8192, char(1))}}),
+                  "escaped clipboard limit rejected");
+            pending = exchange.next(9);
+            check(pending.at("text").get<std::string>().size() == 8192, "clipboard truncated");
+            exchange.receive({{"id", pending.at("id")}, {"result", {{"text", ""}}}});
+            check(!exchange.push({{"action", "clipboard.set"}, {"text", std::string(8193, 'a')}}),
+                  "oversized clipboard accepted");
             for (auto &e : fs::directory_iterator(root / "remote"))
                 check(e.path().filename().string().rfind(".netgo-", 0) != 0, "temporary upload leaked");
         }

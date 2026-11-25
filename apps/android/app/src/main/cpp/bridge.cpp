@@ -307,7 +307,7 @@ extern "C" JNIEXPORT jboolean JNICALL Java_org_netgo_client_NativeRemote_command
         if (!s || !s->active || !value)
             return false;
         auto size = env->GetArrayLength(value);
-        if (size <= 0 || size > 16384)
+        if (size <= 0 || size > 65536)
             return false;
         std::string text(size_t(size), '\0');
         env->GetByteArrayRegion(value, 0, size, reinterpret_cast<jbyte *>(text.data()));

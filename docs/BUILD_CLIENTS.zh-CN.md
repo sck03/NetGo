@@ -80,7 +80,7 @@ Windows 输出 Setup 和绿色版，文件名包含 windows-amd64；日常仍只
 
 Actions 固定官方稳定版提交 SHA。当前锁定 Go 1.27.4、Node 26.13.1 LTS、OpenSSL 4.1.0、AGP 9.5.2、Gradle 9.9.2、Kotlin 2.4.21、Compose BOM 2026.11.01、SDK 37.2、NDK 30.0.16248370；Apple 使用稳定 Xcode。锁定输入见 upstream/versions.lock.json。
 
-Windows 构建需要 UCRT64 GCC/CMake/Ninja 和 Python cryptography；Linux桌面需要 GTK4/OpenSSL/FFmpeg/libcurl 开发包。Python用于开发侧构建、打包和发布，不是最终用户安装维护的依赖。
+Windows 构建需要 UCRT64 GCC/CMake/Ninja 和 Python cryptography；Linux桌面需要 GTK4/OpenSSL/FFmpeg/libcurl、GStreamer core/base、gio-unix、X11/XTest 开发包，运行依赖与硬件插件见 [Linux 说明](../apps/linux/README.md)。Python用于开发侧构建、打包和发布，不是最终用户安装维护的依赖。
 
 构建和发布成功不代表完整设备验收。未签名 APK/IPA 仍需签名；Apple 真机、跨设备远控、UAC/锁屏/多屏和长期运行状态见 [进度](PROGRESS.zh-CN.md)。安装使用说明见 [INSTALLERS](INSTALLERS.zh-CN.md)。
 

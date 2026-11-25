@@ -11,7 +11,7 @@ void require(bool v, const char *error) {
 } // namespace
 bool Exchange::push(const Json &c) {
     try {
-        if (!c.is_object() || c.dump().size() > 16384)
+        if (!c.is_object() || c.dump().size() > 65536)
             return false;
         auto action = c.at("action").get<std::string>();
         if (action != "clipboard.get" && action != "clipboard.set" && action != "file.list" &&

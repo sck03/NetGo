@@ -436,7 +436,7 @@ extern "C" int32_t ng_remote_client_run(ng_remote_client *c) {
     }
 }
 extern "C" int32_t ng_remote_client_command(ng_remote_client *c, const char *data, size_t size) {
-    if (!c || !data || !size || size > 16384 || c->cancelled)
+    if (!c || !data || !size || size > 65536 || c->cancelled)
         return NG_REMOTE_CLIENT_INVALID;
     try {
         return c->exchange.push(Json::parse(data, data + size)) ? NG_REMOTE_CLIENT_OK : NG_REMOTE_CLIENT_BUSY;
