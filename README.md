@@ -2,7 +2,7 @@
 
 NetGo 将账号、权限、管理网页和 VPN 网关部署在局域网 Debian 服务器上，让获授权的客户端访问指定的局域网设备。可选的一台 VPS 提供备用控制入口及 Relay/STUN 中继；账号和权限仍由 LAN 服务端管理。
 
-客户端支持 **手工新建服务器**和**导入站点 JSON** 两种方式，导入不是必选。手工新建需要填写服务器的真实参数；导入会一次性带入这些参数，之后输入账号密码连接。Windows 日常只打开 **NetGo.exe**，首次网络授权由程序发起。
+客户端推荐 **导入管理员导出的站点文件 → 登录 → 选择资源或设备**。导入会带入所有连接参数；需要特殊配置时仍可手工新建服务器。Windows 日常只打开 **NetGo.exe**，首次网络授权由程序发起。
 
 当前为 **0.3.0-dev / API v2 / schema 2 开发版**。LAN/VPS 的 VPN、账号授权、旁路由出口及安装维护已有实机验证；七个平台的构建已通过。远程桌面已接入部分平台和共享会话组件，**两台设备之间完整的画面、键鼠、音频及恢复流程尚未完成实机验收**。构建成功不表示全部远控或全部设备功能已可稳定使用。
 
@@ -12,8 +12,8 @@ NetGo 将账号、权限、管理网页和 VPN 网关部署在局域网 Debian �
 
 | 使用位置 | 工作流 | 要使用的运行包 |
 | --- | --- | --- |
-| 局域网 Debian 服务端 | [Linux server](https://github.com/sck03/NetGo/actions/workflows/build-linux-server.yml) | `NetGo-0.3.0-dev-linux-amd64.zip`，通常位于外层归档的 `dist/linux-server/` |
-| VPS 辅助节点 | [VPS auxiliary node](https://github.com/sck03/NetGo/actions/workflows/build-vps.yml) | `NetGo-0.3.0-dev-vps-linux-amd64.zip` |
+| 局域网 Debian 服务端 | [Linux server](https://github.com/sck03/NetGo/actions/workflows/build-linux-server.yml) | `NetGo-0.3.0-dev-linux-amd64.zip` 或 `NetGo-0.3.0-dev-linux-arm64.zip`，通常位于 `dist/linux-server/` |
+| VPS 辅助节点 | [VPS auxiliary node](https://github.com/sck03/NetGo/actions/workflows/build-vps.yml) | `NetGo-0.3.0-dev-vps-linux-amd64.zip` 或 `NetGo-0.3.0-dev-vps-linux-arm64.zip` |
 | Windows 客户端 | [Windows client](https://github.com/sck03/NetGo/actions/workflows/build-windows-client.yml) | `NetGo-0.3.0-dev-windows-amd64-Setup.exe` 或 `NetGo-0.3.0-dev-windows-amd64-portable.zip`，位于 `dist/windows-client/` |
 | Linux 桌面客户端 | [Linux desktop client](https://github.com/sck03/NetGo/actions/workflows/build-linux-client.yml) | `NetGo-0.3.0-dev-linux-client-amd64.tar.gz`，解压后打开 `netgo-desktop` |
 | Android 客户端 | [Android client](https://github.com/sck03/NetGo/actions/workflows/build-android-client.yml) | 调试 APK 用于测试；未签名 APK 需签名后安装 |
@@ -32,7 +32,7 @@ Linux 服务端和 VPS 另提供 `arm64` 包。Actions 的 architecture 选择 `
 
 **有独立的一键安装脚本 `install-server.sh`。** 它安装程序并打开交互菜单；后续输入 **`ng`** 即可修改设置或卸载。运行和维护不需要 Python、Node 或 Go 编译器。
 
-目前支持 Debian 12/13、amd64 / arm64、systemd。先下载上表的服务端运行包，复制到服务器；以下示例假设文件放在 `/root/`，并在 root 终端执行：
+目前支持 Debian 12/13、amd64 / arm64、systemd。先下载与机器架构对应的服务端运行包，复制到服务器；以下以 amd64 为例，假设文件放在 `/root/`，并在 root 终端执行：
 
 ```sh
 unzip /root/NetGo-0.3.0-dev-linux-amd64.zip -d /root/NetGo-server
@@ -42,36 +42,30 @@ bash install-server.sh
 
 如果没有 `unzip`，先安装该系统工具：`apt-get update && apt-get install -y --no-upgrade unzip`。
 
-首次在菜单选择 **1) 首次配置/启动 VPN**，按提示填写：
+首次在菜单选择 **1) 首次配置 / 启动服务**：按检测出的地址选择 LAN 网卡，填写站点名称，接受推荐设置，再生成证书并创建管理员。站点 ID 自动生成；默认使用本机 LAN 地址和 HTTPS 10443 / Relay 18443 / STUN 3478。特殊域名、端口和网段可在高级配置中修改。
 
-- 站点网址：LAN 服务器的证书身份，可用内部 IP 或固定域名。**只填写私有 IP 不会让服务器具备外网访问能力**。外网必须配置公网域名/IP + 端口映射，或配置公网 VPS 入口。
-- 控制端口：默认 `10443`；本地 Relay 地址通常使用同一台 LAN 服务器，Relay 默认 `18443`，STUN 默认 `3478`。
-- LAN 网卡和网段：例如 `ens32`、`192.168.18.0/23`；`255.255.254.0` 对应 `/23`。
-- 证书：可以生成站点私有 CA 证书，或导入已有证书。
-- 管理员邮箱、账号和密码。
+**内网 IP 只能用于内网连接。** 完成初始化后，在“设置外网访问”中添加公网直达入口（需路由器端口映射等）或配对 VPS。
 
 完成后，在同一局域网的浏览器打开安装时的站点网址，例如 `https://192.168.18.220:10443/`，登录管理网页创建普通账号并分配资源权限。私有 CA 站点需在管理浏览器中信任管理员提供的公共 CA 证书；客户端导入的站点 JSON 会携带所需公共 CA。
 
-菜单常用项：
+日常使用菜单：
 
 | 命令/菜单 | 操作 |
 | --- | --- |
 | `ng` | 打开 LAN 管理菜单 |
-| 2) 信息和状态 | 查看站点、客户端配置位置和服务状态 |
-| 3) 修改域名/IP 与端口 | 修改 LAN 控制/Relay 地址和端口 |
-| 4) 生成/导入证书 | 维护本站点证书 |
-| 5) 导出客户端配置 | 导出 `NetGo-site.json`，发给客户端用户 |
-| 6) 设置旁路由 IP/DNS | 配置按账号授权的互联网出口 |
-| 7) VPS 设置与导出 | 添加 VPS 并导出节点配置包 |
-| 8) 诊断/恢复连接 | 检查并恢复受管服务 |
-| 10) LAN/公网直达入口 | 保留站点身份，添加多个 LAN／公网主机:端口；自动递增配置版本并重新导出 |
-| 9) 卸载（保留数据） | 移除受管服务、快捷命令和规则，保留配置、证书、数据和程序 |
+| 1) 首次配置 / 启动服务 | 自动检测网卡、推荐配置、创建管理员 |
+| 2) 查看连接与运行状态 | 查看内网 / 外网入口和服务状态 |
+| 3) 设置外网访问 | 配对 VPS；管理 LAN / 公网直达入口 |
+| 4) 添加客户端 | 导出公共站点文件交给用户 |
+| 5) 高级网络与证书设置 | 身份、端口、证书和互联网出口 |
+| 6) 检查并恢复服务 | 运行检查和恢复 |
+| 9) 卸载（保留数据） | 移除受管对象，保留配置及数据 |
 
 命令行卸载也可使用 `ng uninstall --yes`。重装时在保留的运行包目录执行 `bash install-server.sh install --source /root/NetGo-server --install-only`，再打开菜单选择首次配置/启动，恢复已有站点。完整参数见 [安装与维护说明](docs/INSTALLERS.zh-CN.md)。
 
 ### 在线下载的一条命令：当前尚缺 Release
 
-**截至 2026-11-24，仓库没有 GitHub Release。** 当前可用的是上述 Actions 运行包内的一键安装。仅下载仓库根目录的脚本，会因找不到 Release 安装器而返回 404；下载源码也不包含这些已编译程序。
+**截至 2026-11-25，仓库没有 GitHub Release。** 当前可用的是上述 Actions 运行包内的一键安装。仅下载仓库根目录的脚本，会因找不到 Release 安装器而返回 404；下载源码也不包含这些已编译程序。
 
 通过工作流发布包含安装器、平台包及各自 `.sha256` 文件的正式 Release 后，以下在线入口才可使用。仅有预发布版本不会使 GitHub 的 `releases/latest` 入口生效：
 
@@ -89,7 +83,7 @@ VPS 使用另一份独立脚本 **`install-vps.sh`**，安装后输入 **`ngv`**
 
 先完成 LAN 站点初始化，再按以下顺序操作：
 
-1. 在 LAN 的 `ng → 7) VPS 设置与导出` 中添加 VPS 地址、控制/隧道/Relay/STUN 端口及证书，导出 `/root/NetGo-vps.zip`。
+1. 在 LAN 的 `ng → 3) 设置外网访问 → 配对 / 管理 VPS` 中选择推荐设置，只填写 VPS 公网 IP / 域名，再生成节点证书，导出 `/root/NetGo-vps.zip`。
 2. 将 **VPS 程序安装包**和这个 **节点配置包**分别复制到 VPS。
 3. 在 VPS 上解压程序安装包并运行安装脚本：
 
@@ -99,8 +93,8 @@ cd /root/NetGo-vps
 bash install-vps.sh
 ```
 
-4. 在 `ngv` 菜单选择 **1) 导入配置包/启动节点**，填写 `/root/NetGo-vps.zip`。
-5. 回到 LAN 的 `ng → 5) 导出客户端配置`，重新导出站点 JSON，客户端导入后即可自动选择 LAN 直连或 VPS 备用入口。
+4. 在 `ngv` 菜单选择 **1) 导入配对包 / 启动节点**，填写 `/root/NetGo-vps.zip`。
+5. 回到 LAN 的 `ng → 4) 添加客户端`，重新导出站点 JSON，客户端导入后即可自动选择 LAN 直连或 VPS 备用入口。
 
 `NetGo-0.3.0-dev-vps-linux-amd64.zip` 安装程序；LAN 导出的 `NetGo-vps.zip` 配置该节点。后者含节点 TLS 私钥和通信密钥，只在 LAN/VPS 管理员之间传递，客户端用户使用的是 `NetGo-site.json`。
 
@@ -110,7 +104,7 @@ bash install-vps.sh
 
 **“新建服务器”窗口可以直接手工配置，导入不是强制要求。** 填好下面的真实参数即可保存并连接；没有 VPS 时不需要填写备用入口。使用 VPS 时，直接在表单填写“VPS 入口”和“VPS 中继”，或者导入已包含这些参数的站点 JSON。
 
-想减少逐项填写，可在 LAN 执行 `ng → 5) 导出客户端配置`，将生成的 JSON 复制到电脑，在 NetGo 主界面点击“导入”。文件会同时带入站点 ID、控制网址、直达/备用入口、VPN 网关、公共 CA 和中继信息。
+想减少逐项填写，可在 LAN 执行 `ng → 4) 添加客户端`，将生成的 JSON 复制到电脑，在 NetGo 主界面点击“导入”。文件会同时带入站点 ID、控制网址、直达/备用入口、VPN 网关、公共 CA 和中继信息。
 
 手工配置时，截图字段的含义如下：
 
@@ -154,7 +148,7 @@ flowchart LR
 
 SSH 端口用于管理员登录机器，与 NetGo 客户端入口无关。共享 443 模式的条件和端口配置见 [安装说明](docs/INSTALLERS.zh-CN.md)。
 
-旁路由在 LAN 的 `ng → 6) 设置旁路由 IP/DNS` 中配置。例如 IP 和 DNS 都使用 `192.168.19.254`，支持普通 DNS 和 Clash/Mihomo 的 `198.18.0.0/15` Fake-IP。**管理员还必须给账号授予“互联网（旁路由）”资源**，客户端勾选互联网模式才可使用；局域网设备权限单独授予。这个地址不填到 Windows 的“路由虚拟 IP”或“本地中继”中。
+旁路由在 LAN 的 `ng → 5) 高级网络与证书设置 → 互联网出口` 中配置。例如 IP 和 DNS 都使用 `192.168.19.254`，支持普通 DNS 和 Clash/Mihomo 的 `198.18.0.0/15` Fake-IP。**管理员还必须给账号授予“互联网（旁路由）”资源**，客户端勾选互联网模式才可使用；局域网设备权限单独授予。这个地址不填到 Windows 的“路由虚拟 IP”或“本地中继”中。
 
 旁路由设置使用独立的 VPN 入站策略，保留服务器原有默认网关。客户端不再要求与服务端时差小于 30 秒，采用可信服务端时间和单调经过时间；证书、签名、防重放和租约期限检查仍保留。
 
@@ -169,3 +163,5 @@ SSH 端口用于管理员登录机器，与 NetGo 客户端入口无关。共享
 - [固定版本](upstream/versions.lock.json)、[第三方通知](THIRD_PARTY_NOTICES.md)
 
 开发者使用各平台独立构建脚本，详细工具链与检查入口见构建说明。项目采用新接口和新数据，不提供旧开发数据库或旧 API 兼容。
+
+产品操作的简化方向、成熟软件对照与新菜单说明见 [产品对照与操作简化](docs/PRODUCT_SIMPLIFICATION.zh-CN.md)。

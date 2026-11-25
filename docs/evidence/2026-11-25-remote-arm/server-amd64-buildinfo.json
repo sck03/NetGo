@@ -1,0 +1,87 @@
+{
+  "schema": 1,
+  "version": "0.3.0-dev",
+  "arch": "amd64",
+  "platform": "linux-amd64",
+  "status": "development; see runtime acceptance report for tested scope",
+  "verification": {
+    "schema": 1,
+    "platform": "linux",
+    "code_sha256": "81f1621f6424f22c73dffe060057ba073db12c17ee2a862aca80f960e2785ab6",
+    "verification_sha256": "3b21aa784da650789779ca656aba810615037fa7b89449443893e833a997831a",
+    "artifact_inputs": {
+      "schema": 1,
+      "platform": "linux",
+      "files": [
+        {
+          "path": "dist/linux-amd64/SHA256SUMS",
+          "bytes": 389,
+          "sha256": "ae27c63d633bddbbb2baa1ff943ff485a1cfbdd7d113d2abdd9755c93fe42d83"
+        },
+        {
+          "path": "dist/linux-amd64/netgo-ddns",
+          "bytes": 7065760,
+          "sha256": "09945191b2a64bd389254f8ee3cf56046b1d92f8b3d70d5f98485d99eaf730cc"
+        },
+        {
+          "path": "dist/linux-amd64/netgo-helper",
+          "bytes": 7045280,
+          "sha256": "7f1e6934a308bb944e59094ccceee1cfc1d92f9cc7f253656e2c5a9b13beebe0"
+        },
+        {
+          "path": "dist/linux-amd64/netgo-server",
+          "bytes": 19374240,
+          "sha256": "d7de27708ebf729cbdab4dc15275c364297ef1c21ea908e4a2bf216fe280eb94"
+        },
+        {
+          "path": "dist/linux-amd64/netgoctl",
+          "bytes": 18878624,
+          "sha256": "882b89eb980909a16af4af47505207c6deb00fe904113e2ba2216ff37e6fa65e"
+        },
+        {
+          "path": "dist/linux-amd64/release.json",
+          "bytes": 84,
+          "sha256": "31261fb7f7cd463220aee3c0286352cd99259732d62abd52a858487ecdc64934"
+        },
+        {
+          "path": "dist/upstream-linux-amd64/SHA256SUMS",
+          "bytes": 449,
+          "sha256": "a06276d5762bde4744d7bbae58496a5028c88c87f985dec81b00aae0c9f1edd6"
+        },
+        {
+          "path": "dist/upstream-linux-amd64/caddy",
+          "bytes": 56832160,
+          "sha256": "928f0dfb822c8e1532636f8c3294436d1d7bf837a2ef73eb6d9d6d14dd0e46e8"
+        },
+        {
+          "path": "dist/upstream-linux-amd64/frpc",
+          "bytes": 17641632,
+          "sha256": "a8174300da2ae0465eec0811143f4afd34ee904ebe755cc94de1a45baaed6645"
+        },
+        {
+          "path": "dist/upstream-linux-amd64/frps",
+          "bytes": 21377184,
+          "sha256": "79f515739a81a3c06bf4d6f7a885ecf76c404d827c2d0d030aa009da6178b729"
+        },
+        {
+          "path": "dist/upstream-linux-amd64/netbird",
+          "bytes": 43278599,
+          "sha256": "bc80569745a5fee5aa89b2a0d6df33507d05255cdbc9c963588ac328b5dfa335"
+        },
+        {
+          "path": "dist/upstream-linux-amd64/netbird-relay",
+          "bytes": 25518343,
+          "sha256": "41084a6b8030cf57fcb0495225299bcd318e15f55fbacbc95fdc299a95906125"
+        },
+        {
+          "path": "dist/upstream-linux-amd64/netbird-server",
+          "bytes": 80787656,
+          "sha256": "8afb77d50bcd3e43417cdea0b289268206723d43c9be928b8c2a34b710d930ce"
+        }
+      ]
+    },
+    "real_network_acceptance": "NOT-RUN"
+  },
+  "source_package": "NetGo-0.3.0-dev-source.zip",
+  "source_tag": "https://github.com/sck03/NetGo/tree/v0.3.0-dev"
+}

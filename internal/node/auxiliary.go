@@ -48,54 +48,10 @@ func (t terminal) auxiliaryMenu(c site.Config) error {
 			}
 			a = settings.Auxiliary
 		} else {
-			t.m.print("1) 自选端口（IP/域名）  2) 共享 443（三个不同域名）")
-			mode, e := t.text("请选择", "1")
-			if e != nil {
-				return e
+			a, err = t.auxiliarySettings(a, len(c.Auxiliaries) == 0)
+			if err != nil {
+				return err
 			}
-			if mode == "2" {
-				a.Mode = "443"
-			} else if mode == "1" {
-				a.Mode = "diagnostic"
-			} else {
-				return errors.New("无效选项")
-			}
-			if a.Host, e = t.text("VPS 控制入口 IP/域名", a.Host); e != nil {
-				return e
-			}
-			relayDefault := a.Host
-			if u, e := url.Parse(a.Relay); e == nil && u.Hostname() != "" {
-				relayDefault = u.Hostname()
-			}
-			relay, e := t.text("VPS Relay IP/域名", relayDefault)
-			if e != nil {
-				return e
-			}
-			if a.TunnelHost, e = t.text("VPS 隧道 IP/域名", a.Host); e != nil {
-				return e
-			}
-			relayPort := 28443
-			if a.Mode == "443" {
-				a.ControlPort = 443
-				a.TunnelPort = 443
-				relayPort = 443
-			} else {
-				if a.ControlPort, e = t.port("VPS 控制端口", 24443); e != nil {
-					return e
-				}
-				if a.TunnelPort, e = t.port("VPS 隧道端口", 27000); e != nil {
-					return e
-				}
-				if relayPort, e = t.port("VPS Relay TCP/UDP 端口", 28443); e != nil {
-					return e
-				}
-			}
-			stun, e := t.port("VPS STUN UDP 端口", 3478)
-			if e != nil {
-				return e
-			}
-			a.Relay = "rels://" + net.JoinHostPort(relay, strconv.Itoa(relayPort))
-			a.STUN = "stun:" + net.JoinHostPort(relay, strconv.Itoa(stun))
 		}
 		if err = a.Validate(); err != nil {
 			return err
@@ -153,26 +109,10 @@ type VPSSettings struct {
 	Auxiliary site.Auxiliary
 }
 
-func (t terminal) vpsMenu() error {
-	for {
-		t.m.print("\nNetGo VPS 辅助节点 · ngv\n1) 导入配置包/启动节点\n2) 节点信息和状态\n3) 修改端口\n4) 更新证书（导入 LAN 新配置包）\n5) 诊断/恢复连接\n9) 卸载（保留配置）\n0) 退出")
-		value, err := t.text("请选择", "0")
-		if err != nil {
-			return err
-		}
-		if value == "0" {
-			return nil
-		}
-		err = t.vpsOperation(value)
-		if err != nil {
-			t.m.print("操作未完成：%s", err)
-		}
-	}
-}
 func (t terminal) vpsOperation(value string) error {
 	switch value {
-	case "1", "4":
-		path, err := t.text("LAN 导出的 NetGo-vps.zip", "")
+	case "import":
+		path, err := t.text("LAN 导出的配对包位置", "/root/NetGo-vps.zip")
 		if err != nil {
 			return err
 		}
@@ -181,14 +121,14 @@ func (t terminal) vpsOperation(value string) error {
 			return err
 		}
 		return t.m.ConfigureVPS(data)
-	case "2":
+	case "status":
 		var info Bundle
 		if err := readJSON(filepath.Join(t.m.etc(), "vps.json"), &info); err != nil {
 			return err
 		}
 		t.m.print("站点：%s\n控制端口：%d\n隧道端口：%d\nRelay 端口：%d\nSTUN 端口：%d", info.SiteID, info.Node.ControlPort, info.Node.TunnelPort, info.Node.RelayPort, info.Node.STUNPort)
 		return t.m.DoctorVPS()
-	case "3":
+	case "ports":
 		path := filepath.Join(t.m.etc(), "bundle.zip")
 		data, err := ReadBundle(path)
 		if err != nil {
@@ -230,9 +170,9 @@ func (t terminal) vpsOperation(value string) error {
 		if err = t.m.json(output, VPSSettings{Owner: "NetGo VPS settings", SiteID: data.Info.SiteID, Auxiliary: a}); err != nil {
 			return err
 		}
-		t.m.print("新设置已保存：%s。复制到 LAN 后运行 ng → VPS → 导入新设置，更新 LAN 隧道和客户端入口。", output)
+		t.m.print("新设置已保存：%s。复制到 LAN 后在 ng 菜单选择“设置外网访问 → 配对 / 管理 VPS → 导入 VPS 新设置”，更新 LAN 隧道和客户端入口。", output)
 		return nil
-	case "5":
+	case "repair":
 		state, err := t.m.installation()
 		if err != nil {
 			return err
@@ -241,7 +181,7 @@ func (t terminal) vpsOperation(value string) error {
 			return err
 		}
 		return t.m.DoctorVPS()
-	case "9":
+	case "uninstall":
 		answer, err := t.text("输入 yes 卸载受管服务并保留配置", "")
 		if err != nil {
 			return err

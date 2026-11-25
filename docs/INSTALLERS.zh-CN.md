@@ -4,7 +4,7 @@ LAN 使用独立脚本 **install-server.sh**、快捷菜单 **ng**；VPS 使用 
 
 ## 当前下载状态
 
-截至 2026-11-24，仓库尚未发布 GitHub Release。`releases/latest/download` 的在线安装器下载因此不可用。**当前请下载成功构建的 Actions 平台运行包，运行包内的一键脚本可以安装并打开菜单。**
+截至 2026-11-25，仓库尚未发布 GitHub Release。`releases/latest/download` 的在线安装器下载因此不可用。**当前请下载成功构建的 Actions 平台运行包，运行包内的一键脚本可以安装并打开菜单。**
 
 1. 打开 [Linux server](https://github.com/sck03/NetGo/actions/workflows/build-linux-server.yml) 或 [VPS auxiliary node](https://github.com/sck03/NetGo/actions/workflows/build-vps.yml) 最近一次成功运行。
 2. 在底部下载 Artifacts，解压外层 ZIP。
@@ -21,7 +21,7 @@ cd /root/NetGo-server
 bash install-server.sh
 ```
 
-菜单选择 **1) 首次配置/启动 VPN**，设置控制 IP/域名、端口、LAN 网卡/网段、证书和管理员账号。初次生成私有 CA，或导入已有证书后，维护器校验证书的域名/IP、有效期、完整链和私钥配对。
+菜单选择 **1) 首次配置 / 启动服务**，按检测出的地址选择网卡、填写站点名称并接受推荐设置，再创建证书和管理员账号。多网卡必须明确选择；站点 ID 自动生成，域名、端口、网段放在高级配置。初次生成私有 CA，或导入已有证书后，维护器校验证书的域名/IP、有效期、完整链和私钥配对。
 
 独立端口模式的默认值：
 
@@ -39,14 +39,12 @@ bash install-server.sh
 
 | 菜单 | 用途 |
 | --- | --- |
-| 1) 首次配置/启动 VPN | 初次初始化；已有站点恢复启动 |
-| 2) 信息和状态 | 查看控制网址、配置位置、受管服务状态 |
-| 3) 修改域名/IP 与端口 | 设置 LAN 控制与 Relay 地址、端口 |
-| 4) 生成/导入证书 | 维护控制/Relay 证书 |
-| 5) 导出客户端配置 | 导出公共站点 JSON |
-| 6) 设置旁路由 IP/DNS | 设置账号授权的互联网出口 |
-| 7) VPS 设置与导出 | 配置辅助节点、导出节点包、导入 VPS 新设置 |
-| 8) 诊断/恢复连接 | 检查和恢复连接 |
+| 1) 首次配置 / 启动服务 | 推荐配置或恢复启动 |
+| 2) 查看连接与运行状态 | 区分内网入口、公网候选、VPS 和受管服务 |
+| 3) 设置外网访问 | 配对 / 管理 VPS，管理 LAN / 公网直达入口 |
+| 4) 添加客户端（导出站点文件） | 导出所有平台使用的公共配置 |
+| 5) 高级网络与证书设置 | 身份与端口、证书、旁路由 / DNS |
+| 6) 检查并恢复服务 | 检查和恢复受管服务 |
 | 9) 卸载（保留数据） | 卸载本项目受管对象 |
 
 控制域名或 CA 变更后，客户端重新导入维护器导出的站点文件，并确认身份变更。修改配置会建立受保护备份，校验并启动新配置，失败时恢复原配置及服务；配置版本保持递增。
@@ -62,7 +60,7 @@ bash install-server.sh
 | Relay | TCP/UDP 28443 | VPN 直连失败时的数据中继 |
 | STUN | UDP 3478 | VPN 地址发现 |
 
-先完成 LAN 初始化，在 `ng → 7) VPS 设置与导出` 中选择添加/修改 VPS，填写以上地址和端口、选择证书，导出 `/root/NetGo-vps.zip`。将该节点配置包和 VPS 程序安装包分别复制到 VPS：
+先完成 LAN 初始化，在 `ng → 3) 设置外网访问 → 配对 / 管理 VPS` 中选择添加/修改，推荐配置只填写一个公网 IP / 域名；程序设置上表端口，再选择自动生成证书，导出 `/root/NetGo-vps.zip`。将该节点配置包和 VPS 程序安装包分别复制到 VPS：
 
 ```sh
 unzip /root/NetGo-0.3.0-dev-vps-linux-amd64.zip -d /root/NetGo-vps
@@ -70,23 +68,23 @@ cd /root/NetGo-vps
 bash install-vps.sh
 ```
 
-在 `ngv` 菜单选择 **1) 导入配置包/启动节点**，输入 `/root/NetGo-vps.zip`。也可在运行包目录使用：
+在 `ngv` 菜单选择 **1) 导入配对包 / 启动节点**，输入 `/root/NetGo-vps.zip`。也可在运行包目录使用：
 
 ```sh
 bash install-vps.sh install --source /root/NetGo-vps --bundle /root/NetGo-vps.zip
 ```
 
-VPS 的程序安装包 `NetGo-版本-vps-linux-amd64.zip` 用来安装程序；LAN 导出的 `NetGo-vps.zip` 含节点证书私钥及通信密钥，用来配对站点。不要把后者发给客户端用户或提交到 GitHub。客户端使用 `ng → 5` 导出的公共站点 JSON。
+VPS 的程序安装包 `NetGo-版本-vps-linux-amd64.zip` 用来安装程序；LAN 导出的 `NetGo-vps.zip` 含节点证书私钥及通信密钥，用来配对站点。不要把后者发给客户端用户或提交到 GitHub。客户端使用 `ng → 4) 添加客户端` 导出的公共站点 JSON。
 
 配对完成后，在 LAN 再次导出客户端配置。导出内容会保留 LAN 控制身份，并加入 VPS 备用 `Candidates`、`AuxiliaryRelay`。Windows 应导入此文件，不把“控制网址”或“本地中继”直接换成 VPS。
 
-`ngv` 菜单提供配置导入、状态、端口修改、更新证书、诊断和卸载。VPS 修改端口会生成公开设置 JSON，将其导回 LAN 的 `ng → 7 → 导入 VPS 新设置`，再导出最新客户端配置。证书更新使用 LAN 新导出的节点 ZIP。
+`ngv` 主菜单提供配对包导入、状态、恢复连接和卸载，端口修改与更新证书位于“高级设置”。VPS 修改端口会生成公开设置 JSON，将其导回 LAN 的 `ng → 3) 设置外网访问 → 配对 / 管理 VPS → 导入 VPS 新设置`，再导出最新客户端配置。证书更新使用 LAN 新导出的节点 ZIP。
 
 共享 443 模式需要三个不同 DNS 域名及空闲 443，并增加受管 HAProxy 和 QUIC 重定向。已有 SSH、Docker、80/443 服务不被接管；云安全组和现有防火墙需放行实际使用的 NetGo 端口。SSH 端口不属于 NetGo 客户端配置。
 
 ## 旁路由与账号授权
 
-在 `ng → 6` 设置旁路由 IP、首选/备用 DNS、普通 DNS 或 Fake-IP DNS。示例：
+在 `ng → 5) 高级网络与证书设置 → 互联网出口` 设置旁路由 IP、首选/备用 DNS、普通 DNS 或 Fake-IP DNS。示例：
 
 | 项目 | 示例 |
 | --- | --- |
@@ -101,7 +99,7 @@ VPS 的程序安装包 `NetGo-版本-vps-linux-amd64.zip` 用来安装程序；L
 
 ## 导出文件和 Windows 连接
 
-在 `ng → 5) 导出客户端配置` 保存 `/root/NetGo-site.json`；服务端当前公共配置也在 `/etc/netgo/client-site.json`。把此 JSON 复制到客户端，点击“导入”，再输入账号密码连接。
+在 `ng → 4) 添加客户端` 保存 `/root/NetGo-site.json`；服务端当前公共配置也在 `/etc/netgo/client-site.json`。把此 JSON 复制到客户端，点击“导入”，再输入账号密码连接。
 
 它包括站点 ID、固定控制网址、直达和备用入口、VPN 网关、公共 CA、Relay 标识及互联网 DNS，不含密码、令牌或私钥。截图字段的逐项解释见 [Windows 客户端说明](WINDOWS_CLIENT.zh-CN.md)。
 

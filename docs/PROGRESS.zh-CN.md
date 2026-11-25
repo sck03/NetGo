@@ -8,7 +8,9 @@
 
 新增 LAN/VPS amd64/arm64 原生构建、架构化包路径、工具链校验和 ELF 安装门禁；修复首次发布对不存在标签的查询。Windows 表单支持多直达/VPS 入口和配置版本，ng 菜单独立管理入口，修改站点身份不再覆盖其他 WAN。五平台共享有界输入队列，NGR2 批量输入在主机端整批校验并逐事件门禁，移除旧 NGR1 接收和废弃主机续租分支。无需兼容旧开发数据／接口。
 
-本地 Windows 12 项 CTest、TLS 夹具、Go race/vet 与工具回归已执行；本轮云端和 ARM 原生结果随后记录到 `docs/evidence/2026-11-25-remote-arm/`。ARM 物理服务器部署、跨设备完整远控及 72 小时稳定性仍需相应环境验收。
+本地 Windows 12 项 CTest、TLS 夹具、Go race/vet 与工具回归通过；九项云端构建和独立产物摘要 / 架构检查通过，已记录到 [远控与 ARM 证据](evidence/2026-11-25-remote-arm/REPORT.zh-CN.md)。ARM 物理服务器部署、跨设备完整远控及 72 小时稳定性仍需相应环境验收。
+
+继续按用户要求简化普通用户与管理员操作：参考 Tailscale、NetBird、RustDesk、MeshCentral 的官方设计，将 LAN/VPS 维护改为用途菜单、网卡检测和推荐配置；网页增加起步指引、资源模板和独立账号权限草稿。配置 ID 自动生成，单台主机转换为 /32，自动刷新不覆盖编辑，配置版本和限额折叠。详见 [产品对照与简化](PRODUCT_SIMPLIFICATION.zh-CN.md)；当前已通过前端 13 项测试和构建、Go node/site/deployment/api race，后续对应版本的云端证据单独记录。
 
 ## 前轮接续（2026-11-24）
 

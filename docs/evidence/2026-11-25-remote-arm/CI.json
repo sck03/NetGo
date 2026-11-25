@@ -1,0 +1,1974 @@
+{
+  "final_code_commit": "fbbc9077ccdb40a7014db89d91169783f3b8b1be",
+  "generated_utc": "2026-11-25T08:46:16.799589+00:00",
+  "implementation_commit": "83abe51518fb2ba6dc21746b907ba7636cbb3539",
+  "runs": [
+    {
+      "run": {
+        "id": 45573097501,
+        "name": "VPS auxiliary node · VERSION默认 · arm64",
+        "head_sha": "83abe51518fb2ba6dc21746b907ba7636cbb3539",
+        "status": "completed",
+        "conclusion": "success",
+        "event": "workflow_dispatch",
+        "html_url": "https://github.com/sck03/NetGo/actions/runs/45573097501",
+        "created_at": "2026-11-25T08:04:11Z",
+        "updated_at": "2026-11-25T08:08:18Z",
+        "run_attempt": 1,
+        "jobs": [
+          {
+            "id": 139064309805,
+            "name": "prepare",
+            "status": "completed",
+            "conclusion": "success",
+            "runner_name": "GitHub Actions 1000004877",
+            "labels": [
+              "ubuntu-24.04"
+            ],
+            "started_at": "2026-11-25T08:04:14Z",
+            "completed_at": "2026-11-25T08:04:24Z",
+            "steps": [
+              {
+                "name": "Set up job",
+                "status": "completed",
+                "conclusion": "success"
+              },
+              {
+                "name": "Run actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1",
+                "status": "completed",
+                "conclusion": "success"
+              },
+              {
+                "name": "Validate version, architecture and publishing settings",
+                "status": "completed",
+                "conclusion": "success"
+              },
+              {
+                "name": "Post Run actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1",
+                "status": "completed",
+                "conclusion": "success"
+              },
+              {
+                "name": "Complete job",
+                "status": "completed",
+                "conclusion": "success"
+              }
+            ]
+          },
+          {
+            "id": 139064407962,
+            "name": "build",
+            "status": "completed",
+            "conclusion": "success",
+            "runner_name": "GitHub Actions 1000004886",
+            "labels": [
+              "ubuntu-24.04-arm"
+            ],
+            "started_at": "2026-11-25T08:04:29Z",
+            "completed_at": "2026-11-25T08:08:18Z",
+            "steps": [
+              {
+                "name": "Set up job",
+                "status": "completed",
+                "conclusion": "success"
+              },
+              {
+                "name": "Initialize containers",
+                "status": "completed",
+                "conclusion": "success"
+              },
+              {
+                "name": "Prepare Debian environment",
+                "status": "completed",
+                "conclusion": "success"
+              },
+              {
+                "name": "Run actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1",
+                "status": "completed",
+                "conclusion": "success"
+              },
+              {
+                "name": "Run actions/setup-go@d8cbb8045d7f43706b9177cceb36c1f91a6644d5",
+                "status": "completed",
+                "conclusion": "success"
+              },
+              {
+                "name": "Verify deployment boundary and ownership",
+                "status": "completed",
+                "conclusion": "success"
+              },
+              {
+                "name": "Build VPS auxiliary package",
+                "status": "completed",
+                "conclusion": "success"
+              },
+              {
+                "name": "Run actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9",
+                "status": "completed",
+                "conclusion": "success"
+              },
+              {
+                "name": "Stage verified runtime assets for optional release",
+                "status": "completed",
+                "conclusion": "success"
+              },
+              {
+                "name": "Preserve release payload",
+                "status": "completed",
+                "conclusion": "success"
+              },
+              {
+                "name": "Post Run actions/setup-go@d8cbb8045d7f43706b9177cceb36c1f91a6644d5",
+                "status": "completed",
+                "conclusion": "success"
+              },
+              {
+                "name": "Post Run actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1",
+                "status": "completed",
+                "conclusion": "success"
+              },
+              {
+                "name": "Stop containers",
+                "status": "completed",
+                "conclusion": "success"
+              },
+              {
+                "name": "Complete job",
+                "status": "completed",
+                "conclusion": "success"
+              }
+            ]
+          },
+          {
+            "id": 139066228519,
+            "name": "publish",
+            "status": "completed",
+            "conclusion": "skipped",
+            "runner_name": null,
+            "labels": [
+              "ubuntu-24.04"
+            ],
+            "started_at": "2026-11-25T08:08:18Z",
+            "completed_at": "2026-11-25T08:08:18Z",
+            "steps": []
+          }
+        ]
+      },
+      "target": "vps",
+      "arch": "arm64",
+      "version": "0.3.0-dev",
+      "sdk": "none",
+      "artifact": {
+        "id": 15003108077,
+        "name": "release-vps-0.3.0-dev-arm64-none-45573097501",
+        "size_in_bytes": 21107064,
+        "digest": "sha256:22b939ecf1785b7cc7747ebf31d2b855eae0e49a2cf5719383f3affd29929dbd"
+      },
+      "download_sha256": "22b939ecf1785b7cc7747ebf31d2b855eae0e49a2cf5719383f3affd29929dbd",
+      "assets": [
+        {
+          "name": "NetGo-0.3.0-dev-vps-linux-arm64.zip",
+          "sha256": "5ed4cc27d8b9b757e412c63015099bee33f3b0e6b9707c3519733b77636a2e5a",
+          "bytes": 18013729
+        },
+        {
+          "name": "NetGo-0.3.0-dev-vps-linux-arm64.zip.sha256",
+          "sha256": "d2128f5b7fc9ab96905c38a5dc431bc4672c2c1aacedb21313688cad63ec9d70",
+          "bytes": 102
+        },
+        {
+          "name": "netgo-vps-installer-linux-arm64",
+          "sha256": "085c9db414998834a5dfbca205c8d52e84e5ffeca4fd33f3a96c44e8d30b95e9",
+          "bytes": 7536800
+        },
+        {
+          "name": "netgo-vps-installer-linux-arm64.sha256",
+          "sha256": "3011532214cdc8f813624e8b8c30f8ef1a3047b4c0dc4c1aa50f28fcec25b528",
+          "bytes": 98
+        },
+        {
+          "name": "NetGo-0.3.0-dev-vps-arm64-none-BUILDINFO.json",
+          "sha256": "914a534666589ff6ed22cc8eac3044fe93f079b989a5f692a0a094ea2a021899",
+          "bytes": 202
+        },
+        {
+          "name": "NetGo-0.3.0-dev-vps-arm64-none-BUILDINFO.json.sha256",
+          "sha256": "1ceec45a0706c9581e0b600aacd4ebdd8153ce7834e069e2bff21db8959d4727",
+          "bytes": 112
+        }
+      ],
+      "binary_architecture_checks": [
+        {
+          "path": "dist/vps/bin/netgo-vpsctl",
+          "elf_machine": 183
+        },
+        {
+          "path": "dist/vps/bin/netbird-relay",
+          "elf_machine": 183
+        },
+        {
+          "path": "dist/vps/bin/frps",
+          "elf_machine": 183
+        },
+        {
+          "path": "netgo-vps-installer-linux-arm64",
+          "elf_machine": 183
+        }
+      ],
+      "result": "PASS"
+    },
+    {
+      "run": {
+        "id": 45573092791,
+        "name": "Linux server · VERSION默认 · arm64",
+        "head_sha": "83abe51518fb2ba6dc21746b907ba7636cbb3539",
+        "status": "completed",
+        "conclusion": "success",
+        "event": "workflow_dispatch",
+        "html_url": "https://github.com/sck03/NetGo/actions/runs/45573092791",
+        "created_at": "2026-11-25T08:04:09Z",
+        "updated_at": "2026-11-25T08:14:03Z",
+        "run_attempt": 1,
+        "jobs": [
+          {
+            "id": 139064296898,
+            "name": "prepare",
+            "status": "completed",
+            "conclusion": "success",
+            "runner_name": "GitHub Actions 1000004876",
+            "labels": [
+              "ubuntu-24.04"
+            ],
+            "started_at": "2026-11-25T08:04:12Z",
+            "completed_at": "2026-11-25T08:04:17Z",
+            "steps": [
+              {
+                "name": "Set up job",
+                "status": "completed",
+                "conclusion": "success"
+              },
+              {
+                "name": "Run actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1",
+                "status": "completed",
+                "conclusion": "success"
+              },
+              {
+                "name": "Validate version, architecture and publishing settings",
+                "status": "completed",
+                "conclusion": "success"
+              },
+              {
+                "name": "Post Run actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1",
+                "status": "completed",
+                "conclusion": "success"
+              },
+              {
+                "name": "Complete job",
+                "status": "completed",
+                "conclusion": "success"
+              }
+            ]
+          },
+          {
+            "id": 139064349843,
+            "name": "build",
+            "status": "completed",
+            "conclusion": "success",
+            "runner_name": "GitHub Actions 1000004882",
+            "labels": [
+              "ubuntu-24.04-arm"
+            ],
+            "started_at": "2026-11-25T08:04:21Z",
+            "completed_at": "2026-11-25T08:14:03Z",
+            "steps": [
+              {
+                "name": "Set up job",
+                "status": "completed",
+                "conclusion": "success"
+              },
+              {
+                "name": "Initialize containers",
+                "status": "completed",
+                "conclusion": "success"
+              },
+              {
+                "name": "Prepare Debian build environment",
+                "status": "completed",
+                "conclusion": "success"
+              },
+              {
+                "name": "Run actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1",
+                "status": "completed",
+                "conclusion": "success"
+              },
+              {
+                "name": "Run actions/setup-go@d8cbb8045d7f43706b9177cceb36c1f91a6644d5",
+                "status": "completed",
+                "conclusion": "success"
+              },
+              {
+                "name": "Run actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1",
+                "status": "completed",
+                "conclusion": "success"
+              },
+              {
+                "name": "Build and verify Linux server",
+                "status": "completed",
+                "conclusion": "success"
+              },
+              {
+                "name": "Preserve server outputs and verification",
+                "status": "completed",
+                "conclusion": "success"
+              },
+              {
+                "name": "Stage verified runtime assets for optional release",
+                "status": "completed",
+                "conclusion": "success"
+              },
+              {
+                "name": "Preserve release payload",
+                "status": "completed",
+                "conclusion": "success"
+              },
+              {
+                "name": "Post Run actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1",
+                "status": "completed",
+                "conclusion": "success"
+              },
+              {
+                "name": "Post Run actions/setup-go@d8cbb8045d7f43706b9177cceb36c1f91a6644d5",
+                "status": "completed",
+                "conclusion": "success"
+              },
+              {
+                "name": "Post Run actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1",
+                "status": "completed",
+                "conclusion": "success"
+              },
+              {
+                "name": "Stop containers",
+                "status": "completed",
+                "conclusion": "success"
+              },
+              {
+                "name": "Complete job",
+                "status": "completed",
+                "conclusion": "success"
+              }
+            ]
+          },
+          {
+            "id": 139068937904,
+            "name": "publish",
+            "status": "completed",
+            "conclusion": "skipped",
+            "runner_name": null,
+            "labels": [
+              "ubuntu-24.04"
+            ],
+            "started_at": "2026-11-25T08:14:03Z",
+            "completed_at": "2026-11-25T08:14:03Z",
+            "steps": []
+          }
+        ]
+      },
+      "target": "linux-server",
+      "arch": "arm64",
+      "version": "0.3.0-dev",
+      "sdk": "none",
+      "artifact": {
+        "id": 15003438885,
+        "name": "release-linux-server-0.3.0-dev-arm64-none-45573092791",
+        "size_in_bytes": 94374219,
+        "digest": "sha256:c91f5ce103e433cade956724adc4b381e3d3253f6b3fb113d1a52c44dfee6f0c"
+      },
+      "download_sha256": "c91f5ce103e433cade956724adc4b381e3d3253f6b3fb113d1a52c44dfee6f0c",
+      "assets": [
+        {
+          "name": "NetGo-0.3.0-dev-linux-arm64.zip",
+          "sha256": "a9a45837cfaa4ae737bc9b13266188366acf9ababb7ff52d2c8de086a895e187",
+          "bytes": 87642882
+        },
+        {
+          "name": "NetGo-0.3.0-dev-linux-arm64.zip.sha256",
+          "sha256": "866fae5c24aeeb66786f6c6360d170b006f40c05a884398d1934b946bae7f40b",
+          "bytes": 98
+        },
+        {
+          "name": "netgo-server-installer-linux-arm64",
+          "sha256": "35a5a13dcc278f86e0b4a616851253395358b40e7b879f83a3a7f6899cce3838",
+          "bytes": 17760416
+        },
+        {
+          "name": "netgo-server-installer-linux-arm64.sha256",
+          "sha256": "872e1750bcb00e27a08aeda2f9881f78ea5afc28ed2d07c2c6b60d086e07668a",
+          "bytes": 101
+        },
+        {
+          "name": "NetGo-0.3.0-dev-linux-server-arm64-none-BUILDINFO.json",
+          "sha256": "d46e8e4769794e691d494e9412fbae7d71ce433c0834c4facc991ee63ef8a19b",
+          "bytes": 3129
+        },
+        {
+          "name": "NetGo-0.3.0-dev-linux-server-arm64-none-BUILDINFO.json.sha256",
+          "sha256": "c3eb37cb7797ee31b9d1070cc63b9e94a55a54946b16e8f6e33f942921655afe",
+          "bytes": 121
+        },
+        {
+          "name": "NetGo-0.3.0-dev-linux-server-arm64-none-SBOM.cdx.json",
+          "sha256": "19987c69f2f12cb61c010fefcd16b406e2698ca0ca383eabe74301c83752b376",
+          "bytes": 50476
+        },
+        {
+          "name": "NetGo-0.3.0-dev-linux-server-arm64-none-SBOM.cdx.json.sha256",
+          "sha256": "ddeee6d0b821f1e1d09037ffedd187a550def8fe810bf2788834fbbc7c8d355b",
+          "bytes": 120
+        }
+      ],
+      "binary_architecture_checks": [
+        {
+          "path": "dist/linux-arm64/netgo-server",
+          "elf_machine": 183
+        },
+        {
+          "path": "dist/linux-arm64/netgo-helper",
+          "elf_machine": 183
+        },
+        {
+          "path": "dist/linux-arm64/netgoctl",
+          "elf_machine": 183
+        },
+        {
+          "path": "dist/linux-arm64/netgo-ddns",
+          "elf_machine": 183
+        },
+        {
+          "path": "dist/upstream-linux-arm64/netbird-server",
+          "elf_machine": 183
+        },
+        {
+          "path": "dist/upstream-linux-arm64/netbird",
+          "elf_machine": 183
+        },
+        {
+          "path": "dist/upstream-linux-arm64/netbird-relay",
+          "elf_machine": 183
+        },
+        {
+          "path": "dist/upstream-linux-arm64/caddy",
+          "elf_machine": 183
+        },
+        {
+          "path": "dist/upstream-linux-arm64/frpc",
+          "elf_machine": 183
+        },
+        {
+          "path": "netgo-server-installer-linux-arm64",
+          "elf_machine": 183
+        }
+      ],
+      "result": "PASS",
+      "verified_build_input_hashes": 11,
+      "code_sha256": "81f1621f6424f22c73dffe060057ba073db12c17ee2a862aca80f960e2785ab6"
+    },
+    {
+      "run": {
+        "id": 45573088954,
+        "name": "macOS client · VERSION默认 · arm64",
+        "head_sha": "83abe51518fb2ba6dc21746b907ba7636cbb3539",
+        "status": "completed",
+        "conclusion": "success",
+        "event": "push",
+        "html_url": "https://github.com/sck03/NetGo/actions/runs/45573088954",
+        "created_at": "2026-11-25T08:04:07Z",
+        "updated_at": "2026-11-25T08:10:08Z",
+        "run_attempt": 1,
+        "jobs": [
+          {
+            "id": 139064273461,
+            "name": "prepare",
+            "status": "completed",
+            "conclusion": "success",
+            "runner_name": "GitHub Actions 1000004869",
+            "labels": [
+              "ubuntu-24.04"
+            ],
+            "started_at": "2026-11-25T08:04:10Z",
+            "completed_at": "2026-11-25T08:04:15Z",
+            "steps": [
+              {
+                "name": "Set up job",
+                "status": "completed",
+                "conclusion": "success"
+              },
+              {
+                "name": "Run actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1",
+                "status": "completed",
+                "conclusion": "success"
+              },
+              {
+                "name": "Validate version, architecture and publishing settings",
+                "status": "completed",
+                "conclusion": "success"
+              },
+              {
+                "name": "Post Run actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1",
+                "status": "completed",
+                "conclusion": "success"
+              },
+              {
+                "name": "Complete job",
+                "status": "completed",
+                "conclusion": "success"
+              }
+            ]
+          },
+          {
+            "id": 139064336639,
+            "name": "build",
+            "status": "completed",
+            "conclusion": "success",
+            "runner_name": "GitHub Actions 1000004880",
+            "labels": [
+              "macos-latest"
+            ],
+            "started_at": "2026-11-25T08:04:18Z",
+            "completed_at": "2026-11-25T08:10:08Z",
+            "steps": [
+              {
+                "name": "Set up job",
+                "status": "completed",
+                "conclusion": "success"
+              },
+              {
+                "name": "Run actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1",
+                "status": "completed",
+                "conclusion": "success"
+              },
+              {
+                "name": "Run actions/setup-go@d8cbb8045d7f43706b9177cceb36c1f91a6644d5",
+                "status": "completed",
+                "conclusion": "success"
+              },
+              {
+                "name": "Build native macOS client",
+                "status": "completed",
+                "conclusion": "success"
+              },
+              {
+                "name": "Run actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9",
+                "status": "completed",
+                "conclusion": "success"
+              },
+              {
+                "name": "Stage verified runtime assets for optional release",
+                "status": "completed",
+                "conclusion": "success"
+              },
+              {
+                "name": "Preserve release payload",
+                "status": "completed",
+                "conclusion": "success"
+              },
+              {
+                "name": "Post Run actions/setup-go@d8cbb8045d7f43706b9177cceb36c1f91a6644d5",
+                "status": "completed",
+                "conclusion": "success"
+              },
+              {
+                "name": "Post Run actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1",
+                "status": "completed",
+                "conclusion": "success"
+              },
+              {
+                "name": "Complete job",
+                "status": "completed",
+                "conclusion": "success"
+              }
+            ]
+          },
+          {
+            "id": 139067087609,
+            "name": "publish",
+            "status": "completed",
+            "conclusion": "skipped",
+            "runner_name": null,
+            "labels": [
+              "ubuntu-24.04"
+            ],
+            "started_at": "2026-11-25T08:10:08Z",
+            "completed_at": "2026-11-25T08:10:08Z",
+            "steps": []
+          }
+        ]
+      },
+      "target": "macos",
+      "arch": "arm64",
+      "version": "0.3.0-dev",
+      "sdk": "none",
+      "artifact": {
+        "id": 15003023400,
+        "name": "release-macos-0.3.0-dev-arm64-none-45573088954",
+        "size_in_bytes": 21617928,
+        "digest": "sha256:35741d75e56153a21d2feac7fa4c304bd8be5d020309cfd0476c334931c9c92a"
+      },
+      "download_sha256": "35741d75e56153a21d2feac7fa4c304bd8be5d020309cfd0476c334931c9c92a",
+      "assets": [
+        {
+          "name": "NetGo-0.3.0-dev-macos-arm64.zip",
+          "sha256": "089100235fe5ba24d0f79436e158687cc80d5d5abf130fef7633aa0284ae7019",
+          "bytes": 21668082
+        },
+        {
+          "name": "NetGo-0.3.0-dev-macos-arm64.zip.sha256",
+          "sha256": "8242f366d74e3eb94bc46b010b7b80fee624175a222ad1340d0a92d9fe2d1018",
+          "bytes": 98
+        },
+        {
+          "name": "NetGo-0.3.0-dev-macos-arm64-none-BUILDINFO.json",
+          "sha256": "489e3f9670374ecacb8654d8124ff9830c09927a87a5f6f1ce49fe9dbec5b087",
+          "bytes": 168
+        },
+        {
+          "name": "NetGo-0.3.0-dev-macos-arm64-none-BUILDINFO.json.sha256",
+          "sha256": "0cce78ad26f8327f80d06bcefcf3d284c559104d20dbc118cbf55c7bca01cc7f",
+          "bytes": 114
+        }
+      ],
+      "binary_architecture_checks": [
+        {
+          "path": "NetGo-0.3.0-dev-macos-arm64.zip!NetGo.app/Contents/MacOS/NetGo",
+          "format": "Mach-O",
+          "machine": 16777228
+        },
+        {
+          "path": "NetGo-0.3.0-dev-macos-arm64.zip!NetGo.app/Contents/Resources/bin/netgo-client-service",
+          "format": "Mach-O",
+          "machine": 16777228
+        },
+        {
+          "path": "NetGo-0.3.0-dev-macos-arm64.zip!NetGo.app/Contents/Resources/bin/netbird",
+          "format": "Mach-O",
+          "machine": 16777228
+        }
+      ],
+      "result": "PASS"
+    },
+    {
+      "run": {
+        "id": 45573088948,
+        "name": "Android client · VERSION默认 · arm64",
+        "head_sha": "83abe51518fb2ba6dc21746b907ba7636cbb3539",
+        "status": "completed",
+        "conclusion": "success",
+        "event": "push",
+        "html_url": "https://github.com/sck03/NetGo/actions/runs/45573088948",
+        "created_at": "2026-11-25T08:04:07Z",
+        "updated_at": "2026-11-25T08:10:04Z",
+        "run_attempt": 1,
+        "jobs": [
+          {
+            "id": 139064273100,
+            "name": "prepare",
+            "status": "completed",
+            "conclusion": "success",
+            "runner_name": "GitHub Actions 1000004873",
+            "labels": [
+              "ubuntu-24.04"
+            ],
+            "started_at": "2026-11-25T08:04:09Z",
+            "completed_at": "2026-11-25T08:04:13Z",
+            "steps": [
+              {
+                "name": "Set up job",
+                "status": "completed",
+                "conclusion": "success"
+              },
+              {
+                "name": "Run actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1",
+                "status": "completed",
+                "conclusion": "success"
+              },
+              {
+                "name": "Validate version, architecture and publishing settings",
+                "status": "completed",
+                "conclusion": "success"
+              },
+              {
+                "name": "Post Run actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1",
+                "status": "completed",
+                "conclusion": "success"
+              },
+              {
+                "name": "Complete job",
+                "status": "completed",
+                "conclusion": "success"
+              }
+            ]
+          },
+          {
+            "id": 139064313435,
+            "name": "build",
+            "status": "completed",
+            "conclusion": "success",
+            "runner_name": "GitHub Actions 1000004878",
+            "labels": [
+              "ubuntu-24.04"
+            ],
+            "started_at": "2026-11-25T08:04:15Z",
+            "completed_at": "2026-11-25T08:10:03Z",
+            "steps": [
+              {
+                "name": "Set up job",
+                "status": "completed",
+                "conclusion": "success"
+              },
+              {
+                "name": "Run actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1",
+                "status": "completed",
+                "conclusion": "success"
+              },
+              {
+                "name": "Run actions/setup-go@d8cbb8045d7f43706b9177cceb36c1f91a6644d5",
+                "status": "completed",
+                "conclusion": "success"
+              },
+              {
+                "name": "Run actions/setup-java@d1374f8ac74474200d16ef8ecee22c7ae7a51880",
+                "status": "completed",
+                "conclusion": "success"
+              },
+              {
+                "name": "Build APK, VPN and native remote libraries",
+                "status": "completed",
+                "conclusion": "success"
+              },
+              {
+                "name": "Preserve Android outputs and diagnostics",
+                "status": "completed",
+                "conclusion": "success"
+              },
+              {
+                "name": "Stage verified runtime assets for optional release",
+                "status": "completed",
+                "conclusion": "success"
+              },
+              {
+                "name": "Preserve release payload",
+                "status": "completed",
+                "conclusion": "success"
+              },
+              {
+                "name": "Post Run actions/setup-java@d1374f8ac74474200d16ef8ecee22c7ae7a51880",
+                "status": "completed",
+                "conclusion": "success"
+              },
+              {
+                "name": "Post Run actions/setup-go@d8cbb8045d7f43706b9177cceb36c1f91a6644d5",
+                "status": "completed",
+                "conclusion": "success"
+              },
+              {
+                "name": "Post Run actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1",
+                "status": "completed",
+                "conclusion": "success"
+              },
+              {
+                "name": "Complete job",
+                "status": "completed",
+                "conclusion": "success"
+              }
+            ]
+          },
+          {
+            "id": 139067049501,
+            "name": "publish",
+            "status": "completed",
+            "conclusion": "skipped",
+            "runner_name": null,
+            "labels": [
+              "ubuntu-24.04"
+            ],
+            "started_at": "2026-11-25T08:10:04Z",
+            "completed_at": "2026-11-25T08:10:03Z",
+            "steps": []
+          }
+        ]
+      },
+      "target": "android",
+      "arch": "arm64",
+      "version": "0.3.0-dev",
+      "sdk": "none",
+      "artifact": {
+        "id": 15002858578,
+        "name": "release-android-0.3.0-dev-arm64-none-45573088948",
+        "size_in_bytes": 56290836,
+        "digest": "sha256:06dd9d81e3373a3c5e825e749519048721941108b3ccc559e06f37c25dd53ee7"
+      },
+      "download_sha256": "06dd9d81e3373a3c5e825e749519048721941108b3ccc559e06f37c25dd53ee7",
+      "assets": [
+        {
+          "name": "NetGo-0.3.0-dev-android-arm64-debug.apk",
+          "sha256": "8d8bdc060f81a8858654ab4e699956642e8dbc378e473e016a6f86122248c5f5",
+          "bytes": 81426215
+        },
+        {
+          "name": "NetGo-0.3.0-dev-android-arm64-debug.apk.sha256",
+          "sha256": "17296c22439aa6470379b6ed971070972278eca9020c7dfd9848b965ec03d6dc",
+          "bytes": 106
+        },
+        {
+          "name": "NetGo-0.3.0-dev-android-arm64-unsigned.apk",
+          "sha256": "6ac8551c01b52276b70addef23b923ab428f84bcb38b77d5b910f76f964564f2",
+          "bytes": 72664734
+        },
+        {
+          "name": "NetGo-0.3.0-dev-android-arm64-unsigned.apk.sha256",
+          "sha256": "881b61811f5489358a0580b74333ce3adecb2689cd70dccf6e3b6abddd519ce5",
+          "bytes": 109
+        },
+        {
+          "name": "NetGo-0.3.0-dev-android-arm64-none-BUILDINFO.json",
+          "sha256": "205075321de979ed29f8c555f0f3cb36af95d6dbb6aff3f31e51dc0638c0cc7f",
+          "bytes": 170
+        },
+        {
+          "name": "NetGo-0.3.0-dev-android-arm64-none-BUILDINFO.json.sha256",
+          "sha256": "5e232fa855578060242e30e8994c1f9fabf2bc31962ff00cee8e4bc0bc964efd",
+          "bytes": 116
+        }
+      ],
+      "binary_architecture_checks": [
+        {
+          "path": "NetGo-0.3.0-dev-android-arm64-debug.apk!lib/arm64-v8a/libandroidx.graphics.path.so",
+          "format": "ELF",
+          "machine": 183
+        },
+        {
+          "path": "NetGo-0.3.0-dev-android-arm64-debug.apk!lib/arm64-v8a/libc++_shared.so",
+          "format": "ELF",
+          "machine": 183
+        },
+        {
+          "path": "NetGo-0.3.0-dev-android-arm64-debug.apk!lib/arm64-v8a/libgojni.so",
+          "format": "ELF",
+          "machine": 183
+        },
+        {
+          "path": "NetGo-0.3.0-dev-android-arm64-debug.apk!lib/arm64-v8a/libnetgo-remote-jni.so",
+          "format": "ELF",
+          "machine": 183
+        },
+        {
+          "path": "NetGo-0.3.0-dev-android-arm64-unsigned.apk!lib/arm64-v8a/libandroidx.graphics.path.so",
+          "format": "ELF",
+          "machine": 183
+        },
+        {
+          "path": "NetGo-0.3.0-dev-android-arm64-unsigned.apk!lib/arm64-v8a/libc++_shared.so",
+          "format": "ELF",
+          "machine": 183
+        },
+        {
+          "path": "NetGo-0.3.0-dev-android-arm64-unsigned.apk!lib/arm64-v8a/libgojni.so",
+          "format": "ELF",
+          "machine": 183
+        },
+        {
+          "path": "NetGo-0.3.0-dev-android-arm64-unsigned.apk!lib/arm64-v8a/libnetgo-remote-jni.so",
+          "format": "ELF",
+          "machine": 183
+        }
+      ],
+      "result": "PASS"
+    },
+    {
+      "run": {
+        "id": 45573088907,
+        "name": "VPS auxiliary node · VERSION默认 · amd64",
+        "head_sha": "83abe51518fb2ba6dc21746b907ba7636cbb3539",
+        "status": "completed",
+        "conclusion": "success",
+        "event": "push",
+        "html_url": "https://github.com/sck03/NetGo/actions/runs/45573088907",
+        "created_at": "2026-11-25T08:04:07Z",
+        "updated_at": "2026-11-25T08:07:54Z",
+        "run_attempt": 1,
+        "jobs": [
+          {
+            "id": 139064273088,
+            "name": "prepare",
+            "status": "completed",
+            "conclusion": "success",
+            "runner_name": "GitHub Actions 1000004872",
+            "labels": [
+              "ubuntu-24.04"
+            ],
+            "started_at": "2026-11-25T08:04:09Z",
+            "completed_at": "2026-11-25T08:04:17Z",
+            "steps": [
+              {
+                "name": "Set up job",
+                "status": "completed",
+                "conclusion": "success"
+              },
+              {
+                "name": "Run actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1",
+                "status": "completed",
+                "conclusion": "success"
+              },
+              {
+                "name": "Validate version, architecture and publishing settings",
+                "status": "completed",
+                "conclusion": "success"
+              },
+              {
+                "name": "Post Run actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1",
+                "status": "completed",
+                "conclusion": "success"
+              },
+              {
+                "name": "Complete job",
+                "status": "completed",
+                "conclusion": "success"
+              }
+            ]
+          },
+          {
+            "id": 139064348546,
+            "name": "build",
+            "status": "completed",
+            "conclusion": "success",
+            "runner_name": "GitHub Actions 1000004881",
+            "labels": [
+              "ubuntu-24.04"
+            ],
+            "started_at": "2026-11-25T08:04:19Z",
+            "completed_at": "2026-11-25T08:07:53Z",
+            "steps": [
+              {
+                "name": "Set up job",
+                "status": "completed",
+                "conclusion": "success"
+              },
+              {
+                "name": "Initialize containers",
+                "status": "completed",
+                "conclusion": "success"
+              },
+              {
+                "name": "Prepare Debian environment",
+                "status": "completed",
+                "conclusion": "success"
+              },
+              {
+                "name": "Run actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1",
+                "status": "completed",
+                "conclusion": "success"
+              },
+              {
+                "name": "Run actions/setup-go@d8cbb8045d7f43706b9177cceb36c1f91a6644d5",
+                "status": "completed",
+                "conclusion": "success"
+              },
+              {
+                "name": "Verify deployment boundary and ownership",
+                "status": "completed",
+                "conclusion": "success"
+              },
+              {
+                "name": "Build VPS auxiliary package",
+                "status": "completed",
+                "conclusion": "success"
+              },
+              {
+                "name": "Run actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9",
+                "status": "completed",
+                "conclusion": "success"
+              },
+              {
+                "name": "Stage verified runtime assets for optional release",
+                "status": "completed",
+                "conclusion": "success"
+              },
+              {
+                "name": "Preserve release payload",
+                "status": "completed",
+                "conclusion": "success"
+              },
+              {
+                "name": "Post Run actions/setup-go@d8cbb8045d7f43706b9177cceb36c1f91a6644d5",
+                "status": "completed",
+                "conclusion": "success"
+              },
+              {
+                "name": "Post Run actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1",
+                "status": "completed",
+                "conclusion": "success"
+              },
+              {
+                "name": "Stop containers",
+                "status": "completed",
+                "conclusion": "success"
+              },
+              {
+                "name": "Complete job",
+                "status": "completed",
+                "conclusion": "success"
+              }
+            ]
+          },
+          {
+            "id": 139066036676,
+            "name": "publish",
+            "status": "completed",
+            "conclusion": "skipped",
+            "runner_name": null,
+            "labels": [
+              "ubuntu-24.04"
+            ],
+            "started_at": "2026-11-25T08:07:54Z",
+            "completed_at": "2026-11-25T08:07:53Z",
+            "steps": []
+          }
+        ]
+      },
+      "target": "vps",
+      "arch": "amd64",
+      "version": "0.3.0-dev",
+      "sdk": "none",
+      "artifact": {
+        "id": 15002852436,
+        "name": "release-vps-0.3.0-dev-amd64-none-45573088907",
+        "size_in_bytes": 23648220,
+        "digest": "sha256:42a2737148f8e271d6ce4cc76179b0041a32053d464e1a613fb931c56f97f11f"
+      },
+      "download_sha256": "42a2737148f8e271d6ce4cc76179b0041a32053d464e1a613fb931c56f97f11f",
+      "assets": [
+        {
+          "name": "NetGo-0.3.0-dev-vps-linux-amd64.zip",
+          "sha256": "45172c5486e702c3b3cb8ea64556faf76c8c2a9b6271c4ed53479708f0c7525b",
+          "bytes": 20230550
+        },
+        {
+          "name": "NetGo-0.3.0-dev-vps-linux-amd64.zip.sha256",
+          "sha256": "663e4d7acc1ef3fa91e6292ca4b5482b2e01c8db7d7955f4f26804905daf7bbf",
+          "bytes": 102
+        },
+        {
+          "name": "netgo-vps-installer-linux-amd64",
+          "sha256": "4f7185779d91b7e3a5050f7142abafd24cb56c27889bccd71ce14bb8b9aa4c94",
+          "bytes": 8224928
+        },
+        {
+          "name": "netgo-vps-installer-linux-amd64.sha256",
+          "sha256": "19727875eb66dab8feb9e1815a2316aed9266cb41d7c7e92f03ad8c3813887f7",
+          "bytes": 98
+        },
+        {
+          "name": "NetGo-0.3.0-dev-vps-amd64-none-BUILDINFO.json",
+          "sha256": "ff362e8e8a794332119cdf91d6b45523f6a7447c015206acae3a82b410e113f8",
+          "bytes": 202
+        },
+        {
+          "name": "NetGo-0.3.0-dev-vps-amd64-none-BUILDINFO.json.sha256",
+          "sha256": "8c31595533fa42ca417245b37e5bfe0429cb781d06a31acce16849fbf09ae0a4",
+          "bytes": 112
+        }
+      ],
+      "binary_architecture_checks": [
+        {
+          "path": "dist/vps/bin/netgo-vpsctl",
+          "elf_machine": 62
+        },
+        {
+          "path": "dist/vps/bin/netbird-relay",
+          "elf_machine": 62
+        },
+        {
+          "path": "dist/vps/bin/frps",
+          "elf_machine": 62
+        },
+        {
+          "path": "netgo-vps-installer-linux-amd64",
+          "elf_machine": 62
+        }
+      ],
+      "result": "PASS"
+    },
+    {
+      "run": {
+        "id": 45573088893,
+        "name": "iOS client · VERSION默认 · arm64",
+        "head_sha": "83abe51518fb2ba6dc21746b907ba7636cbb3539",
+        "status": "completed",
+        "conclusion": "success",
+        "event": "push",
+        "html_url": "https://github.com/sck03/NetGo/actions/runs/45573088893",
+        "created_at": "2026-11-25T08:04:07Z",
+        "updated_at": "2026-11-25T08:17:30Z",
+        "run_attempt": 1,
+        "jobs": [
+          {
+            "id": 139064273176,
+            "name": "prepare",
+            "status": "completed",
+            "conclusion": "success",
+            "runner_name": "GitHub Actions 1000004874",
+            "labels": [
+              "ubuntu-24.04"
+            ],
+            "started_at": "2026-11-25T08:04:09Z",
+            "completed_at": "2026-11-25T08:04:14Z",
+            "steps": [
+              {
+                "name": "Set up job",
+                "status": "completed",
+                "conclusion": "success"
+              },
+              {
+                "name": "Run actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1",
+                "status": "completed",
+                "conclusion": "success"
+              },
+              {
+                "name": "Validate version, architecture and publishing settings",
+                "status": "completed",
+                "conclusion": "success"
+              },
+              {
+                "name": "Post Run actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1",
+                "status": "completed",
+                "conclusion": "success"
+              },
+              {
+                "name": "Complete job",
+                "status": "completed",
+                "conclusion": "success"
+              }
+            ]
+          },
+          {
+            "id": 139064325985,
+            "name": "build",
+            "status": "completed",
+            "conclusion": "success",
+            "runner_name": "GitHub Actions 1000004879",
+            "labels": [
+              "macos-latest"
+            ],
+            "started_at": "2026-11-25T08:04:17Z",
+            "completed_at": "2026-11-25T08:17:29Z",
+            "steps": [
+              {
+                "name": "Set up job",
+                "status": "completed",
+                "conclusion": "success"
+              },
+              {
+                "name": "Run actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1",
+                "status": "completed",
+                "conclusion": "success"
+              },
+              {
+                "name": "Run actions/setup-go@d8cbb8045d7f43706b9177cceb36c1f91a6644d5",
+                "status": "completed",
+                "conclusion": "success"
+              },
+              {
+                "name": "Build unsigned device and simulator clients",
+                "status": "completed",
+                "conclusion": "success"
+              },
+              {
+                "name": "Run actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9",
+                "status": "completed",
+                "conclusion": "success"
+              },
+              {
+                "name": "Stage verified runtime assets for optional release",
+                "status": "completed",
+                "conclusion": "success"
+              },
+              {
+                "name": "Preserve release payload",
+                "status": "completed",
+                "conclusion": "success"
+              },
+              {
+                "name": "Post Run actions/setup-go@d8cbb8045d7f43706b9177cceb36c1f91a6644d5",
+                "status": "completed",
+                "conclusion": "success"
+              },
+              {
+                "name": "Post Run actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1",
+                "status": "completed",
+                "conclusion": "success"
+              },
+              {
+                "name": "Complete job",
+                "status": "completed",
+                "conclusion": "success"
+              }
+            ]
+          },
+          {
+            "id": 139070583711,
+            "name": "publish",
+            "status": "completed",
+            "conclusion": "skipped",
+            "runner_name": null,
+            "labels": [
+              "ubuntu-24.04"
+            ],
+            "started_at": "2026-11-25T08:17:30Z",
+            "completed_at": "2026-11-25T08:17:29Z",
+            "steps": []
+          }
+        ]
+      },
+      "target": "ios",
+      "arch": "arm64",
+      "version": "0.3.0-dev",
+      "sdk": "both",
+      "artifact": {
+        "id": 15003587671,
+        "name": "release-ios-0.3.0-dev-arm64-both-45573088893",
+        "size_in_bytes": 32343835,
+        "digest": "sha256:fc584125f7f62ff922d7c48cd4dcc4256d89c5bb707121cea79012494f5587e7"
+      },
+      "download_sha256": "fc584125f7f62ff922d7c48cd4dcc4256d89c5bb707121cea79012494f5587e7",
+      "assets": [
+        {
+          "name": "NetGo-0.3.0-dev-ios-arm64-both-BUILDINFO.json",
+          "sha256": "8526235f178e9f127fb83b32b0bddc0e27a785c87014c7826281480024f8c228",
+          "bytes": 206
+        },
+        {
+          "name": "NetGo-0.3.0-dev-ios-arm64-both-BUILDINFO.json.sha256",
+          "sha256": "45e1aef7782a3e259b575f6c49017b1c1f9ee72527ca2f8d3637068ff538f5fd",
+          "bytes": 112
+        },
+        {
+          "name": "NetGo-0.3.0-dev-ios-arm64-simulator.zip",
+          "sha256": "566d634fec3b0df7e4f6c7f98bd4c4de93226f776a61abde031eb267a241e018",
+          "bytes": 16400166
+        },
+        {
+          "name": "NetGo-0.3.0-dev-ios-arm64-simulator.zip.sha256",
+          "sha256": "f95163fd26d58a6ffb29f9b5fc5247d4aa35ec942f6b74c2780283182a9666db",
+          "bytes": 106
+        },
+        {
+          "name": "NetGo-0.3.0-dev-ios-arm64-unsigned.ipa",
+          "sha256": "614972bf8a7ee314a281410f10f3d3d5ba267d75fb543b2d9d8e6257d239da98",
+          "bytes": 16031291
+        },
+        {
+          "name": "NetGo-0.3.0-dev-ios-arm64-unsigned.ipa.sha256",
+          "sha256": "2fbffc508ef2e162338c396de8cc4f00cc6a5bb7c1a8bd1b73fb4fd6537f5e23",
+          "bytes": 105
+        }
+      ],
+      "binary_architecture_checks": [
+        {
+          "path": "NetGo-0.3.0-dev-ios-arm64-simulator.zip!NetGo.app/NetGo",
+          "format": "Mach-O",
+          "machine": 16777228
+        },
+        {
+          "path": "NetGo-0.3.0-dev-ios-arm64-simulator.zip!NetGo.app/PlugIns/NetGoTunnel.appex/NetGoTunnel",
+          "format": "Mach-O",
+          "machine": 16777228
+        },
+        {
+          "path": "NetGo-0.3.0-dev-ios-arm64-unsigned.ipa!Payload/NetGo.app/NetGo",
+          "format": "Mach-O",
+          "machine": 16777228
+        },
+        {
+          "path": "NetGo-0.3.0-dev-ios-arm64-unsigned.ipa!Payload/NetGo.app/PlugIns/NetGoTunnel.appex/NetGoTunnel",
+          "format": "Mach-O",
+          "machine": 16777228
+        }
+      ],
+      "result": "PASS",
+      "apple_platform_checks": [
+        {
+          "path": "NetGo-0.3.0-dev-ios-arm64-simulator.zip!NetGo.app/NetGo",
+          "macho_platform": 7
+        },
+        {
+          "path": "NetGo-0.3.0-dev-ios-arm64-simulator.zip!NetGo.app/PlugIns/NetGoTunnel.appex/NetGoTunnel",
+          "macho_platform": 7
+        },
+        {
+          "path": "NetGo-0.3.0-dev-ios-arm64-unsigned.ipa!Payload/NetGo.app/NetGo",
+          "macho_platform": 2
+        },
+        {
+          "path": "NetGo-0.3.0-dev-ios-arm64-unsigned.ipa!Payload/NetGo.app/PlugIns/NetGoTunnel.appex/NetGoTunnel",
+          "macho_platform": 2
+        }
+      ]
+    },
+    {
+      "run": {
+        "id": 45573088883,
+        "name": "Linux desktop client · VERSION默认 · amd64",
+        "head_sha": "83abe51518fb2ba6dc21746b907ba7636cbb3539",
+        "status": "completed",
+        "conclusion": "success",
+        "event": "push",
+        "html_url": "https://github.com/sck03/NetGo/actions/runs/45573088883",
+        "created_at": "2026-11-25T08:04:07Z",
+        "updated_at": "2026-11-25T08:07:50Z",
+        "run_attempt": 1,
+        "jobs": [
+          {
+            "id": 139064273342,
+            "name": "prepare",
+            "status": "completed",
+            "conclusion": "success",
+            "runner_name": "GitHub Actions 1000004875",
+            "labels": [
+              "ubuntu-24.04"
+            ],
+            "started_at": "2026-11-25T08:04:10Z",
+            "completed_at": "2026-11-25T08:04:18Z",
+            "steps": [
+              {
+                "name": "Set up job",
+                "status": "completed",
+                "conclusion": "success"
+              },
+              {
+                "name": "Run actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1",
+                "status": "completed",
+                "conclusion": "success"
+              },
+              {
+                "name": "Validate version, architecture and publishing settings",
+                "status": "completed",
+                "conclusion": "success"
+              },
+              {
+                "name": "Post Run actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1",
+                "status": "completed",
+                "conclusion": "success"
+              },
+              {
+                "name": "Complete job",
+                "status": "completed",
+                "conclusion": "success"
+              }
+            ]
+          },
+          {
+            "id": 139064358677,
+            "name": "build",
+            "status": "completed",
+            "conclusion": "success",
+            "runner_name": "GitHub Actions 1000004884",
+            "labels": [
+              "ubuntu-24.04"
+            ],
+            "started_at": "2026-11-25T08:04:20Z",
+            "completed_at": "2026-11-25T08:07:49Z",
+            "steps": [
+              {
+                "name": "Set up job",
+                "status": "completed",
+                "conclusion": "success"
+              },
+              {
+                "name": "Run actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1",
+                "status": "completed",
+                "conclusion": "success"
+              },
+              {
+                "name": "Run actions/setup-go@d8cbb8045d7f43706b9177cceb36c1f91a6644d5",
+                "status": "completed",
+                "conclusion": "success"
+              },
+              {
+                "name": "Install native client build dependencies",
+                "status": "completed",
+                "conclusion": "success"
+              },
+              {
+                "name": "Build Linux client",
+                "status": "completed",
+                "conclusion": "success"
+              },
+              {
+                "name": "Check native window lifecycle",
+                "status": "completed",
+                "conclusion": "success"
+              },
+              {
+                "name": "Run actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9",
+                "status": "completed",
+                "conclusion": "success"
+              },
+              {
+                "name": "Stage verified runtime assets for optional release",
+                "status": "completed",
+                "conclusion": "success"
+              },
+              {
+                "name": "Preserve release payload",
+                "status": "completed",
+                "conclusion": "success"
+              },
+              {
+                "name": "Post Run actions/setup-go@d8cbb8045d7f43706b9177cceb36c1f91a6644d5",
+                "status": "completed",
+                "conclusion": "success"
+              },
+              {
+                "name": "Post Run actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1",
+                "status": "completed",
+                "conclusion": "success"
+              },
+              {
+                "name": "Complete job",
+                "status": "completed",
+                "conclusion": "success"
+              }
+            ]
+          },
+          {
+            "id": 139066004828,
+            "name": "publish",
+            "status": "completed",
+            "conclusion": "skipped",
+            "runner_name": null,
+            "labels": [
+              "ubuntu-24.04"
+            ],
+            "started_at": "2026-11-25T08:07:50Z",
+            "completed_at": "2026-11-25T08:07:49Z",
+            "steps": []
+          }
+        ]
+      },
+      "target": "linux-client",
+      "arch": "amd64",
+      "version": "0.3.0-dev",
+      "sdk": "none",
+      "artifact": {
+        "id": 15002527931,
+        "name": "release-linux-client-0.3.0-dev-amd64-none-45573088883",
+        "size_in_bytes": 23347097,
+        "digest": "sha256:d6c881318f775bcffdd427bdb0e6befdee22731dec0841327dc141ec14eb28b8"
+      },
+      "download_sha256": "d6c881318f775bcffdd427bdb0e6befdee22731dec0841327dc141ec14eb28b8",
+      "assets": [
+        {
+          "name": "NetGo-0.3.0-dev-linux-client-amd64.tar.gz",
+          "sha256": "9f973fa5206fc3699c2982981339f29c3a13078a74baa35b1edab78c5ffc09e4",
+          "bytes": 23379862
+        },
+        {
+          "name": "NetGo-0.3.0-dev-linux-client-amd64.tar.gz.sha256",
+          "sha256": "7dc516f172a2f05c419fabf8e6146c3a426a2be910c6319baa3da1e9a3b51400",
+          "bytes": 108
+        },
+        {
+          "name": "NetGo-0.3.0-dev-linux-client-amd64-none-BUILDINFO.json",
+          "sha256": "3c2b2ac54aa0b1b6eb6779002688afe9211720c4147cb7094bec519c95378683",
+          "bytes": 154
+        },
+        {
+          "name": "NetGo-0.3.0-dev-linux-client-amd64-none-BUILDINFO.json.sha256",
+          "sha256": "c79ef5f8ff8e0f315c720e493614e84851d7d69615993d2829f3e0e279d470d0",
+          "bytes": 121
+        }
+      ],
+      "binary_architecture_checks": [
+        {
+          "path": "NetGo-0.3.0-dev-linux-client-amd64.tar.gz!linux-desktop-amd64/netgo-desktop",
+          "format": "ELF",
+          "machine": 62
+        },
+        {
+          "path": "NetGo-0.3.0-dev-linux-client-amd64.tar.gz!linux-desktop-amd64/netgo-client-service",
+          "format": "ELF",
+          "machine": 62
+        },
+        {
+          "path": "NetGo-0.3.0-dev-linux-client-amd64.tar.gz!linux-desktop-amd64/netbird",
+          "format": "ELF",
+          "machine": 62
+        }
+      ],
+      "result": "PASS"
+    },
+    {
+      "run": {
+        "id": 45573088844,
+        "name": "Linux server · VERSION默认 · amd64",
+        "head_sha": "83abe51518fb2ba6dc21746b907ba7636cbb3539",
+        "status": "completed",
+        "conclusion": "success",
+        "event": "push",
+        "html_url": "https://github.com/sck03/NetGo/actions/runs/45573088844",
+        "created_at": "2026-11-25T08:04:07Z",
+        "updated_at": "2026-11-25T08:14:01Z",
+        "run_attempt": 1,
+        "jobs": [
+          {
+            "id": 139064272916,
+            "name": "prepare",
+            "status": "completed",
+            "conclusion": "success",
+            "runner_name": "GitHub Actions 1000004871",
+            "labels": [
+              "ubuntu-24.04"
+            ],
+            "started_at": "2026-11-25T08:04:09Z",
+            "completed_at": "2026-11-25T08:04:17Z",
+            "steps": [
+              {
+                "name": "Set up job",
+                "status": "completed",
+                "conclusion": "success"
+              },
+              {
+                "name": "Run actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1",
+                "status": "completed",
+                "conclusion": "success"
+              },
+              {
+                "name": "Validate version, architecture and publishing settings",
+                "status": "completed",
+                "conclusion": "success"
+              },
+              {
+                "name": "Post Run actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1",
+                "status": "completed",
+                "conclusion": "success"
+              },
+              {
+                "name": "Complete job",
+                "status": "completed",
+                "conclusion": "success"
+              }
+            ]
+          },
+          {
+            "id": 139064355258,
+            "name": "build",
+            "status": "completed",
+            "conclusion": "success",
+            "runner_name": "GitHub Actions 1000004883",
+            "labels": [
+              "ubuntu-24.04"
+            ],
+            "started_at": "2026-11-25T08:04:20Z",
+            "completed_at": "2026-11-25T08:14:00Z",
+            "steps": [
+              {
+                "name": "Set up job",
+                "status": "completed",
+                "conclusion": "success"
+              },
+              {
+                "name": "Initialize containers",
+                "status": "completed",
+                "conclusion": "success"
+              },
+              {
+                "name": "Prepare Debian build environment",
+                "status": "completed",
+                "conclusion": "success"
+              },
+              {
+                "name": "Run actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1",
+                "status": "completed",
+                "conclusion": "success"
+              },
+              {
+                "name": "Run actions/setup-go@d8cbb8045d7f43706b9177cceb36c1f91a6644d5",
+                "status": "completed",
+                "conclusion": "success"
+              },
+              {
+                "name": "Run actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1",
+                "status": "completed",
+                "conclusion": "success"
+              },
+              {
+                "name": "Build and verify Linux server",
+                "status": "completed",
+                "conclusion": "success"
+              },
+              {
+                "name": "Preserve server outputs and verification",
+                "status": "completed",
+                "conclusion": "success"
+              },
+              {
+                "name": "Stage verified runtime assets for optional release",
+                "status": "completed",
+                "conclusion": "success"
+              },
+              {
+                "name": "Preserve release payload",
+                "status": "completed",
+                "conclusion": "success"
+              },
+              {
+                "name": "Post Run actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1",
+                "status": "completed",
+                "conclusion": "success"
+              },
+              {
+                "name": "Post Run actions/setup-go@d8cbb8045d7f43706b9177cceb36c1f91a6644d5",
+                "status": "completed",
+                "conclusion": "success"
+              },
+              {
+                "name": "Post Run actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1",
+                "status": "completed",
+                "conclusion": "success"
+              },
+              {
+                "name": "Stop containers",
+                "status": "completed",
+                "conclusion": "success"
+              },
+              {
+                "name": "Complete job",
+                "status": "completed",
+                "conclusion": "success"
+              }
+            ]
+          },
+          {
+            "id": 139068918800,
+            "name": "publish",
+            "status": "completed",
+            "conclusion": "skipped",
+            "runner_name": null,
+            "labels": [
+              "ubuntu-24.04"
+            ],
+            "started_at": "2026-11-25T08:14:01Z",
+            "completed_at": "2026-11-25T08:14:00Z",
+            "steps": []
+          }
+        ]
+      },
+      "target": "linux-server",
+      "arch": "amd64",
+      "version": "0.3.0-dev",
+      "sdk": "none",
+      "artifact": {
+        "id": 15003127815,
+        "name": "release-linux-server-0.3.0-dev-amd64-none-45573088844",
+        "size_in_bytes": 104925292,
+        "digest": "sha256:978e1abbb49ebc7b9c4e4d44b05912960110a96efe56abb0404b35105153d288"
+      },
+      "download_sha256": "978e1abbb49ebc7b9c4e4d44b05912960110a96efe56abb0404b35105153d288",
+      "assets": [
+        {
+          "name": "NetGo-0.3.0-dev-linux-amd64.zip",
+          "sha256": "e49cb7ab0a2ae3004a9d9bb664509a04973d6fa5cca2ce7f9d4704d4ba5f168a",
+          "bytes": 97566029
+        },
+        {
+          "name": "NetGo-0.3.0-dev-linux-amd64.zip.sha256",
+          "sha256": "2261f8b023d57041f47ee0ccaaecf47723de6b2dba06b4be02de3ac026ef1843",
+          "bytes": 98
+        },
+        {
+          "name": "netgo-server-installer-linux-amd64",
+          "sha256": "882b89eb980909a16af4af47505207c6deb00fe904113e2ba2216ff37e6fa65e",
+          "bytes": 18878624
+        },
+        {
+          "name": "netgo-server-installer-linux-amd64.sha256",
+          "sha256": "6c7903c4384776bdbfd38bf5e14d57f4b57753944ad81a878b0a3029f7859e30",
+          "bytes": 101
+        },
+        {
+          "name": "NetGo-0.3.0-dev-linux-server-amd64-none-BUILDINFO.json",
+          "sha256": "b17a50eb5d2aa2b642801d43ca6d4a89e75842c410401c07fe677a7fbcc6e0b1",
+          "bytes": 3129
+        },
+        {
+          "name": "NetGo-0.3.0-dev-linux-server-amd64-none-BUILDINFO.json.sha256",
+          "sha256": "fa8babe8721d12813496056359227594ca16417b749da75a9be41ef6ea5dfcc2",
+          "bytes": 121
+        },
+        {
+          "name": "NetGo-0.3.0-dev-linux-server-amd64-none-SBOM.cdx.json",
+          "sha256": "40e0105fee063ed1f2183735660e6cc5064b4d649ab5cf094d2f47512407d12c",
+          "bytes": 50476
+        },
+        {
+          "name": "NetGo-0.3.0-dev-linux-server-amd64-none-SBOM.cdx.json.sha256",
+          "sha256": "604145a1e274ad0cf2cbd824a781cfb01b68e0f3d11f486d04886ab350075da8",
+          "bytes": 120
+        }
+      ],
+      "binary_architecture_checks": [
+        {
+          "path": "dist/linux-amd64/netgo-server",
+          "elf_machine": 62
+        },
+        {
+          "path": "dist/linux-amd64/netgo-helper",
+          "elf_machine": 62
+        },
+        {
+          "path": "dist/linux-amd64/netgoctl",
+          "elf_machine": 62
+        },
+        {
+          "path": "dist/linux-amd64/netgo-ddns",
+          "elf_machine": 62
+        },
+        {
+          "path": "dist/upstream-linux-amd64/netbird-server",
+          "elf_machine": 62
+        },
+        {
+          "path": "dist/upstream-linux-amd64/netbird",
+          "elf_machine": 62
+        },
+        {
+          "path": "dist/upstream-linux-amd64/netbird-relay",
+          "elf_machine": 62
+        },
+        {
+          "path": "dist/upstream-linux-amd64/caddy",
+          "elf_machine": 62
+        },
+        {
+          "path": "dist/upstream-linux-amd64/frpc",
+          "elf_machine": 62
+        },
+        {
+          "path": "netgo-server-installer-linux-amd64",
+          "elf_machine": 62
+        }
+      ],
+      "result": "PASS",
+      "verified_build_input_hashes": 11,
+      "code_sha256": "81f1621f6424f22c73dffe060057ba073db12c17ee2a862aca80f960e2785ab6"
+    },
+    {
+      "run": {
+        "id": 45574059696,
+        "name": "Windows client · VERSION默认 · amd64",
+        "head_sha": "fbbc9077ccdb40a7014db89d91169783f3b8b1be",
+        "status": "completed",
+        "conclusion": "success",
+        "event": "push",
+        "html_url": "https://github.com/sck03/NetGo/actions/runs/45574059696",
+        "created_at": "2026-11-25T08:10:58Z",
+        "updated_at": "2026-11-25T08:29:05Z",
+        "run_attempt": 1,
+        "jobs": [
+          {
+            "id": 139067487540,
+            "name": "prepare",
+            "status": "completed",
+            "conclusion": "success",
+            "runner_name": "GitHub Actions 1000004887",
+            "labels": [
+              "ubuntu-24.04"
+            ],
+            "started_at": "2026-11-25T08:11:01Z",
+            "completed_at": "2026-11-25T08:11:11Z",
+            "steps": [
+              {
+                "name": "Set up job",
+                "status": "completed",
+                "conclusion": "success"
+              },
+              {
+                "name": "Run actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1",
+                "status": "completed",
+                "conclusion": "success"
+              },
+              {
+                "name": "Validate version, architecture and publishing settings",
+                "status": "completed",
+                "conclusion": "success"
+              },
+              {
+                "name": "Post Run actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1",
+                "status": "completed",
+                "conclusion": "success"
+              },
+              {
+                "name": "Complete job",
+                "status": "completed",
+                "conclusion": "success"
+              }
+            ]
+          },
+          {
+            "id": 139067590307,
+            "name": "build",
+            "status": "completed",
+            "conclusion": "success",
+            "runner_name": "GitHub Actions 1000004888",
+            "labels": [
+              "windows-2025"
+            ],
+            "started_at": "2026-11-25T08:11:13Z",
+            "completed_at": "2026-11-25T08:29:04Z",
+            "steps": [
+              {
+                "name": "Set up job",
+                "status": "completed",
+                "conclusion": "success"
+              },
+              {
+                "name": "Run actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1",
+                "status": "completed",
+                "conclusion": "success"
+              },
+              {
+                "name": "Run actions/setup-go@d8cbb8045d7f43706b9177cceb36c1f91a6644d5",
+                "status": "completed",
+                "conclusion": "success"
+              },
+              {
+                "name": "Run actions/setup-python@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0",
+                "status": "completed",
+                "conclusion": "success"
+              },
+              {
+                "name": "Run msys2/setup-msys2@3c51bf698df1e37b2261f53cb67797b97761185c",
+                "status": "completed",
+                "conclusion": "success"
+              },
+              {
+                "name": "Build and package Windows client",
+                "status": "completed",
+                "conclusion": "success"
+              },
+              {
+                "name": "Preserve Windows outputs and logs",
+                "status": "completed",
+                "conclusion": "success"
+              },
+              {
+                "name": "Stage verified runtime assets for optional release",
+                "status": "completed",
+                "conclusion": "success"
+              },
+              {
+                "name": "Preserve release payload",
+                "status": "completed",
+                "conclusion": "success"
+              },
+              {
+                "name": "Post Run actions/setup-python@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0",
+                "status": "completed",
+                "conclusion": "success"
+              },
+              {
+                "name": "Post Run actions/setup-go@d8cbb8045d7f43706b9177cceb36c1f91a6644d5",
+                "status": "completed",
+                "conclusion": "success"
+              },
+              {
+                "name": "Post Run actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1",
+                "status": "completed",
+                "conclusion": "success"
+              },
+              {
+                "name": "Complete job",
+                "status": "completed",
+                "conclusion": "success"
+              }
+            ]
+          },
+          {
+            "id": 139076177715,
+            "name": "publish",
+            "status": "completed",
+            "conclusion": "skipped",
+            "runner_name": null,
+            "labels": [
+              "ubuntu-24.04"
+            ],
+            "started_at": "2026-11-25T08:29:04Z",
+            "completed_at": "2026-11-25T08:29:04Z",
+            "steps": []
+          }
+        ]
+      },
+      "target": "windows",
+      "arch": "amd64",
+      "version": "0.3.0-dev",
+      "sdk": "none",
+      "artifact": {
+        "id": 15003584480,
+        "name": "release-windows-0.3.0-dev-amd64-none-45574059696",
+        "size_in_bytes": 29992635,
+        "digest": "sha256:dd41f0f2aa986113416f1a141c571ca93dd4f30263d2fad0dd5d6b2e3ad9901c"
+      },
+      "download_sha256": "dd41f0f2aa986113416f1a141c571ca93dd4f30263d2fad0dd5d6b2e3ad9901c",
+      "assets": [
+        {
+          "name": "NetGo-0.3.0-dev-windows-amd64-Setup.exe",
+          "sha256": "3b29629a09a738bd89651ba1134b696f26e06b01beb9899d388b5f0ee54b7952",
+          "bytes": 15550464
+        },
+        {
+          "name": "NetGo-0.3.0-dev-windows-amd64-Setup.exe.sha256",
+          "sha256": "f496e908f875eacf3ccff626ec15fa9719b17c405f52069ecace2b964a9aa502",
+          "bytes": 107
+        },
+        {
+          "name": "NetGo-0.3.0-dev-windows-amd64-portable.zip",
+          "sha256": "13129842c42517e6dc23c420d0e021932afb5932760f49f10b41aaade1fb0ecf",
+          "bytes": 15212740
+        },
+        {
+          "name": "NetGo-0.3.0-dev-windows-amd64-portable.zip.sha256",
+          "sha256": "69226986862fefd5154661882145e4dece488d12ccd4456c0b1ca5555dfdd32c",
+          "bytes": 110
+        },
+        {
+          "name": "NetGo-0.3.0-dev-windows-amd64-none-BUILDINFO.json",
+          "sha256": "2da50f73b01aae9d64e6b887276f323157c04771aeca8a033efb36378b219df9",
+          "bytes": 181
+        },
+        {
+          "name": "NetGo-0.3.0-dev-windows-amd64-none-BUILDINFO.json.sha256",
+          "sha256": "64997d894a96f2014bd74342580435d31b0295d1c9e91a538ea895c5940ed0d6",
+          "bytes": 117
+        }
+      ],
+      "binary_architecture_checks": [
+        {
+          "path": "NetGo-0.3.0-dev-windows-amd64-Setup.exe",
+          "format": "PE",
+          "machine": 34404
+        },
+        {
+          "path": "NetGo-0.3.0-dev-windows-amd64-portable.zip!.netgo/NetGo-Network-Setup.exe",
+          "format": "PE",
+          "machine": 34404
+        },
+        {
+          "path": "NetGo-0.3.0-dev-windows-amd64-portable.zip!NetGo.exe",
+          "format": "PE",
+          "machine": 34404
+        }
+      ],
+      "result": "PASS"
+    }
+  ],
+  "scope": "CI builds and artifact integrity/architecture checks; not physical device deployment, cross-device remote desktop or 72-hour acceptance."
+}

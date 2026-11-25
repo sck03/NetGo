@@ -2,11 +2,8 @@ package node
 
 import (
 	"bufio"
-	"encoding/json"
 	"errors"
-	"fmt"
 	"golang.org/x/term"
-	"io"
 	"net"
 	"net/netip"
 	"net/url"
@@ -74,73 +71,6 @@ func (t terminal) password(label string) (string, error) {
 		return value, err
 	}
 	return t.text(label, "")
-}
-func (t terminal) initialConfig() (site.Config, error) {
-	c := site.Config{Site: site.Profile{Protocol: 2, ConfigRevision: 1, ID: "site1", Name: "NetGo"}, Listen: "127.0.0.1:18081", Database: "/var/lib/netgo/netgo.db", ManagementURL: "http://127.0.0.1:18080", ManagementTokenFile: "/etc/netgo/management.token", NativeSecretFile: "/etc/netgo/native.secret", HelperSocket: "/run/netgo-helper/helper.sock", Interface: "wt0", OverlayCIDR: "100.96.0.0/16", LeaseSeconds: 120,
-		Deployment: site.Deployment{Mode: "diagnostic", LocalRelayPort: 18443, LocalSTUNPort: 3478, ManagementHealthPort: 19000, ManagementMetricsPort: 19090, RelayHealthPort: 19001, RelayMetricsPort: 19091, CaddyAdminPort: 12019}}
-	t.m.print("内网 IP 只能用于内网访问；外网需公网地址/域名及端口映射，或在配置完成后添加 VPS。站点网址同时用作证书身份。")
-	host, err := t.text("站点证书域名或服务器 IPv4", "")
-	if err != nil {
-		return c, err
-	}
-	relay, err := t.text("Relay 域名或 IPv4", host)
-	if err != nil {
-		return c, err
-	}
-	number, err := t.port("控制 HTTPS 端口", 10443)
-	if err != nil {
-		return c, err
-	}
-	c.Site.Origin = "https://" + net.JoinHostPort(host, strconv.Itoa(number))
-	c.Site.LocalRelay = relay
-	c.Site.Candidates = []site.Candidate{{ID: "local", Kind: "direct", Address: net.JoinHostPort(host, strconv.Itoa(number))}}
-	if c.Deployment.LocalRelayPort, err = t.port("Relay TCP/UDP 端口", 18443); err != nil {
-		return c, err
-	}
-	if c.Deployment.LocalSTUNPort, err = t.port("STUN UDP 端口", 3478); err != nil {
-		return c, err
-	}
-	interfaces, err := net.Interfaces()
-	if err != nil {
-		return c, err
-	}
-	defaultIf := ""
-	for _, iface := range interfaces {
-		if iface.Flags&net.FlagUp != 0 && iface.Flags&net.FlagLoopback == 0 {
-			defaultIf = iface.Name
-			break
-		}
-	}
-	if c.LANInterface, err = t.text("LAN 网卡", defaultIf); err != nil {
-		return c, err
-	}
-	iface, err := net.InterfaceByName(c.LANInterface)
-	if err != nil {
-		return c, err
-	}
-	addresses, err := iface.Addrs()
-	if err != nil {
-		return c, err
-	}
-	networks := []string{}
-	for _, address := range addresses {
-		prefix, e := netip.ParsePrefix(address.String())
-		if e == nil && prefix.Addr().Is4() {
-			networks = append(networks, prefix.Masked().String())
-		}
-	}
-	raw, err := t.text("LAN 网段（逗号分隔）", strings.Join(networks, ","))
-	if err != nil {
-		return c, err
-	}
-	for _, value := range strings.Split(raw, ",") {
-		c.LocalCIDRs = append(c.LocalCIDRs, strings.TrimSpace(value))
-	}
-	if c.Site.ID, err = t.text("站点 ID", "site1"); err != nil {
-		return c, err
-	}
-	c.Site.Name = "NetGo " + c.Site.ID
-	return c, c.Validate()
 }
 func (t terminal) certificateFiles(c site.Config, role string) (map[string][]byte, error) {
 	t.m.print("证书：1) 自动签发（复用已有站点 CA）  2) 导入已有证书  0) 返回")
@@ -253,27 +183,11 @@ func (t terminal) setup() error {
 	}
 	return t.m.SetupServer(c, email, alias, password, source, choice == "1")
 }
-func (t terminal) serverMenu() error {
-	for {
-		t.m.print("\nNetGo 局域网服务端 · ng\n1) 首次配置/启动 VPN\n2) 信息和状态\n3) 修改域名/IP 与端口\n4) 生成/导入证书\n5) 导出客户端配置\n6) 设置旁路由 IP/DNS\n7) VPS 设置与导出\n8) 诊断/恢复连接\n9) 卸载（保留数据）\n10) LAN/公网直达入口\n0) 退出")
-		value, err := t.text("请选择", "0")
-		if err != nil {
-			return err
-		}
-		if value == "0" {
-			return nil
-		}
-		err = t.serverOperation(value)
-		if err != nil {
-			t.m.print("操作未完成：%s", err)
-		}
-	}
-}
 func (t terminal) serverOperation(value string) error {
-	if value == "1" {
+	if value == "setup" {
 		return t.setup()
 	}
-	if value == "9" {
+	if value == "uninstall" {
 		answer, err := t.text("输入 yes 卸载受管服务并保留数据", "")
 		if err != nil {
 			return err
@@ -288,20 +202,16 @@ func (t terminal) serverOperation(value string) error {
 		return err
 	}
 	switch value {
-	case "2":
-		t.m.print("站点：%s\n客户端导入文件：%s\n旁路由：%t", c.Site.Origin, filepath.Join(t.m.etc(), "client-site.json"), c.Bypass.Enabled)
-		for _, unit := range wantedUnits(c) {
-			t.m.print("%s：%t", unit, t.m.active(unit))
-		}
-		return nil
-	case "10":
+	case "status":
+		return t.serverStatus(c)
+	case "endpoints":
 		var addresses []string
 		for _, candidate := range c.Site.Candidates {
 			if candidate.Kind == "direct" {
 				addresses = append(addresses, candidate.Address)
 			}
 		}
-		t.m.print("内网 IP 仅在局域网可达。公网直达需公网地址/域名和端口映射；无公网入口时请在菜单 7 配置 VPS。此处不改变站点证书身份。")
+		t.m.print("内网 IP 仅在局域网可达。公网直达需公网地址/域名和端口映射；无公网入口时请选择“设置外网访问 → 配对 / 管理 VPS”。此处不改变站点证书身份。")
 		value, e := t.text("直达入口（主机:端口，多个用空格分隔）", strings.Join(addresses, " "))
 		if e != nil {
 			return e
@@ -312,7 +222,7 @@ func (t terminal) serverOperation(value string) error {
 		}
 		c.Site = next
 		return t.m.ApplyServerConfig(c, nil)
-	case "3":
+	case "identity":
 		old, _ := url.Parse(c.Site.Origin)
 		host, e := t.text("控制域名或 IP", old.Hostname())
 		if e != nil {
@@ -338,14 +248,14 @@ func (t terminal) serverOperation(value string) error {
 		}
 		c.Site.CA = string(files["ca.crt"])
 		return t.m.ApplyServerConfig(c, files)
-	case "4":
+	case "certificates":
 		files, err := t.certificateFiles(c, "server")
 		if err != nil || files == nil {
 			return err
 		}
 		c.Site.CA = string(files["ca.crt"])
 		return t.m.ApplyServerConfig(c, files)
-	case "5":
+	case "export":
 		path, err := t.text("客户端配置保存位置", "/root/NetGo-site.json")
 		if err != nil {
 			return err
@@ -353,8 +263,12 @@ func (t terminal) serverOperation(value string) error {
 		if _, e := os.Stat(path); e == nil {
 			return errors.New("文件已存在，请选择新路径")
 		}
-		return t.m.json(path, c.Site)
-	case "6":
+		if err = t.m.json(path, c.Site); err != nil {
+			return err
+		}
+		t.m.print("站点文件已保存：%s。将它交给用户，在客户端选择导入后登录。账号与资源权限在管理网页设置。", path)
+		return nil
+	case "bypass":
 		t.m.print("1) 启用/修改旁路由  2) 停用旁路由  0) 返回")
 		choice, err := t.text("请选择", "0")
 		if err != nil || choice == "0" {
@@ -401,9 +315,9 @@ func (t terminal) serverOperation(value string) error {
 		}
 		t.m.print("只有在管理页获得“互联网（旁路由）”资源权限的账号可使用；客户端默认关闭互联网模式。")
 		return t.m.ApplyServerConfig(c, nil)
-	case "7":
+	case "auxiliary":
 		return t.auxiliaryMenu(c)
-	case "8":
+	case "repair":
 		if err = t.m.StartServer(); err != nil {
 			return err
 		}
@@ -433,7 +347,3 @@ func (m Manager) Menu() error {
 	}
 	return t.serverMenu()
 }
-
-var _ = json.Valid
-var _ = fmt.Sprint
-var _ = io.EOF
