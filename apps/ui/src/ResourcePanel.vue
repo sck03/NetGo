@@ -1,8 +1,18 @@
 <script setup lang="ts">
-import { ref } from 'vue'
+import { computed, ref } from 'vue'
 import { resourcePayload, resourcePresets, type Resource, type ResourceForm } from '../../../packages/ui/resources'
 const props = defineProps<{ resources: Resource[]; busy: boolean; save: (resource: Resource) => Promise<boolean>; remove: (resource: Resource) => Promise<boolean> }>()
 const form = ref<ResourceForm | null>(null), preset = ref('web'), error = ref(''), editing = ref(false)
+const search = ref('')
+const groups = computed(() => {
+  const text = search.value.trim().toLocaleLowerCase()
+  const resources = props.resources.filter(r => (r.name + ' ' + r.cidr + ' ' + r.protocol + ' ' + r.ports.join(' ')).toLocaleLowerCase().includes(text))
+  return [
+    { id: 'lan', title: '局域网设备与服务', hint: '只开放所选设备和端口，适合 NAS、办公系统、SSH 或 RDP。', resources: resources.filter(r => r.protocol !== 'internet') },
+    { id: 'internet', title: '通过旁路由访问互联网', hint: '单独授权后，用户还需在客户端主动开启互联网模式。', resources: resources.filter(r => r.protocol === 'internet') },
+  ]
+})
+const address = (resource: Resource) => resource.protocol === 'internet' ? '旁路由互联网出口' : resource.cidr.replace(/\/32$/, '')
 function add() {
   editing.value = false; error.value = ''; preset.value = 'web'
   form.value = { id: 'resource-' + crypto.randomUUID(), name: '', cidr: '', protocol: 'tcp', ports: '443', enabled: true }
@@ -31,7 +41,16 @@ async function remove(resource: Resource) {
   <section class="card">
     <div class="panel-heading"><div><h3>允许访问哪些设备和服务</h3><p>选择常用服务并填写目标地址，再在“账号与权限”中授权给用户。</p></div><button class="primary" :disabled="busy" @click="add">添加资源</button></div>
     <p class="muted">NetGo 自带的屏幕控制请在“远程桌面”中设置；这里的 RDP 指设备上已有的 Windows RDP 服务。</p>
-    <div v-for="resource in resources" :key="resource.id" class="resource"><strong>{{ resource.name }}</strong><code>{{ resource.protocol === 'internet' ? '旁路由出口' : resource.cidr }}</code><span>{{ resource.protocol }} {{ resource.ports.join(', ') }} · {{ resource.enabled ? '启用' : '停用' }}</span><button class="secondary" :disabled="busy" @click="edit(resource)">修改</button><button class="secondary" :disabled="busy" @click="remove(resource)">删除</button></div>
+    <div v-if="resources.length" class="filter-bar"><label class="search-field">查找资源<input v-model="search" type="search" placeholder="名称、IP、协议或端口"></label><span class="muted">共 {{ resources.length }} 项</span></div>
+    <section v-for="group in groups" :key="group.id" class="resource-group">
+      <div class="group-heading"><h4>{{ group.title }}</h4><span class="status-pill">{{ group.resources.length }} 项</span></div><p>{{ group.hint }}</p>
+      <div v-for="resource in group.resources" :key="resource.id" class="access-row">
+        <div><strong>{{ resource.name }}</strong><small><code>{{ address(resource) }}</code></small></div>
+        <div><span class="status-pill" :class="resource.enabled ? 'ready' : 'disabled'">{{ resource.enabled ? '已启用' : '已停用' }}</span><small v-if="resource.protocol !== 'internet'">{{ resource.protocol.toUpperCase() }} {{ resource.ports.join(', ') }}</small></div>
+        <div class="actions"><button class="secondary" :disabled="busy" @click="edit(resource)">修改</button><button class="secondary danger-text" :disabled="busy" @click="remove(resource)">删除</button></div>
+      </div>
+      <div v-if="!group.resources.length && resources.length" class="empty">{{ search ? '没有匹配的资源' : '尚未添加此类资源' }}</div>
+    </section>
     <div v-if="!resources.length" class="empty">尚未开放资源。添加资源后，只向指定账号授权。</div>
   </section>
   <section v-if="form" class="card">

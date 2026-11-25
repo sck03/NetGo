@@ -12,12 +12,15 @@ import (
 // DNS, or services and does not imply that a remote client has authorization.
 func (m Manager) CheckNetwork(c site.Config) error {
 	m.print("局域网网卡：%s；资源网段：%s", c.LANInterface, strings.Join(c.LocalCIDRs, ", "))
+	var failures []error
+	if err := m.checkLAN(c); err != nil {
+		failures = append(failures, err)
+	}
 	if !c.Bypass.Enabled {
 		m.print("互联网出口未启用。局域网资源仍需在管理网页中单独授权。")
-		return nil
+		return errors.Join(failures...)
 	}
 	m.print("旁路由：%s；DNS：%s", c.Bypass.Gateway, strings.Join(c.Bypass.DNS, ", "))
-	var failures []error
 	spec, err := networkSpec(c)
 	if err != nil {
 		failures = append(failures, err)
@@ -38,7 +41,7 @@ func (m Manager) CheckNetwork(c site.Config) error {
 		if r.FakeIP {
 			mode = "Fake-IP"
 		}
-		m.print("DNS %s：查询成功（%s）", r.Server, mode)
+		m.print("DNS %s：查询成功（%s，%d ms）", r.Server, mode, r.Duration.Milliseconds())
 		if r.FakeIP && c.Bypass.FakeIPCIDR == "" {
 			failures = append(failures, fmt.Errorf("DNS %s 返回 Fake-IP，请在互联网出口设置中启用自动检测或 Fake-IP 模式", r.Server))
 		}

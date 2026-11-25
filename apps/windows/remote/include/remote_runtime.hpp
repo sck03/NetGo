@@ -13,6 +13,6 @@ struct Callbacks {
  std::function<void(uint32_t)> permissions;
 };
 void host(const std::string& site,Callbacks callbacks);
-void view(const std::string& site,const std::string& host,Callbacks callbacks);
+void view(const std::string& site,const std::string& host,uint32_t capabilities,Callbacks callbacks);
 Json inventory(const std::string& site,const std::function<bool()>& active={});
 }

@@ -1,0 +1,60 @@
+{
+  "checks": [
+    {
+      "candidate": "local",
+      "address": "192.168.18.220:10443",
+      "sample": 1,
+      "result": "PASS",
+      "seconds": 0.241,
+      "hosts": 0,
+      "resources": 0
+    },
+    {
+      "candidate": "local",
+      "address": "192.168.18.220:10443",
+      "sample": 2,
+      "result": "PASS",
+      "seconds": 0.242,
+      "hosts": 0,
+      "resources": 0
+    },
+    {
+      "candidate": "local",
+      "address": "192.168.18.220:10443",
+      "sample": 3,
+      "result": "PASS",
+      "seconds": 0.242,
+      "hosts": 0,
+      "resources": 0
+    },
+    {
+      "candidate": "vps1",
+      "address": "107.174.220.116:24443",
+      "sample": 1,
+      "result": "PASS",
+      "seconds": 5.515,
+      "hosts": 0,
+      "resources": 0
+    },
+    {
+      "candidate": "vps1",
+      "address": "107.174.220.116:24443",
+      "sample": 2,
+      "result": "PASS",
+      "seconds": 8.301,
+      "hosts": 0,
+      "resources": 0
+    },
+    {
+      "candidate": "vps1",
+      "address": "107.174.220.116:24443",
+      "sample": 3,
+      "result": "PASS",
+      "seconds": 8.679,
+      "hosts": 0,
+      "resources": 0
+    }
+  ],
+  "temporary_device": "removed",
+  "TLS": "site CA and original server name verified"
+}

@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import { computed, onMounted, onUnmounted, ref, watch } from 'vue'
 import { AdminSession } from '../../../packages/ui/auth'
+import { LatestQuery } from '../../../packages/ui/query'
 import RemotePanel from './RemotePanel.vue'
 import ResourcePanel from './ResourcePanel.vue'
 import UserPanel from './UserPanel.vue'
@@ -8,19 +9,21 @@ import type { Resource } from '../../../packages/ui/resources'
 const page = ref('overview'), alias = ref(''), password = ref(''), error = ref(''), notice = ref(''), busy = ref(false), logged = ref(false)
 const state = ref<any>({ users: {}, resources: {}, devices: {}, leases: {}, audit: [] })
 const admin = new AdminSession()
-let timer: ReturnType<typeof setInterval> | undefined, refreshing = false
+let timer: ReturnType<typeof setInterval> | undefined
+const stateQuery = new LatestQuery(() => admin.request('/netgo/v2/admin/state'), value => { state.value = value })
 const users = computed<any[]>(() => Object.values(state.value.users))
 const resources = computed<any[]>(() => Object.values(state.value.resources))
 const devices = computed<any[]>(() => Object.values(state.value.devices).filter((d: any) => d.client_type !== 'admin'))
 const leases = computed<any[]>(() => Object.values(state.value.leases))
 async function action(fn: () => Promise<void>) {
+  if (busy.value) return false
+  stateQuery.invalidate()
   busy.value = true; error.value = ''; notice.value = ''
   try { await fn(); return true } catch (e) { error.value = e instanceof Error ? e.message : String(e); if (logged.value && !admin.active) logout(); return false } finally { busy.value = false }
 }
 async function refresh() {
-  if (!logged.value || refreshing) return
-  refreshing = true
-  try { state.value = await admin.request('/netgo/v2/admin/state') } catch (e) { if (!admin.active) logout(); throw e } finally { refreshing = false }
+  if (!logged.value) return
+  try { await stateQuery.run() } catch (e) { if (!admin.active) logout(); throw e }
 }
 async function login() {
   await action(async () => {
@@ -29,7 +32,7 @@ async function login() {
     } finally { password.value = '' }
   })
 }
-function logout() { admin.logout(); logged.value = false; state.value = { users: {}, resources: {}, devices: {}, leases: {}, audit: [] } }
+function logout() { stateQuery.invalidate(); admin.logout(); logged.value = false; state.value = { users: {}, resources: {}, devices: {}, leases: {}, audit: [] } }
 async function saveUser(u: any) {
   return action(async () => {
     await admin.request('/netgo/v2/admin/users/' + encodeURIComponent(u.id), 'PUT', { ...u, max_sessions: u.max_sessions || 1 })
@@ -67,9 +70,9 @@ function download(value: any, name: string) {
   const a = document.createElement('a'), url = URL.createObjectURL(new Blob([JSON.stringify(value, null, 2)], { type: 'application/json' }))
   a.href = url; a.download = name; a.click(); setTimeout(() => URL.revokeObjectURL(url), 1000)
 }
-watch(page, () => { if (logged.value) refresh().catch(e => { error.value = String(e.message || e) }) })
+watch(page, () => { if (logged.value && !busy.value) refresh().catch(e => { error.value = String(e.message || e) }) })
 onMounted(() => { timer = setInterval(() => { if (!busy.value) refresh().catch(e => { error.value = String(e.message || e) }) }, 5000) })
-onUnmounted(() => { if (timer) clearInterval(timer); admin.logout() })
+onUnmounted(() => { if (timer) clearInterval(timer); stateQuery.invalidate(); admin.logout() })
 </script>
 <template>
   <div class="shell">

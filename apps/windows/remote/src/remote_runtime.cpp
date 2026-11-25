@@ -75,14 +75,16 @@ struct Monitor {
  Monitor(std::string s,std::string b,Callbacks& cb):site(std::move(s)),boot(std::move(b)),callbacks(&cb){
   validUntil=ticks()+6000;worker=std::thread([this]{try{
    while(!stop&&callbacks->running()){
+    const auto nextPoll=ticks()+3000;
     call(site,"POST",std::string(base)+"/host/heartbeat",{{"boot",boot}},{},[this]{return !stop&&callbacks->running();});
+    if(stop||!callbacks->running())break;
     std::string id;{std::lock_guard lock(mutex);id=session;}
     if(!id.empty()){
      auto a=call(site,"GET",std::string(base)+"/sessions/"+id,nullptr,{},[this]{return !stop&&callbacks->running();});
      if(a.at("session").value("state","")=="closed")break;
     }else context(site,[this]{return !stop&&callbacks->running();});
     validUntil=ticks()+6000;
-    for(int i=0;i<30&&!stop&&callbacks->running();++i)Sleep(100);
+    while(!stop&&callbacks->running()&&ticks()<nextPoll)Sleep(100);
    }
   }catch(...){ }validUntil=0;});
  }
@@ -208,9 +210,9 @@ void host(const std::string& site,Callbacks cb){
  registration["enabled"]=false;try{call(site,"PUT",std::string(base)+"/host",registration);}catch(...){}
 }
 
-void view(const std::string& site,const std::string& hostID,Callbacks cb){
+void view(const std::string& site,const std::string& hostID,uint32_t capabilities,Callbacks cb){
  struct Bridge {std::string site;Callbacks cb;std::unique_ptr<video::Codec> decoder;std::unique_ptr<audio::Stream> sound;};Bridge bridge{site,std::move(cb),{}, {}};
- ng_remote_client_options options{};options.struct_size=sizeof(options);options.abi_version=NG_REMOTE_CLIENT_ABI;options.site_id=site.c_str();options.host_id=hostID.c_str();options.capabilities=NG_REMOTE_VIEW|NG_REMOTE_INPUT|NG_REMOTE_AUDIO;options.context=&bridge;
+ ng_remote_client_options options{};options.struct_size=sizeof(options);options.abi_version=NG_REMOTE_CLIENT_ABI;options.site_id=site.c_str();options.host_id=hostID.c_str();options.capabilities=capabilities;options.context=&bridge;
  options.active=[](void* p)->int32_t{return static_cast<Bridge*>(p)->cb.running()?1:0;};
  options.control=[](void* p,const char* method,const char* path,const char* body,const char* idem,char* output,size_t capacity,size_t* length)->int32_t{try{
   auto& b=*static_cast<Bridge*>(p);auto active=b.cb.running;

@@ -80,7 +80,9 @@ struct Monitor {
  ng_remote_client& client;std::string session;std::atomic_bool stop=false;std::atomic<int64_t> deadline{0};std::mutex mutex;Json renewal;std::thread worker;
  Monitor(ng_remote_client& c,std::string s):client(c),session(std::move(s)){
   deadline=ticks()+6000;worker=std::thread([this]{try{while(!stop&&client.active()){
+   const auto nextPoll=ticks()+3000;
    auto a=client.call("GET",std::string(base)+"/sessions/"+session);
+   if(stop||!client.active())break;
    require(a.at("session").value("state","")!="closed","remote_revoked");
    if(a.at("session").value("state","")=="active"){
     auto requested=netgo::remote::monotonic_time_ms();
@@ -88,7 +90,9 @@ struct Monitor {
     fresh["netgo_requested_mono_ms"]=requested;
     std::lock_guard lock(mutex);renewal=std::move(fresh);
    }
-   deadline=ticks()+6000;for(int i=0;i<30&&!stop&&client.active();++i)std::this_thread::sleep_for(std::chrono::milliseconds(100));
+   // Request time is part of the polling interval. Adding three more seconds
+   // after slow successful calls can expire our unchanged six-second watchdog.
+   deadline=ticks()+6000;while(!stop&&client.active()&&ticks()<nextPoll)std::this_thread::sleep_for(std::chrono::milliseconds(100));
   }}catch(...){ }deadline=0;});
  }
  ~Monitor(){stop=true;if(worker.joinable())worker.join();}
@@ -111,7 +115,7 @@ void run(ng_remote_client& c){
  auto a=c.call("POST",std::string(base)+"/sessions",{{"host_id",c.host},{"generation",generation},{"capabilities",requested}},encode(nonce.data(),nonce.size()));
  auto session=a.at("session").at("id").get<std::string>();
  try{
-  require(a.at("session").at("host_id")==c.host,"remote_host_mismatch");Gate gate(a,ctx,site,c.options.capabilities,requestedAt);auto ticket=decode(a.at("ticket"),NG_REMOTE_TICKET_SIZE);gate.begin(ticket);
+  require(a.at("session").at("host_id")==c.host,"remote_host_mismatch");require(a.at("session").at("capabilities")==requested,"remote_capabilities_mismatch");Gate gate(a,ctx,site,requested,requestedAt);auto ticket=decode(a.at("ticket"),NG_REMOTE_TICKET_SIZE);gate.begin(ticket);
   Monitor monitor(c,session);auto endpoint=a.at("endpoint").get<std::string>();auto colon=endpoint.rfind(':');require(colon!=std::string::npos,"remote_invalid_endpoint");auto ip=endpoint.substr(0,colon);if(ip.size()>2&&ip.front()=='['&&ip.back()==']')ip=ip.substr(1,ip.size()-2);
   auto port=std::stoul(endpoint.substr(colon+1));require(port>0&&port<=65535,"remote_invalid_endpoint");
   auto connection=netgo::remote::Connection::connect(ip,uint16_t(port),key(a.at("host_key")),[&]{return monitor.live()&&gate.check();});

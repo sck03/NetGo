@@ -12,9 +12,10 @@ import (
 )
 
 type dnsResult struct {
-	Server string
-	FakeIP bool
-	Err    error
+	Server   string
+	FakeIP   bool
+	Err      error
+	Duration time.Duration
 }
 type dnsLookup func(context.Context, string) ([]netip.Addr, error)
 
@@ -42,8 +43,9 @@ func probeDNS(ctx context.Context, servers []string, lookup dnsLookup) ([]dnsRes
 		workers.Add(1)
 		go func() {
 			defer workers.Done()
+			started := time.Now()
 			addresses, err := lookup(ctx, server)
-			result := dnsResult{Server: server, Err: err}
+			result := dnsResult{Server: server, Err: err, Duration: time.Since(started)}
 			valid := false
 			for _, ip := range addresses {
 				ip = ip.Unmap()

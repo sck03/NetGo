@@ -18,6 +18,15 @@ accepted format. The viewer uses letterboxing and maps input only to that image.
 Black bars and toolbar wheel events are excluded. Stop ends sharing/viewing
 without closing the window; only-view permissions preserve local shortcuts.
 
+The viewer keeps unavailable authorized hosts visible with their server status.
+Before connecting, users can request view-only mode and opt out of audio. The
+shared client intersects requested permissions with the host/grant inventory and
+rejects an authorization response that changes that set before opening media.
+F11 and the toolbar toggle windowed fullscreen; input is released on transitions.
+The toolbar stays available, and ending a session restores the saved placement.
+These controls are built and protocol-tested; GUI and full device acceptance
+remain separate from the synthetic codec/TLS tests.
+
 The authenticated response supplies server_unix_ms. Ticket deadlines use that
 time plus a suspend-aware monotonic timer; media peers and the local wall clock
 cannot supply or extend the time. Server next_generation fences each new

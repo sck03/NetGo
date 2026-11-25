@@ -25,9 +25,9 @@ void put(uint8_t* bytes,uint64_t value,unsigned size){for(unsigned i=0;i<size;++
 Message message(Kind kind,const Json& value){auto text=value.dump();return {kind,{text.begin(),text.end()}};}
 struct Fixture {
  Key siteSeed{},hostSeed{},controllerSeed{},siteKey{},hostKey{},controllerKey{},binding{};Bytes wire;Json authorization;std::mutex mutex;
- std::atomic_bool active=true,serverActive=true,accepted=false;std::atomic_uint connections=0,frames=0,inputCalls=0,deletes=0;
- std::string hostStatus="ready";bool denied=false;uint32_t caps=1;bool exerciseInput=false,invalidInput=false;std::atomic_bool inputVerified=false;
- bool wrongDevice=false,badProof=false,cancelOnIssue=false,missingClock=false,exerciseRenewal=false;int64_t serverOffsetMS=0;uint16_t port=0;std::thread server;std::atomic_bool proofVerified=false;
+ std::atomic_bool active=true,serverActive=true,accepted=false;std::atomic_uint connections=0,frames=0,inputCalls=0,deletes=0,renewalCalls=0;
+ std::string hostStatus="ready";bool denied=false;uint32_t caps=1,advertised=0,requested=0,optionCaps=3;bool exerciseInput=false,invalidInput=false;std::atomic_bool inputVerified=false;
+ bool wrongDevice=false,badProof=false,cancelOnIssue=false,missingClock=false,exerciseRenewal=false,slowControl=false,stalledControl=false;int64_t serverOffsetMS=0;uint16_t port=0;std::thread server;std::atomic_bool proofVerified=false;
  Fixture(){siteSeed.fill(1);hostSeed.fill(2);controllerSeed.fill(3);siteKey=publicKey(siteSeed);hostKey=publicKey(hostSeed);controllerKey=publicKey(controllerSeed);
   std::string site="site",user="user",controller="controller",host="host";ng_remote_ticket_binding fields{};fields.struct_size=sizeof(fields);fields.abi_version=NG_REMOTE_ABI;
   auto id=[](const std::string& s){return ng_remote_ticket_id{reinterpret_cast<const uint8_t*>(s.data()),s.size()};};fields.site_id=id(site);fields.user_id=id(user);fields.controller_id=id(controller);fields.host_id=id(host);std::copy(siteKey.begin(),siteKey.end(),fields.site_key);std::copy(hostKey.begin(),hostKey.end(),fields.host_key);std::copy(controllerKey.begin(),controllerKey.end(),fields.controller_key);std::fill(std::begin(fields.host_boot),std::end(fields.host_boot),4);check(ng_remote_ticket_binding_digest(&fields,binding.data())==0,"binding");
@@ -49,14 +49,17 @@ struct Fixture {
  }
  ~Fixture(){active=false;serverActive=false;if(server.joinable())server.join();}
  ng_remote_client_options options(){
-  ng_remote_client_options o{};o.struct_size=sizeof(o);o.abi_version=NG_REMOTE_CLIENT_ABI;o.site_id="site";o.host_id="host";o.capabilities=3;o.context=this;
+  ng_remote_client_options o{};o.struct_size=sizeof(o);o.abi_version=NG_REMOTE_CLIENT_ABI;o.site_id="site";o.host_id="host";o.capabilities=optionCaps;o.context=this;
   o.active=[](void* p)->int32_t{return static_cast<Fixture*>(p)->active?1:0;};
   o.control=[](void* p,const char* method,const char* path,const char* body,const char*,char* output,size_t capacity,size_t* length)->int32_t{try{
-   auto& f=*static_cast<Fixture*>(p);std::lock_guard lock(f.mutex);Json value;
+   auto& f=*static_cast<Fixture*>(p);
+   if(std::string(path).find("/renew")!=std::string::npos)++f.renewalCalls;
+   if(f.slowControl&&std::string(path).rfind("/netgo/v2/remote/sessions/",0)==0&&std::string(method)!="DELETE")std::this_thread::sleep_for(std::chrono::milliseconds(f.stalledControl?7000:1800));
+   std::lock_guard lock(f.mutex);Json value;
    if(std::string(method)=="CONTEXT")value={{"site_id","site"},{"user_id","user"},{"device_id",f.wrongDevice?"other":"controller"},{"public_key",encode(f.controllerKey.data(),32)}};
-   else if(std::string(path)=="/netgo/v2/remote")value={{"next_generation",uint64_t(17)},{"hosts",Json::array({{{"id","host"},{"enabled",true},{"capabilities",3},{"status",f.hostStatus},{"available_capabilities",f.denied?0:f.caps}}})},{"grants",Json::array({{{"host_id","host"},{"user_id","user"},{"capabilities",f.caps}}})}};
+   else if(std::string(path)=="/netgo/v2/remote")value={{"next_generation",uint64_t(17)},{"hosts",Json::array({{{"id","host"},{"enabled",true},{"capabilities",3},{"status",f.hostStatus},{"available_capabilities",f.denied?0:f.advertised?f.advertised:f.caps}}})},{"grants",Json::array({{{"host_id","host"},{"user_id","user"},{"capabilities",f.caps}}})}};
    else if(std::string(path)=="/netgo/v2/remote/key")value={{"public_key",encode(f.siteKey.data(),32)}};
-   else if(std::string(path)=="/netgo/v2/remote/sessions"){auto request=Json::parse(body);check(request.at("capabilities")==f.caps,"view-only negotiation");check(request.at("generation")==17,"server generation ignored");f.issue(request.at("generation"),1);value=f.authorization;if(f.cancelOnIssue)f.active=false;}
+   else if(std::string(path)=="/netgo/v2/remote/sessions"){auto request=Json::parse(body);check(request.at("capabilities")== (f.requested?f.requested:f.caps),"view-only negotiation");check(request.at("generation")==17,"server generation ignored");f.issue(request.at("generation"),1);value=f.authorization;if(f.cancelOnIssue)f.active=false;}
    else if(std::string(method)=="DELETE"){++f.deletes;value={{"revoked",true}};}
    else {if(std::string(path).find("/renew")!=std::string::npos)f.issue(f.authorization.at("session").at("generation"),f.authorization.at("session").at("sequence").get<uint64_t>()+1);else f.authorization["session"]["state"]=f.accepted?"active":"issued";value=f.authorization;}
    auto text=value.dump();if(text.size()>capacity)return -1;std::copy(text.begin(),text.end(),output);*length=text.size();return 0;
@@ -64,7 +67,7 @@ struct Fixture {
   o.sign=[](void* p,const uint8_t* bytes,size_t size,uint8_t output[64])->int32_t{try{auto& f=*static_cast<Fixture*>(p);sign(f.badProof?f.hostSeed:f.controllerSeed,bytes,size,output);return 0;}catch(...){return -1;}};
   o.input=[](void* p,char* output,size_t,size_t* length)->int32_t{auto& f=*static_cast<Fixture*>(p);auto count=++f.inputCalls;auto text=count==1?Json::array({{{"type","key"},{"code",65},{"down",true}},{{"type","key"},{"code",f.invalidInput?0:65},{"down",false}}}).dump():"[]";std::memcpy(output,text.data(),text.size());*length=text.size();return 0;};
   o.format=[](void* p,uint32_t w,uint32_t h,uint32_t fps,uint32_t caps)->int32_t{return w==640&&h==360&&fps==15&&caps==static_cast<Fixture*>(p)->caps?0:-1;};
-  o.video=[](void* p,const uint8_t*,size_t size,int64_t)->int32_t{auto& f=*static_cast<Fixture*>(p);if(size!=6)return -1;auto count=++f.frames;if(f.exerciseRenewal&&count==1){std::lock_guard lock(f.mutex);f.serverOffsetMS+=12000;}else if(!f.exerciseInput)f.active=false;return 0;};return o;
+  o.video=[](void* p,const uint8_t*,size_t size,int64_t)->int32_t{auto& f=*static_cast<Fixture*>(p);if(size!=6)return -1;auto count=++f.frames;if(f.exerciseRenewal&&count==1){std::lock_guard lock(f.mutex);f.serverOffsetMS+=12000;}else if(!f.exerciseInput&&(!f.slowControl||count>=3))f.active=false;return 0;};return o;
  }
 };
 }
@@ -72,16 +75,17 @@ int main(){try{
 #ifdef _WIN32
  WSADATA ws{};check(WSAStartup(MAKEWORD(2,2),&ws)==0,"winsock");
 #endif
- for(int scenario=0;scenario<13;++scenario){Fixture f;f.exerciseInput=scenario==8||scenario==9;f.hostStatus=scenario==10?"offline":scenario==11?"busy":"ready";f.denied=scenario==12;f.invalidInput=scenario==9;f.caps=f.exerciseInput?3:1;f.wrongDevice=scenario==1;f.badProof=scenario==2;f.cancelOnIssue=scenario==5;f.missingClock=scenario==6;f.exerciseRenewal=scenario==7;f.serverOffsetMS=scenario==3?86400000:scenario==4?-86400000:0;f.listen();auto options=f.options();ng_remote_client* client=nullptr;check(ng_remote_client_create(&options,&client)==0,"create");auto result=ng_remote_client_run(client);ng_remote_client_cancel(client);ng_remote_client_destroy(client);
-  if(scenario==0||scenario==3||scenario==4)check(result==0&&f.proofVerified&&f.frames==1&&f.inputCalls==0,"authenticated view-only session and clock offset");
-  else if(scenario==7)check(result==0&&f.frames==2&&f.inputCalls==0,"authenticated renewal clock recalibration");
+ for(int scenario=0;scenario<18;++scenario){Fixture f;f.exerciseInput=scenario==8||scenario==9;f.hostStatus=scenario==10?"offline":scenario==11?"busy":"ready";f.denied=scenario==12;f.invalidInput=scenario==9;f.caps=f.exerciseInput||scenario==14||scenario==15?3:1;if(scenario>=13&&scenario<=15){f.advertised=scenario==15?1:3;f.requested=1;f.optionCaps=scenario==15?3:1;}f.wrongDevice=scenario==1;f.badProof=scenario==2;f.cancelOnIssue=scenario==5;f.missingClock=scenario==6;f.exerciseRenewal=scenario==7||scenario>=16;f.slowControl=scenario>=16;f.stalledControl=scenario==17;f.serverOffsetMS=scenario==3?86400000:scenario==4?-86400000:0;f.listen();auto options=f.options();ng_remote_client* client=nullptr;check(ng_remote_client_create(&options,&client)==0,"create");const auto started=std::chrono::steady_clock::now();auto result=ng_remote_client_run(client);const auto elapsed=std::chrono::steady_clock::now()-started;ng_remote_client_cancel(client);ng_remote_client_destroy(client);
+  if(scenario==0||scenario==3||scenario==4||scenario==13)check(result==0&&f.proofVerified&&f.frames==1&&f.inputCalls==0,"authenticated view-only session and clock offset");
+  else if(scenario==7||scenario==16)check(result==0&&f.frames==(f.slowControl?3u:2u)&&f.inputCalls==0,"authenticated renewal clock recalibration / slow control continuity");
+  else if(scenario==17)check(f.frames==1&&f.renewalCalls==0&&elapsed>=std::chrono::seconds(6)&&elapsed<std::chrono::seconds(12),"unreachable control must still close without an extra renewal");
   else if(scenario==5)check(result==0&&f.frames==0&&!f.proofVerified,"cancellation reported as failure");
   else if(scenario==8)check(result==0&&f.inputVerified,"batched input not delivered");
   else if(scenario==9)check(result==NG_REMOTE_CLIENT_FAILED&&!f.inputVerified,"invalid batch partially delivered");
   else check(result==NG_REMOTE_CLIENT_FAILED&&f.frames==0&&!f.proofVerified,"unauthorized media");
   if(scenario==1||scenario==5||scenario==6)check(f.connections==0,"invalid/cancelled client reached transport");
-  check(f.deletes==(scenario>=10?0u:1u),"issued session cleanup or unavailable host allocation");
-  if(scenario>=10)check(f.connections==0,"unavailable host reached transport");
+  check(f.deletes==(scenario>=10&&scenario<=12?0u:1u),"issued session cleanup or unavailable host allocation");
+  if((scenario>=10&&scenario<=12)||scenario==14||scenario==15)check(f.connections==0,"unavailable host or excess capabilities reached transport");
  }
  {auto now=netgo::remote::monotonic_time_ms();check(now>=31000,"test requires 31s uptime");netgo::remote::ServerClock delayed(100000,now-31000);check(delayed.now()>=131000,"slow response extended lease");}
  ng_remote_client* invalid=nullptr;check(ng_remote_client_create(nullptr,&invalid)==NG_REMOTE_CLIENT_INVALID&&invalid==nullptr,"ABI validation");std::cout<<"PASS shared client TLS pin, possession, view-only negotiation, cancellation and unauthorized media rejection\n";return 0;

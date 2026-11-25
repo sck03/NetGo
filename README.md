@@ -59,6 +59,7 @@ bash install-server.sh
 | 4) 添加客户端 | 导出公共站点文件交给用户 |
 | 5) 高级网络与证书设置 | 身份、端口、证书和互联网出口 |
 | 6) 检查并恢复服务 | 运行检查和恢复 |
+| 7) 检查旁路由与局域网配置 | 检查网卡、路由、转发和 DNS，显示故障处理建议 |
 | 9) 卸载（保留数据） | 移除受管对象，保留配置及数据 |
 
 命令行卸载也可使用 `ng uninstall --yes`。重装时在保留的运行包目录执行 `bash install-server.sh install --source /root/NetGo-server --install-only`，再打开菜单选择首次配置/启动，恢复已有站点。完整参数见 [安装与维护说明](docs/INSTALLERS.zh-CN.md)。
