@@ -41,7 +41,7 @@
 - 日常：网页添加资源 → 创建账号并勾选权限 → 导出站点文件交给用户；用户导入后登录。手工配置保留为可选能力。
 - 远控：在远程桌面页登记和授权设备，客户端选择目标；跨设备画面、键鼠、音频和网络恢复仍需实机验收。
 
-192.168.18.220:10443 可以是正确的内网入口 / 站点证书身份，但不能直接作为外网可达入口。公网访问需要路由器映射后的真实公网候选，或已建立的 VPS 反向通道。仅填写 VPS 地址不会创建隧道。
+192.168.18.220:10443 可以是正确的内网入口 / 站点证书身份，但不能直接作为外网可达入口。IANA 将 192.168.0.0/16 列为 Private-Use，Globally Reachable 为 False。[S7]公网访问需要路由器映射后的真实公网候选，或已建立的 VPS 反向通道。仅填写 VPS 地址不会创建隧道。
 
 ## 后续设计边界
 
@@ -59,3 +59,4 @@ ARM64 是部署目标，不是用户应理解的配置项。LAN/VPS 安装器识
 - [S4 NetBird：Self-hosted quickstart](https://docs.netbird.io/selfhosted/selfhosted-guide)
 - [S5 RustDesk：Server OSS](https://rustdesk.com/docs/en/self-host/rustdesk-server-oss/)
 - [S6 MeshCentral：官方项目介绍](https://github.com/Ylianst/MeshCentral/blob/master/readme.md)
+- [S7 IANA：IPv4 特殊用途地址登记](https://www.iana.org/assignments/iana-ipv4-special-registry/iana-ipv4-special-registry.xhtml)

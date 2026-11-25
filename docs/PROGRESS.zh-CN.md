@@ -10,7 +10,7 @@
 
 本地 Windows 12 项 CTest、TLS 夹具、Go race/vet 与工具回归通过；九项云端构建和独立产物摘要 / 架构检查通过，已记录到 [远控与 ARM 证据](evidence/2026-11-25-remote-arm/REPORT.zh-CN.md)。ARM 物理服务器部署、跨设备完整远控及 72 小时稳定性仍需相应环境验收。
 
-继续按用户要求简化普通用户与管理员操作：参考 Tailscale、NetBird、RustDesk、MeshCentral 的官方设计，将 LAN/VPS 维护改为用途菜单、网卡检测和推荐配置；网页增加起步指引、资源模板和独立账号权限草稿。配置 ID 自动生成，单台主机转换为 /32，自动刷新不覆盖编辑，配置版本和限额折叠。详见 [产品对照与简化](PRODUCT_SIMPLIFICATION.zh-CN.md)；当前已通过前端 13 项测试和构建、Go node/site/deployment/api race，后续对应版本的云端证据单独记录。
+继续按用户要求简化普通用户与管理员操作：参考 Tailscale、NetBird、RustDesk、MeshCentral 的官方设计，将 LAN/VPS 维护改为用途菜单、网卡检测和推荐配置；网页增加起步指引、资源模板和独立账号权限草稿。配置 ID 自动生成，单台主机转换为 /32，自动刷新不覆盖编辑，配置版本和限额折叠。详见 [产品对照与简化](PRODUCT_SIMPLIFICATION.zh-CN.md)；已通过前端 13 项测试和构建、Go node/site/deployment/api race。404e7cd 对应的 LAN/VPS amd64/arm64 四项原生构建及安装包独立摘要 / ELF 检查全部通过；同时触发的四项客户端构建也成功。[管理员交互验证](evidence/2026-11-25-admin-ux/REPORT.zh-CN.md) 保留证据和浏览器交互未验收的边界。
 
 ## 前轮接续（2026-11-24）
 
