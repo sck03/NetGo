@@ -13,7 +13,7 @@ struct ClientView: View {
     @State private var uploading = false
     var body: some View {
         VStack(spacing: 12) {
-            HStack { Text("NetGo").font(.title2.bold()); Spacer(); Button("导入站点") { importing = true } }
+            HStack { Text("NetGo").font(.title2.bold()); Spacer(); Button("导入站点") { uploading=false;importing = true } }
             Picker("站点",selection:$model.selected) { ForEach(model.sites) { Text($0.name).tag($0.id) } }
             TextField("账号",text:$model.alias).textFieldStyle(.roundedBorder)
             SecureField("密码",text:$model.password).textFieldStyle(.roundedBorder)
@@ -27,20 +27,19 @@ struct ClientView: View {
 #if os(macOS)
             HStack { Toggle("无人值守：保存凭据并在登录后恢复（连接前开启）",isOn:$model.unattended);Button("共享此 Mac") { model.shareDesktop() }.disabled(!model.connected) }
 #endif
-            ScrollView(.horizontal) { HStack { Button("发送剪贴板") { model.sendClipboard() };Button("获取剪贴板") { model.viewer.command(["action":"clipboard.get"]) };Button("上传文件") { uploading=true };Menu("下载文件") { Button("刷新列表") { model.viewer.command(["action":"file.list"]) };ForEach(model.transferFiles,id: \.self) { name in Button(name) { model.download(name) } } };Button("取消传输") { model.viewer.command(["action":"cancel"]) };if let url=model.lastDownload { ShareLink("导出已下载文件",item:url) } } }
+            ScrollView(.horizontal) { HStack { Button("发送剪贴板") { model.sendClipboard() };Button("获取剪贴板") { model.viewer.command(["action":"clipboard.get"]) };Button("上传文件") { uploading=true;importing=true };Menu("下载文件") { Button("刷新列表") { model.viewer.command(["action":"file.list"]) };ForEach(model.transferFiles,id: \.self) { name in Button(name) { model.download(name) } } };Button("取消传输") { model.viewer.command(["action":"cancel"]) };if let url=model.lastDownload { ShareLink("导出已下载文件",item:url) } } }
             ScreenView(viewer:model.viewer).frame(minHeight:180).background(.black)
             HStack { TextField("发送文字",text:$text).textFieldStyle(.roundedBorder); Button("发送") { model.viewer.input(["type":"text","text":text]); text = "" }; Button("停止远控") { model.stopRemote() } }
         }
         .padding()
-        .fileImporter(isPresented:$importing,allowedContentTypes:[.json],allowsMultipleSelection:false) { result in
+        .fileImporter(isPresented:$importing,allowedContentTypes:uploading ? [.item]:[.json],allowsMultipleSelection:false) { result in
             do {
-                let url = try result.get()[0], allowed = url.startAccessingSecurityScopedResource()
+                guard let url=try result.get().first else {return}
+                if uploading {model.upload(url);return}
+                let allowed = url.startAccessingSecurityScopedResource()
                 defer { if allowed { url.stopAccessingSecurityScopedResource() } }
                 model.importSite(try Data(contentsOf:url))
             } catch { model.message = error.localizedDescription }
-        }
-        .fileImporter(isPresented:$uploading,allowedContentTypes:[.item],allowsMultipleSelection:false) { result in
-            do { model.upload(try result.get()[0]) } catch { model.message=error.localizedDescription }
         }
         .alert("确认新的站点身份",isPresented:$model.confirmTrust) {
             Button("取消",role:.cancel) { model.cancelImport() }
