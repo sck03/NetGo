@@ -105,6 +105,13 @@ func Main(role string, args []string) error {
 		}
 		return m.ApplyNetwork(&c)
 	}
+	if action == "check-network" && role == "server" {
+		c, err := site.Load(*config)
+		if err != nil {
+			return err
+		}
+		return m.CheckNetwork(c)
+	}
 	if action == "redirect-remove" {
 		table := "netgo_relay"
 		if role == "vps" {

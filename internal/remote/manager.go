@@ -15,7 +15,6 @@ import (
 	"netgo/internal/remote/ticket"
 	"netgo/internal/session"
 	"netgo/internal/store"
-	"sort"
 	"strconv"
 	"strings"
 	"time"
@@ -25,6 +24,7 @@ const LeaseDuration = 30 * time.Second
 const HeartbeatTimeout = 15 * time.Second
 
 var ErrUnavailable = errors.New("remote_host_unavailable")
+var ErrBusy = errors.New("remote_host_busy")
 var ErrReplay = errors.New("remote_ticket_replayed")
 
 type Manager struct {
@@ -160,8 +160,12 @@ func (m *Manager) Grant(c model.Credential, g model.RemoteGrant) (model.RemoteGr
 		if u, ok := st.Users[g.UserID]; !ok || !u.Active(now) {
 			return model.ErrNotFound
 		}
-		if _, ok := st.Hosts[g.HostID]; !ok {
+		host, ok := st.Hosts[g.HostID]
+		if !ok {
 			return model.ErrNotFound
+		}
+		if g.Capabilities & ^host.Capabilities != 0 {
+			return errors.New("remote_capabilities_unavailable")
 		}
 		if !g.ExpiresAt.IsZero() && !g.ExpiresAt.After(now) {
 			return errors.New("invalid_remote_grant_expiry")
@@ -284,7 +288,7 @@ func (m *Manager) Acquire(ctx context.Context, c model.Credential, req Request, 
 			return e
 		}
 		h, ok := st.Hosts[req.HostID]
-		if !ok || !h.Enabled || now.Sub(h.LastSeen) < 0 || now.Sub(h.LastSeen) >= HeartbeatTimeout {
+		if !ok || hostStatus(st, h, now) != "ready" {
 			return ErrUnavailable
 		}
 		g, ok := st.RemoteGrants[model.Hash(c.UserID+":"+h.ID)]
@@ -303,7 +307,7 @@ func (m *Manager) Acquire(ctx context.Context, c model.Credential, req Request, 
 			}
 			if r.State != "closed" {
 				if r.HostID == h.ID {
-					return model.ErrConflict
+					return ErrBusy
 				}
 				if r.UserID == c.UserID {
 					active++
@@ -512,53 +516,4 @@ func (m *Manager) Revoke(c model.Credential, id string) error {
 		st.Record(c.UserID, "remote.session.revoke", id)
 		return nil
 	})
-}
-
-type Inventory struct {
-	Hosts          []model.Host          `json:"hosts"`
-	Grants         []model.RemoteGrant   `json:"grants"`
-	Sessions       []model.RemoteSession `json:"sessions"`
-	NextGeneration uint64                `json:"next_generation"`
-}
-
-func (m *Manager) List(c model.Credential) (Inventory, error) {
-	out := Inventory{Hosts: []model.Host{}, Grants: []model.RemoteGrant{}, Sessions: []model.RemoteSession{}}
-	e := m.Store.Update(func(st *model.State) error {
-		now := m.now()
-		if e := current(st, c, now); e != nil {
-			return e
-		}
-		m.sweep(st, now)
-		admin := st.Users[c.UserID].Role == "admin"
-		allowed := map[string]bool{c.DeviceID: true}
-		for _, g := range st.RemoteGrants {
-			if admin || g.UserID == c.UserID {
-				out.Grants = append(out.Grants, g)
-				allowed[g.HostID] = true
-			}
-		}
-		for _, h := range st.Hosts {
-			if admin || allowed[h.ID] {
-				out.Hosts = append(out.Hosts, h)
-			}
-		}
-		var lastGeneration uint64
-		for _, r := range st.RemoteSessions {
-			if r.ControllerID == c.DeviceID && r.Generation > lastGeneration {
-				lastGeneration = r.Generation
-			}
-			if admin || r.ControllerID == c.DeviceID || r.HostID == c.DeviceID {
-				r.ControllerAuth = ""
-				out.Sessions = append(out.Sessions, r)
-			}
-		}
-		if lastGeneration < math.MaxInt64 {
-			out.NextGeneration = lastGeneration + 1
-		}
-		return nil
-	})
-	sort.Slice(out.Hosts, func(i, j int) bool { return out.Hosts[i].ID < out.Hosts[j].ID })
-	sort.Slice(out.Grants, func(i, j int) bool { return out.Grants[i].ID < out.Grants[j].ID })
-	sort.Slice(out.Sessions, func(i, j int) bool { return out.Sessions[i].ID < out.Sessions[j].ID })
-	return out, e
 }

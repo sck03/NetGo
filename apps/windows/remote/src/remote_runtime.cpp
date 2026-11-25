@@ -233,6 +233,8 @@ void view(const std::string& site,const std::string& hostID,Callbacks cb){
   if(text=="remote_connected")text="已连接；点击“停止”结束远程桌面";
   else if(text=="remote_waiting_consent")text="等待对方确认…";
   else if(text=="remote_clock_invalid"||text=="remote_generation_invalid")text="服务端远控信息不完整，请同步更新局域网服务端与客户端";
+  else if(text=="remote_host_busy")text="对方正在接受其他远程连接，请稍后刷新主机列表";
+  else if(text=="remote_host_unavailable")text="对方暂不可连接，请确认其 VPN 已连接并开启桌面共享";
   else if(text=="remote_view_forbidden")text="当前账号未获该主机的观看授权";
   else if(text=="remote_disconnected")text="远程桌面已结束";
   else if(text=="remote_decoder_unavailable")text="当前系统无法解码此远程画面";

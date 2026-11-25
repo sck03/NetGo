@@ -37,7 +37,8 @@ object NetGoRuntime {
     fun disconnect() = execute { NativeRemote.stopCurrent(); it.disconnect(); hosts.value = emptyList() }
     fun refreshHosts() = execute {
         val data = JSONObject(it.remoteCall(selectedSite, "GET", "/netgo/v2/remote", "", "")).getJSONArray("hosts")
-        hosts.value = (0 until data.length()).map { i -> data.getJSONObject(i).let { h -> h.getString("id") to h.getString("name") } }
+        hosts.value = (0 until data.length()).map { data.getJSONObject(it) }.filter { it.optString("status") == "ready" && (it.optInt("available_capabilities") and 1) != 0 }.map { it.getString("id") to it.getString("name") }
+        if (hosts.value.isEmpty()) message.value = "暂无可连接的已授权主机；请确认对方已连接 VPN 并开启共享。"
     }
     fun detach(value: Client) { NativeRemote.stopCurrent(); polling?.cancel(); if (client === value) client = null; scope.launch { runCatching { value.close() } } }
 }

@@ -91,8 +91,8 @@ struct HostItem: Identifiable { let id: String; let name: String }
                 let raw = try request("POST","/desktop/remote/call",body)
                 let object = try JSONSerialization.jsonObject(with:Data(raw.utf8))
                 let values = (object as? [[String:Any]]) ?? ((object as? [String:Any])?["hosts"] as? [[String:Any]]) ?? []
-                let hosts = values.compactMap { item -> HostItem? in guard let id = item["id"] as? String else { return nil }; return HostItem(id:id,name:(item["name"] as? String) ?? id) }
-                Task { @MainActor in self?.hosts = hosts }
+                let hosts = values.compactMap { item -> HostItem? in guard item["status"] as? String == "ready", ((item["available_capabilities"] as? Int ?? 0) & 1) != 0, let id = item["id"] as? String else { return nil }; return HostItem(id:id,name:(item["name"] as? String) ?? id) }
+                Task { @MainActor in self?.hosts = hosts; if hosts.isEmpty { self?.message = "暂无可连接的已授权主机；请确认对方已连接 VPN 并开启共享。" } }
             } catch { Task { @MainActor in self?.message = error.localizedDescription } }
         }
     }

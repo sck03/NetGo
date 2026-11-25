@@ -58,6 +58,12 @@ func failure(w http.ResponseWriter, e error) {
 	case errors.Is(e, model.ErrForbidden):
 		status = 403
 		code = "forbidden"
+	case errors.Is(e, remote.ErrBusy):
+		status = 409
+		code = "remote_host_busy"
+	case errors.Is(e, remote.ErrUnavailable):
+		status = 409
+		code = "remote_host_unavailable"
 	case errors.Is(e, model.ErrConflict):
 		status = 409
 		code = "session_conflict"

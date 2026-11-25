@@ -70,5 +70,6 @@ func (t terminal) serverMenu() error {
 				menuItem{"3", "设置互联网出口（旁路由 / DNS）", t.serverAction("bypass")})
 		}},
 		menuItem{"6", "检查并恢复服务", t.serverAction("repair")},
+		menuItem{"7", "检查旁路由与局域网配置", t.serverAction("check-network")},
 		menuItem{"9", "卸载（保留数据）", t.serverAction("uninstall")})
 }

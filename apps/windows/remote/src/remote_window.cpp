@@ -51,7 +51,7 @@ void refresh(){
  if(worker.joinable())worker.join();
  listing=true;
  running=true;
- worker=std::thread([]{try{auto inventory=desktop::inventory(site,[]{return running.load();});{std::lock_guard lock(mutex);hosts=inventory.at("hosts");}postStatus("选择已授权主机，或允许此电脑接收远程连接。");}catch(const std::exception& e){postStatus(e.what());}PostMessageW(window,done,0,0);});
+ worker=std::thread([]{try{auto inventory=desktop::inventory(site,[]{return running.load();});{std::lock_guard lock(mutex);hosts=Json::array();for(const auto& host:inventory.at("hosts"))if(host.value("status","")=="ready"&&(host.value("available_capabilities",0u)&NG_REMOTE_VIEW))hosts.push_back(host);}postStatus(hosts.empty()?"暂无可连接的已授权主机；请确认对方已连接 VPN、开启共享且没有其他会话。":"选择已授权主机，或允许此电脑接收远程连接。");}catch(const std::exception& e){postStatus(e.what());}PostMessageW(window,done,0,0);});
 }
 LRESULT CALLBACK proc(HWND h,UINT m,WPARAM w,LPARAM l){
  switch(m){

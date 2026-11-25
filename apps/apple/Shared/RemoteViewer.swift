@@ -55,7 +55,7 @@ final class RemoteViewer {
             options.format = { ctx, width, height, _, caps in let v = Unmanaged<RemoteViewer>.fromOpaque(ctx!).takeUnretainedValue(); v.lock.lock(); v.width = width; v.height = height; v.capabilities = caps; v.lock.unlock(); return 0 }
             options.video = { ctx, bytes, size, time in Unmanaged<RemoteViewer>.fromOpaque(ctx!).takeUnretainedValue().media.video(Data(bytes:bytes!,count:size),time:time); return 0 }
             options.audio = { ctx, bytes, size in Unmanaged<RemoteViewer>.fromOpaque(ctx!).takeUnretainedValue().media.audio(Data(bytes:bytes!,count:size)); return 0 }
-            options.status = { ctx, code in let v = Unmanaged<RemoteViewer>.fromOpaque(ctx!).takeUnretainedValue(); let text = String(cString:code!); DispatchQueue.main.async { v.changed?(text) } }
+            options.status = { ctx, code in let v = Unmanaged<RemoteViewer>.fromOpaque(ctx!).takeUnretainedValue(); let code = String(cString:code!); let messages = ["remote_connected":"远程桌面已连接", "remote_waiting_consent":"等待主机确认…", "remote_host_busy":"对方正在使用远程桌面，请稍后刷新", "remote_host_unavailable":"对方暂不可连接，请检查 VPN 和桌面共享", "remote_view_forbidden":"当前账号没有观看权限", "remote_disconnected":"远程桌面已结束"]; DispatchQueue.main.async { v.changed?(messages[code] ?? code) } }
             var created: OpaquePointer?
             if ng_remote_client_create(&options,&created) == 0, let created = created {
                 lock.lock(); client = created; if !running { ng_remote_client_cancel(created) }; lock.unlock()

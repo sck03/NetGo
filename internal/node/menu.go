@@ -269,52 +269,17 @@ func (t terminal) serverOperation(value string) error {
 		t.m.print("站点文件已保存：%s。将它交给用户，在客户端选择导入后登录。账号与资源权限在管理网页设置。", path)
 		return nil
 	case "bypass":
-		t.m.print("1) 启用/修改旁路由  2) 停用旁路由  0) 返回")
-		choice, err := t.text("请选择", "0")
-		if err != nil || choice == "0" {
+		c, err = t.editBypass(c, lookupDNS)
+		if err != nil {
 			return err
 		}
-		if choice == "2" {
-			c.Bypass = site.Bypass{}
-			c.Site.InternetDNS = nil
-		} else if choice == "1" {
-			ip, e := t.ipv4("旁路由 IP", c.Bypass.Gateway)
-			if e != nil {
-				return e
-			}
-			dns, e := t.ipv4("首选 DNS IP", ip)
-			if e != nil {
-				return e
-			}
-			c.Bypass = site.Bypass{Enabled: true, Gateway: ip, DNS: []string{dns}}
-			t.m.print("DNS 模式：1) 自动检测  2) 普通 DNS  3) Fake-IP DNS（Clash/Mihomo）")
-			dnsMode, e := t.text("请选择", "1")
-			if e != nil {
-				return e
-			}
-			if dnsMode == "3" || (dnsMode == "1" && detectFakeIP(dns)) {
-				c.Bypass.FakeIPCIDR = "198.18.0.0/15"
-				t.m.print("已启用旁路由 Fake-IP 地址支持。")
-			} else if dnsMode != "1" && dnsMode != "2" {
-				return errors.New("无效 DNS 模式")
-			}
-			c.Site.InternetDNS = c.Bypass.DNS
-			second, e := t.text("备用 DNS IPv4（可留空）", "")
-			if e != nil {
-				return e
-			}
-			if second != "" {
-				c.Bypass.DNS = append(c.Bypass.DNS, second)
-				c.Site.InternetDNS = c.Bypass.DNS
-			}
-			if _, e = networkSpec(c); e != nil {
-				return e
-			}
-		} else {
-			return errors.New("无效选项")
+		if _, err = networkSpec(c); err != nil {
+			return err
 		}
 		t.m.print("只有在管理页获得“互联网（旁路由）”资源权限的账号可使用；客户端默认关闭互联网模式。")
 		return t.m.ApplyServerConfig(c, nil)
+	case "check-network":
+		return t.m.CheckNetwork(c)
 	case "auxiliary":
 		return t.auxiliaryMenu(c)
 	case "repair":

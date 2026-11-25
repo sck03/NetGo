@@ -97,10 +97,14 @@ struct Monitor {
 };
 void run(ng_remote_client& c){
  auto ctx=c.call("CONTEXT","");require(ctx.at("site_id")==c.site,"remote_site_mismatch");
- auto inventory=c.call("GET",base);uint32_t hostCaps=0,grantCaps=0;
- for(const auto& h:inventory.at("hosts"))if(h.at("id")==c.host&&h.value("enabled",false))hostCaps=h.at("capabilities").get<uint32_t>();
- for(const auto& g:inventory.at("grants"))if(g.at("host_id")==c.host&&g.at("user_id")==ctx.at("user_id"))grantCaps=g.at("capabilities").get<uint32_t>();
- auto requested=c.options.capabilities&hostCaps&grantCaps;require((requested&NG_REMOTE_VIEW)!=0,"remote_view_forbidden");
+ auto inventory=c.call("GET",base);uint32_t available=0;bool found=false;
+ for(const auto& h:inventory.at("hosts"))if(h.at("id")==c.host){
+  found=true;auto state=h.at("status").get<std::string>();
+  require(state!="busy","remote_host_busy");require(state=="ready","remote_host_unavailable");
+  available=h.at("available_capabilities").get<uint32_t>()&h.at("capabilities").get<uint32_t>();
+ }
+ require(found,"remote_host_unavailable");
+ auto requested=c.options.capabilities&available;require((requested&NG_REMOTE_VIEW)!=0,"remote_view_forbidden");
  auto site=key(c.call("GET",std::string(base)+"/key").at("public_key"));Key nonce{};require(RAND_bytes(nonce.data(),nonce.size())==1,"remote_random_failed");
  auto next=inventory.find("next_generation");require(next!=inventory.end()&&next->is_number_unsigned(),"remote_generation_invalid");auto generation=next->get<uint64_t>();require(generation>0&&generation<=uint64_t(INT64_MAX),"remote_generation_invalid");
  auto requestedAt=netgo::remote::monotonic_time_ms();
