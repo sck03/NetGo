@@ -16,6 +16,7 @@ final class RemoteViewer {
     var control: ((String,String,String,String) throws -> String)?
     private var sessionControl: ((String,String,String,String) throws -> String)?
     var changed: ((String) -> Void)?
+    var event: (([String:Any]) -> Void)?
     private(set) var site = ""
     private(set) var capabilities: UInt32 = 0
 
@@ -29,7 +30,7 @@ final class RemoteViewer {
             var options = ng_remote_client_options()
             options.struct_size = UInt32(MemoryLayout<ng_remote_client_options>.size); options.abi_version = UInt32(NG_REMOTE_CLIENT_ABI)
             options.site_id = UnsafePointer(sitePointer); options.host_id = UnsafePointer(hostPointer)
-            options.capabilities = audio ? 7 : 3; options.context = Unmanaged.passUnretained(self).toOpaque()
+            options.capabilities = audio ? 63 : 59; options.context = Unmanaged.passUnretained(self).toOpaque()
             options.active = { ctx in let v = Unmanaged<RemoteViewer>.fromOpaque(ctx!).takeUnretainedValue(); v.lock.lock(); defer { v.lock.unlock() }; return v.running ? 1 : 0 }
             options.control = { ctx, method, path, body, key, out, capacity, length in
                 let v = Unmanaged<RemoteViewer>.fromOpaque(ctx!).takeUnretainedValue()
@@ -55,6 +56,7 @@ final class RemoteViewer {
             options.format = { ctx, width, height, _, caps in let v = Unmanaged<RemoteViewer>.fromOpaque(ctx!).takeUnretainedValue(); v.lock.lock(); v.width = width; v.height = height; v.capabilities = caps; v.lock.unlock(); return 0 }
             options.video = { ctx, bytes, size, time in Unmanaged<RemoteViewer>.fromOpaque(ctx!).takeUnretainedValue().media.video(Data(bytes:bytes!,count:size),time:time) ? 0 : -1 }
             options.audio = { ctx, bytes, size in Unmanaged<RemoteViewer>.fromOpaque(ctx!).takeUnretainedValue().media.audio(Data(bytes:bytes!,count:size)) ? 0 : -1 }
+            options.event = { ctx,json in let v=Unmanaged<RemoteViewer>.fromOpaque(ctx!).takeUnretainedValue();if let data=String(cString:json!).data(using:.utf8),let object=(try? JSONSerialization.jsonObject(with:data)) as? [String:Any] { DispatchQueue.main.async { v.event?(object) } } }
             options.status = { ctx, code in let v = Unmanaged<RemoteViewer>.fromOpaque(ctx!).takeUnretainedValue(); let code = String(cString:code!); let messages = ["remote_connected":"远程桌面已连接", "remote_waiting_consent":"等待主机确认…", "remote_host_busy":"对方正在使用远程桌面，请稍后刷新", "remote_host_unavailable":"对方暂不可连接，请检查 VPN 和桌面共享", "remote_view_forbidden":"当前账号没有观看权限", "remote_disconnected":"远程桌面已结束"]; DispatchQueue.main.async { v.changed?(messages[code] ?? code) } }
             var created: OpaquePointer?
             if ng_remote_client_create(&options,&created) == 0, let created = created {
@@ -86,6 +88,9 @@ final class RemoteViewer {
         if down == true && (x < left || x >= left+w*scale || y < top || y >= top+h*scale) { return }
         input(["type":"move","x":UInt32(max(0,min(1,(x-left)/(w*scale)))*65535),"y":UInt32(max(0,min(1,(y-top)/(h*scale)))*65535)])
         if let down = down { input(["type":"button","button":button,"down":down]) }
+    }
+    @discardableResult func command(_ value:[String:Any]) -> Bool {
+        lock.lock();defer { lock.unlock() };guard running,let client,let data=try? JSONSerialization.data(withJSONObject:value) else { return false };return data.withUnsafeBytes { bytes in ng_remote_client_command(client,bytes.baseAddress?.assumingMemoryBound(to:CChar.self),bytes.count)==0 }
     }
     func stop() { lock.lock(); generation &+= 1; running = false; if let client = client { ng_remote_client_cancel(client) }; lock.unlock(); media.stop() }
 }

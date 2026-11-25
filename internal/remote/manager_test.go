@@ -67,7 +67,7 @@ func setup(t *testing.T) *fixture {
 	if e != nil {
 		t.Fatal(e)
 	}
-	if _, e = f.m.Register(f.h, model.Host{ID: "host", Name: "Workstation", Platform: "windows", Boot: f.boot, Port: 29990, Enabled: true, Capabilities: ticket.CapabilityView | ticket.CapabilityInput, RequireConsent: true}); e != nil {
+	if _, e = f.m.Register(f.h, model.Host{ID: "host", Name: "Workstation", Platform: "windows", Boot: f.boot, TransportKey: base64.RawURLEncoding.EncodeToString(hp), Port: 29990, Enabled: true, Capabilities: ticket.CapabilityView | ticket.CapabilityInput, RequireConsent: true}); e != nil {
 		t.Fatal(e)
 	}
 	if _, e = f.m.Grant(f.c, model.RemoteGrant{HostID: "host", UserID: "user", Capabilities: ticket.CapabilityView | ticket.CapabilityInput}); e != nil {

@@ -102,6 +102,40 @@ class MainActivity : ComponentActivity() {
 @Composable private fun RemoteScreen(site: String, host: String, close: () -> Unit) {
     var remote by remember(site, host) { mutableStateOf<NativeRemote?>(null) }
     var input by remember { mutableStateOf(TextFieldValue()) }; var committed by remember { mutableStateOf("") }
+    val context=androidx.compose.ui.platform.LocalContext.current
+    val scope=rememberCoroutineScope()
+    var pendingTransfer by remember { mutableStateOf<JSONObject?>(null) }
+    var uploadPath by remember { mutableStateOf<java.io.File?>(null) }
+    var downloaded by remember { mutableStateOf<java.io.File?>(null) }
+    var files by remember { mutableStateOf<List<String>>(emptyList()) }
+    var showFiles by remember { mutableStateOf(false) }
+    val export=rememberLauncherForActivityResult(ActivityResultContracts.CreateDocument("application/octet-stream")) { uri ->
+        val file=downloaded
+        if(uri!=null && file!=null) scope.launch { try { kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) { context.contentResolver.openOutputStream(uri,"w")!!.use { out -> file.inputStream().use { it.copyTo(out,32768) } };file.delete() };downloaded=null;NetGoRuntime.message.value="文件已导出" } catch(_:Exception) { NetGoRuntime.message.value="文件导出失败，可重试" } }
+    }
+    val upload=rememberLauncherForActivityResult(ActivityResultContracts.OpenDocument()) { uri ->
+        if(uri!=null) scope.launch { try {
+            val result=kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) {
+                val name=context.contentResolver.query(uri,arrayOf(android.provider.OpenableColumns.DISPLAY_NAME),null,null,null)?.use { cursor -> if(cursor.moveToFirst())cursor.getString(0) else null } ?: "upload.bin"
+                require(name.isNotBlank() && name.length<=180 && !name.contains('/') && !name.contains('\\'))
+                val folder=java.io.File(context.cacheDir,"remote-upload").apply { mkdirs() };val file=java.io.File(folder,java.util.UUID.randomUUID().toString()+".bin")
+                try { context.contentResolver.openInputStream(uri)!!.use { source -> file.outputStream().use { out -> val buffer=ByteArray(32768);var total=0L;while(true){val n=source.read(buffer);if(n<0)break;total+=n;require(total<=1024L*1024*1024);out.write(buffer,0,n)} } };Pair(file,name) } catch(e:Exception){file.delete();throw e}
+            }
+            uploadPath?.delete();uploadPath=result.first;pendingTransfer=JSONObject().put("action","upload").put("path",result.first.absolutePath).put("name",result.second)
+        } catch(_:Exception) { NetGoRuntime.message.value="无法读取文件，单文件上限 1 GiB" } }
+    }
+    LaunchedEffect(remote,pendingTransfer) {
+        val value=pendingTransfer;val session=remote
+        if(value!=null && session!=null) { repeat(200) { if(session.capabilities!=0){if(session.command(value))pendingTransfer=null;return@LaunchedEffect};kotlinx.coroutines.delay(50) } }
+    }
+    LaunchedEffect(remote) { remote?.event={ value ->
+        if(value.has("error"))NetGoRuntime.message.value="操作失败："+value.optString("error")
+        else if(value.optString("action")=="clipboard.get") { val manager=context.getSystemService(android.content.ClipboardManager::class.java);manager.setPrimaryClip(android.content.ClipData.newPlainText("NetGo",value.optString("text")));NetGoRuntime.message.value="已复制远端剪贴板" }
+        else if(value.has("files")){val list=value.getJSONArray("files");files=(0 until list.length()).map { list.getJSONObject(it).getString("name") }}
+        else if(value.has("bytes"))NetGoRuntime.message.value="传输："+value.optLong("bytes")+" / "+value.optLong("size")+" 字节"
+        if(value.optBoolean("done")){if(value.optString("action")=="upload"){uploadPath?.delete();uploadPath=null};if(value.optString("action")=="download" && !value.has("error"))downloaded=java.io.File(value.getString("path"))}
+    } }
+
     DisposableEffect(site, host) { onDispose { remote?.stop() } }
     AndroidView(modifier = Modifier.fillMaxWidth().aspectRatio(16f / 9f), factory = { context ->
         SurfaceView(context).apply {
@@ -126,5 +160,15 @@ class MainActivity : ComponentActivity() {
             }
         }
     }, label = { Text("远程键盘输入") }, modifier = Modifier.fillMaxWidth())
+    Row(horizontalArrangement=Arrangement.spacedBy(8.dp)) {
+        OutlinedButton(onClick={val manager=context.getSystemService(android.content.ClipboardManager::class.java);val text=manager.primaryClip?.getItemAt(0)?.coerceToText(context)?.toString() ?: "";remote?.command(JSONObject().put("action","clipboard.set").put("text",text))}) { Text("发送剪贴板") }
+        OutlinedButton(onClick={remote?.command(JSONObject().put("action","clipboard.get"))}) { Text("获取剪贴板") }
+    }
+    Row(horizontalArrangement=Arrangement.spacedBy(8.dp)) {
+        OutlinedButton(onClick={upload.launch(arrayOf("*/*"))}) { Text("上传文件") }
+        Box { OutlinedButton(onClick={remote?.command(JSONObject().put("action","file.list"));showFiles=true}) { Text("下载文件") };DropdownMenu(showFiles,onDismissRequest={showFiles=false}) { files.forEach { name -> DropdownMenuItem(text={Text(name)},onClick={showFiles=false;val folder=java.io.File(context.filesDir,"remote-download").apply{mkdirs()};if(name.isNotEmpty()&&!name.contains('/')&&!name.contains('\\'))remote?.command(JSONObject().put("action","download").put("name",name).put("path",java.io.File(folder,name).absolutePath))}) } } }
+        OutlinedButton(onClick={remote?.command(JSONObject().put("action","cancel"));pendingTransfer=null}) { Text("取消传输") }
+    }
+    downloaded?.let { file -> OutlinedButton(onClick={export.launch(file.name)}) { Text("导出已下载文件") } }
     OutlinedButton(onClick = { remote?.stop(); close() }) { Text("结束远程桌面") }
 }

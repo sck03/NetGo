@@ -45,22 +45,56 @@ func TestExpiredSessionReplacementKeepsHostUnique(t *testing.T) {
 }
 func TestDefaultLimitAndExecutableHostContract(t *testing.T) {
 	f := setup(t)
-	if e := f.m.Store.Update(func(st *model.State) error {
-		u := st.Users[f.c.UserID]
-		u.MaxSessions = 0
-		st.Users[u.ID] = u
-		return nil
-	}); e != nil {
+	st, e := f.m.Store.RemoteView()
+	if e != nil {
 		t.Fatal(e)
 	}
-	f.acquire(t)
-	for _, h := range []model.Host{
-		{ID: "host", Name: "x", Platform: "linux", Boot: f.boot, Port: 29990, Capabilities: 1, RequireConsent: true},
-		{ID: "host", Name: "x", Platform: "windows", Boot: f.boot, Port: 29990, Capabilities: 9, RequireConsent: true},
-		{ID: "host", Name: "x", Platform: "windows", Boot: f.boot, Port: 29990, Capabilities: 1},
-	} {
-		if _, e := f.m.Register(f.h, h); e == nil {
-			t.Fatal("accepted unsupported host", h)
+	h := st.Hosts["host"]
+	for _, platform := range []string{"windows", "macos", "linux"} {
+		for _, consent := range []bool{true, false} {
+			h.Platform = platform
+			h.RequireConsent = consent
+			h.Capabilities = SupportedCapabilities
+			if _, e = f.m.Register(f.h, h); e != nil {
+				t.Fatal(platform, consent, e)
+			}
 		}
+	}
+	for _, platform := range []string{"ios", "android", "unknown"} {
+		h.Platform = platform
+		if _, e = f.m.Register(f.h, h); e == nil {
+			t.Fatal("unsupported host accepted", platform)
+		}
+	}
+	h.Platform = "windows"
+	h.TransportKey = ""
+	if _, e = f.m.Register(f.h, h); e == nil {
+		t.Fatal("missing transport key accepted")
+	}
+}
+
+func TestUnattendedGrantAndTransportRotation(t *testing.T) {
+	f := setup(t)
+	st, _ := f.m.Store.RemoteView()
+	h := st.Hosts["host"]
+	h.RequireConsent = false
+	h.Capabilities = SupportedCapabilities
+	if _, e := f.m.Register(f.h, h); e != nil {
+		t.Fatal(e)
+	}
+	if _, e := f.m.Grant(f.c, model.RemoteGrant{HostID: h.ID, UserID: f.c.UserID, Capabilities: SupportedCapabilities}); e != nil {
+		t.Fatal(e)
+	}
+	a := f.acquire(t)
+	if a.Session.RequireConsent || a.HostKey != h.TransportKey {
+		t.Fatal("unattended or transport binding incorrect")
+	}
+	h.TransportKey = st.Devices["controller"].PublicKey
+	if _, e := f.m.Register(f.h, h); e != nil {
+		t.Fatal(e)
+	}
+	st, _ = f.m.Store.RemoteView()
+	if st.RemoteSessions[a.Session.ID].State != "closed" {
+		t.Fatal("rotating transport identity retained session")
 	}
 }

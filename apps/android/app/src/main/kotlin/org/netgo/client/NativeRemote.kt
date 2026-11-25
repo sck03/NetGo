@@ -12,7 +12,11 @@ class NativeRemote(private val site: String, private val host: String, private v
     @Volatile var capabilities = 0; private set
     private var decoder: MediaCodec? = null
     private var sound: AudioTrack? = null
-    private var handle = 0L
+    @Volatile private var handle = 0L
+    var event: ((JSONObject)->Unit)? = null
+    private external fun commandNative(handle:Long,json:ByteArray):Boolean
+    fun command(value:JSONObject):Boolean = active && capabilities != 0 && handle != 0L && commandNative(handle,value.toString().toByteArray(Charsets.UTF_8))
+    @Keep fun onEvent(bytes:ByteArray) { if(active) runCatching { val value=JSONObject(bytes.toString(Charsets.UTF_8));android.os.Handler(android.os.Looper.getMainLooper()).post { if(active) event?.invoke(value) } } }
     private var pendingAudio = ByteArray(0)
     private external fun startNative(site: String, host: String): Long
     private external fun cancelNative(handle: Long)

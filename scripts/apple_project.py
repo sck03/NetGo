@@ -25,7 +25,7 @@ def create(platform,output,native,framework=None,resources=(),selected_version=N
         for kind in ('Debug','Release'):configs.append(add(name+kind,{'isa':'XCBuildConfiguration','name':kind,'buildSettings':settings}))
         return add(name+'config',{'isa':'XCConfigurationList','buildConfigurations':configs,'defaultConfigurationName':'Release','defaultConfigurationIsVisible':'0'})
     project_cfg=configs('project',{'CLANG_ENABLE_OBJC_ARC':'YES','CLANG_ENABLE_MODULES':'YES','SWIFT_VERSION':'5.0','CLANG_CXX_LANGUAGE_STANDARD':'c++17'})
-    shared=[ROOT/'apps/apple/Shared'/name for name in ('ClientView.swift','ClientModel.swift','RemoteViewer.swift','MediaPlayer.swift')]
+    shared=[ROOT/'apps/apple/Shared'/name for name in ('ClientView.swift','ClientModel.swift','RemoteViewer.swift','MediaPlayer.swift','RemoteHost.swift')]
     specs=[('NetGo',shared+[ROOT/'apps/apple'/platform/'NetGoApp.swift'],'app')]
     if platform=='iOS':specs.append(('NetGoTunnel',[ROOT/'apps/apple/iOS/PacketTunnelProvider.swift',ROOT/'apps/apple/iOS/TunnelBridge.m'],'appex'))
     target_map={name:ident('target'+name) for name,files,extension in specs}
@@ -58,7 +58,7 @@ def create(platform,output,native,framework=None,resources=(),selected_version=N
             app_info=output/(name+'-Info.plist')
             app_info.write_bytes(plistlib.dumps({'NetGoBuildVersion':app_version}))
             settings['INFOPLIST_FILE']=str(app_info)
-        if platform=='macOS':settings.update(SDKROOT='macosx',MACOSX_DEPLOYMENT_TARGET='14.0',OTHER_LDFLAGS=['-lc++','-lcurl','-framework','Security','-framework','CoreFoundation'],INFOPLIST_KEY_NSPrincipalClass='NSApplication')
+        if platform=='macOS':settings.update(SDKROOT='macosx',MACOSX_DEPLOYMENT_TARGET='14.0',OTHER_LDFLAGS=['-lc++','-lcurl','-framework','Security','-framework','CoreFoundation','-framework','ScreenCaptureKit','-framework','VideoToolbox','-framework','ApplicationServices','-framework','AppKit','-framework','CoreMedia','-framework','CoreVideo'],INFOPLIST_KEY_NSPrincipalClass='NSApplication')
         else:
             settings.update(SDKROOT='iphoneos',IPHONEOS_DEPLOYMENT_TARGET='17.0',TARGETED_DEVICE_FAMILY='1,2',CODE_SIGN_ENTITLEMENTS=str(ROOT/'apps/apple/iOS/NetGo.entitlements'))
             if extension=='appex':

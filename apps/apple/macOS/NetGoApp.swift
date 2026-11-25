@@ -9,7 +9,7 @@ import NetGoApple
         WindowGroup {
             ClientView(model:model).frame(minWidth:560,minHeight:560)
                 .onAppear { runtime.attach(model) }
-                .onDisappear { model.viewer.stop() }
+                .onDisappear { model.stopRemote() }
         }.defaultSize(width:640,height:700)
     }
 }

@@ -10,6 +10,7 @@ struct ClientView: View {
     @ObservedObject var model: ClientModel
     @State private var importing = false
     @State private var text = ""
+    @State private var uploading = false
     var body: some View {
         VStack(spacing: 12) {
             HStack { Text("NetGo").font(.title2.bold()); Spacer(); Button("导入站点") { importing = true } }
@@ -23,8 +24,12 @@ struct ClientView: View {
             Divider()
             HStack { Text("远程桌面"); Spacer(); Button("刷新主机") { model.loadHosts() }.disabled(!model.connected) }
             ScrollView(.horizontal) { HStack { ForEach(model.hosts) { host in Button(host.label) { model.view(host) }.disabled(!host.ready || !model.connected) } } }
+#if os(macOS)
+            HStack { Toggle("无人值守（仅站点授权账号）",isOn:$model.unattended);Button("共享此 Mac") { model.shareDesktop() }.disabled(!model.connected) }
+#endif
+            ScrollView(.horizontal) { HStack { Button("发送剪贴板") { model.sendClipboard() };Button("获取剪贴板") { model.viewer.command(["action":"clipboard.get"]) };Button("上传文件") { uploading=true };Menu("下载文件") { Button("刷新列表") { model.viewer.command(["action":"file.list"]) };ForEach(model.transferFiles,id: \.self) { name in Button(name) { model.download(name) } } };Button("取消传输") { model.viewer.command(["action":"cancel"]) };if let url=model.lastDownload { ShareLink("导出已下载文件",item:url) } } }
             ScreenView(viewer:model.viewer).frame(minHeight:180).background(.black)
-            HStack { TextField("发送文字",text:$text).textFieldStyle(.roundedBorder); Button("发送") { model.viewer.input(["type":"text","text":text]); text = "" }; Button("停止远控") { model.viewer.stop() } }
+            HStack { TextField("发送文字",text:$text).textFieldStyle(.roundedBorder); Button("发送") { model.viewer.input(["type":"text","text":text]); text = "" }; Button("停止远控") { model.stopRemote() } }
         }
         .padding()
         .fileImporter(isPresented:$importing,allowedContentTypes:[.json],allowsMultipleSelection:false) { result in
@@ -33,6 +38,9 @@ struct ClientView: View {
                 defer { if allowed { url.stopAccessingSecurityScopedResource() } }
                 model.importSite(try Data(contentsOf:url))
             } catch { model.message = error.localizedDescription }
+        }
+        .fileImporter(isPresented:$uploading,allowedContentTypes:[.item],allowsMultipleSelection:false) { result in
+            do { model.upload(try result.get()[0]) } catch { model.message=error.localizedDescription }
         }
         .alert("确认新的站点身份",isPresented:$model.confirmTrust) {
             Button("取消",role:.cancel) { model.cancelImport() }

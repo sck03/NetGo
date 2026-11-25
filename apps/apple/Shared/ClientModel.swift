@@ -1,4 +1,9 @@
 import Foundation
+#if os(macOS)
+import AppKit
+#else
+import UIKit
+#endif
 import SwiftUI
 import NetGoApple
 
@@ -24,7 +29,12 @@ struct HostItem: Identifiable { let id: String; let name: String; let status: St
     private var epoch: UInt64 = 0
     private var hostEpoch: UInt64 = 0
     private var refreshing = false
-    private func invalidate() { epoch &+= 1; hostEpoch &+= 1; hosts=[]; resources=[]; viewer.stop() }
+    private func invalidate() { epoch &+= 1; hostEpoch &+= 1; hosts=[]; resources=[]; stopRemote() }
+    func stopRemote() { viewer.stop()
+#if os(macOS)
+        host.stop()
+#endif
+    }
     @Published var alias = ""
     @Published var password = ""
     @Published var message = "未连接"
@@ -33,6 +43,20 @@ struct HostItem: Identifiable { let id: String; let name: String; let status: St
 	@Published var confirmTrust = false
 	private var pendingImport: Data?
     let viewer = RemoteViewer()
+    @Published var transferFiles:[String] = []
+    @Published var lastDownload:URL?
+    private var selectedUpload:URL?
+#if os(macOS)
+    let host = RemoteHost()
+    @Published var unattended=false
+    func shareDesktop() {
+        guard connected,let request else { return };viewer.stop();let site=selected
+        host.start(site:site,unattended:unattended) { method,_,body,_ in
+            if method=="LOCAL_CONTEXT" { return try request("GET","/desktop/remote/context?site="+site,"") }
+            return try request("POST","/desktop/remote/call",body)
+        }
+    }
+#endif
     var request: ((String,String,String) throws -> String)?
     var importAction: ((String,String,Bool) throws -> Void)?
     var connectAction: ((SiteItem,String,String,Bool,Bool) -> Void)?
@@ -43,6 +67,10 @@ struct HostItem: Identifiable { let id: String; let name: String; let status: St
         sites = (UserDefaults.standard.stringArray(forKey:"sites") ?? []).compactMap { raw in guard let object = try? JSONSerialization.jsonObject(with:Data(raw.utf8)) as? [String:Any], let id = object["ID"] as? String else { return nil }; return SiteItem(id:id,name:object["Name"] as? String ?? id,raw:raw,importID:(UserDefaults.standard.dictionary(forKey:"siteImportIDs")?[id] as? String) ?? "",needsImport:UserDefaults.standard.stringArray(forKey:"pendingSites")?.contains(id) ?? false,trusted:UserDefaults.standard.stringArray(forKey:"trustedSites")?.contains(id) ?? false) }
         selected = sites.first?.id ?? ""
         viewer.changed = { [weak self] text in Task { @MainActor in self?.message = text } }
+        viewer.event = { [weak self] value in Task { @MainActor in self?.exchangeEvent(value) } }
+#if os(macOS)
+        host.changed = { [weak self] text in Task { @MainActor in self?.message=text } }
+#endif
         timer = Timer.scheduledTimer(withTimeInterval: 2,repeats: true) { [weak self] _ in Task { @MainActor in self?.refresh() } }
     }
     func importSite(_ data: Data, approved: Bool = false) {
@@ -114,7 +142,7 @@ struct HostItem: Identifiable { let id: String; let name: String; let status: St
                     self.connected=object["state"] as? String == "connected"
                     self.message=self.connected ? "已连接" : ((object["error"] as? String).flatMap{$0.isEmpty ? nil : $0} ?? "未连接")
                     self.resources=((object["lease"] as? [String:Any])?["resources"] as? [[String:Any]] ?? []).map{($0["name"] as? String ?? "") + " · " + ($0["cidr"] as? String ?? "")}
-                    if !self.connected { self.hostEpoch &+= 1; self.hosts=[]; self.resources=[]; self.viewer.stop() }
+                    if !self.connected { self.hostEpoch &+= 1; self.hosts=[]; self.resources=[]; self.stopRemote() }
                     if let profiles=profiles {self.synchronizeProfiles(Data(profiles.utf8))}
                 }
             } catch { Task { @MainActor in guard let self=self else{return};self.refreshing=false;if version==self.epoch {self.connected=false;self.hosts=[];self.resources=[]} } }
@@ -147,6 +175,29 @@ struct HostItem: Identifiable { let id: String; let name: String; let status: St
         }
         viewer.start(site:selected,host:host.id)
     }
+    private func exchangeEvent(_ value:[String:Any]) {
+        if let error=value["error"] as? String { message="操作失败："+error }
+        else if value["action"] as? String == "clipboard.get",let text=value["text"] as? String {
+#if os(macOS)
+            NSPasteboard.general.clearContents();NSPasteboard.general.setString(text,forType:.string)
+#else
+            UIPasteboard.general.string=text
+#endif
+            message="已复制远端剪贴板"
+        } else if let files=value["files"] as? [[String:Any]] { transferFiles=files.compactMap{$0["name"] as? String} }
+        else if let bytes=value["bytes"] as? NSNumber,let size=value["size"] as? NSNumber { message="文件传输：\(bytes) / \(size) 字节" }
+        if value["done"] as? Bool == true { if value["action"] as? String == "upload" { selectedUpload?.stopAccessingSecurityScopedResource();selectedUpload=nil };if value["action"] as? String == "download",value["error"]==nil,let path=value["path"] as? String { lastDownload=URL(fileURLWithPath:path) } }
+    }
+    func sendClipboard() {
+#if os(macOS)
+        let text=NSPasteboard.general.string(forType:.string) ?? ""
+#else
+        let text=UIPasteboard.general.string ?? ""
+#endif
+        viewer.command(["action":"clipboard.set","text":text])
+    }
+    func upload(_ url:URL) { guard selectedUpload==nil else { message="请等待当前上传完成或取消";return };_ = url.startAccessingSecurityScopedResource();selectedUpload=url;if !viewer.command(["action":"upload","path":url.path,"name":url.lastPathComponent]) { url.stopAccessingSecurityScopedResource();selectedUpload=nil;message="远程连接不可用或任务队列已满" } }
+    func download(_ name:String) { guard !name.isEmpty,!name.hasPrefix("."),!name.contains("/"),!name.contains("\\"),!name.contains(":"),name.utf8.count<=180 else { message="无效的远端文件名";return };let root=FileManager.default.urls(for:.documentDirectory,in:.userDomainMask)[0].appendingPathComponent("NetGo Downloads",isDirectory:true);do { try FileManager.default.createDirectory(at:root,withIntermediateDirectories:true);viewer.command(["action":"download","name":name,"path":root.appendingPathComponent(name).path]) } catch { message=error.localizedDescription } }
     private func operation(_ method: String,_ path: String,_ body: String) {
         let version=epoch
         guard let request = request else { return }

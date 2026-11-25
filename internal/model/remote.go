@@ -12,6 +12,7 @@ type Host struct {
 	Name           string    `json:"name"`
 	Platform       string    `json:"platform"`
 	Boot           string    `json:"boot"`
+	TransportKey   string    `json:"transport_key"`
 	Enabled        bool      `json:"enabled"`
 	Capabilities   uint32    `json:"capabilities"`
 	RequireConsent bool      `json:"require_consent"`

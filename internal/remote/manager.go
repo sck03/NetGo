@@ -23,8 +23,8 @@ import (
 const LeaseDuration = 30 * time.Second
 const HeartbeatTimeout = 15 * time.Second
 
-// Reserved ticket bits are not executable product capabilities.
-const SupportedCapabilities = ticket.CapabilityView | ticket.CapabilityInput | ticket.CapabilityAudio
+// Hosts advertise only capabilities provided by their installed adapters.
+const SupportedCapabilities = ticket.CapabilityView | ticket.CapabilityInput | ticket.CapabilityAudio | ticket.CapabilityClipboard | ticket.CapabilityUpload | ticket.CapabilityDownload
 
 var ErrUnavailable = errors.New("remote_host_unavailable")
 var ErrBusy = errors.New("remote_host_busy")
@@ -88,7 +88,10 @@ func (m *Manager) Register(c model.Credential, h model.Host) (model.Host, error)
 	if _, e := decode(h.Boot, 16); e != nil {
 		return h, e
 	}
-	if h.ID != c.DeviceID || len(strings.TrimSpace(h.Name)) == 0 || len(h.Name) > 128 || !capabilities(h.Capabilities) || h.Port < 1024 || (h.Platform != "windows" || !h.RequireConsent) {
+	if _, e := decode(h.TransportKey, 32); e != nil {
+		return h, errors.New("invalid_remote_transport_key")
+	}
+	if h.ID != c.DeviceID || len(strings.TrimSpace(h.Name)) == 0 || len(h.Name) > 128 || !capabilities(h.Capabilities) || h.Port < 1024 || (h.Platform != "windows" && h.Platform != "macos" && h.Platform != "linux") {
 		return h, errors.New("invalid_remote_host")
 	}
 	err := m.Store.RemoteUpdate(func(st *model.State) error {
@@ -320,7 +323,7 @@ func (m *Manager) Acquire(ctx context.Context, c model.Credential, req Request, 
 		if active >= st.Users[c.UserID].SessionLimit() || len(st.RemoteSessions) >= 65536 {
 			return model.ErrConflict
 		}
-		hostKey, e := decode(st.Devices[h.ID].PublicKey, 32)
+		hostKey, e := decode(h.TransportKey, 32)
 		if e != nil {
 			return e
 		}
@@ -408,7 +411,7 @@ func (m *Manager) authorization(st *model.State, r model.RemoteSession) (Authori
 	wire, e := ticket.Sign(m.Key, ticket.Claims{Binding: [32]byte(b), Session: [16]byte(id), Generation: r.Generation, PolicyRevision: r.PolicyRevision, Sequence: r.Sequence, IssuedMS: uint64(r.IssuedAt.UnixMilli()), ExpiresMS: uint64(r.ExpiresAt.UnixMilli()), Capabilities: r.Capabilities, Consent: r.RequireConsent})
 	public := r
 	public.ControllerAuth = ""
-	return Authorization{Session: public, Ticket: base64.RawURLEncoding.EncodeToString(wire), SiteKey: m.PublicKey(), HostKey: st.Devices[r.HostID].PublicKey, ControllerKey: st.Devices[r.ControllerID].PublicKey, Endpoint: net.JoinHostPort(st.Devices[r.HostID].IP, strconv.Itoa(int(st.Hosts[r.HostID].Port))), ServerUnixMS: m.now().UnixMilli()}, e
+	return Authorization{Session: public, Ticket: base64.RawURLEncoding.EncodeToString(wire), SiteKey: m.PublicKey(), HostKey: st.Hosts[r.HostID].TransportKey, ControllerKey: st.Devices[r.ControllerID].PublicKey, Endpoint: net.JoinHostPort(st.Devices[r.HostID].IP, strconv.Itoa(int(st.Hosts[r.HostID].Port))), ServerUnixMS: m.now().UnixMilli()}, e
 }
 
 func (m *Manager) Consume(c model.Credential, id string, sequence uint64, boot string, proof Possession) (Authorization, error) {
