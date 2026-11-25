@@ -23,7 +23,7 @@ function setExpiry(event: Event) { const value = (event.target as HTMLInputEleme
     <form @submit.prevent="save">
       <label>用户名<input v-model="draft.alias" required></label><label>角色<select v-model="draft.role"><option value="user">用户</option><option value="admin">管理员</option></select></label>
       <label class="check"><input v-model="draft.disabled" type="checkbox">停用账号</label>
-      <fieldset class="permission-list"><legend>允许访问的资源</legend><label v-for="resource in resources" :key="resource.id" class="check"><input v-model="draft.resources" type="checkbox" :value="resource.id">{{ resource.name }}</label><p v-if="!resources.length">请先到“局域网资源”添加要开放的设备或服务。</p></fieldset>
+      <fieldset class="permission-list"><legend>允许访问的资源</legend><label v-for="resource in resources" :key="resource.id" class="check"><input v-model="draft.resources" type="checkbox" :value="resource.id">{{ resource.name }}</label><p v-if="!resources.length">需要开放局域网设备时，请先到“局域网资源”添加。</p><p class="muted">仅使用远程桌面的账号可以不选局域网资源，桌面权限在“远程桌面”中单独授予。</p></fieldset>
       <details><summary>设备限额和到期时间</summary><div class="account-limits"><label>最多登记设备<input v-model.number="draft.max_devices" type="number" min="1" max="100" required></label><label>最多同时连接<input v-model.number="draft.max_sessions" type="number" min="1" max="100" required></label><label>到期时间（留空为不限）<input type="datetime-local" :value="expiryValue(draft.expires_at)" @change="setExpiry"></label></div></details>
       <p class="muted">保存会撤销此账号已有连接，新权限在重新连接后生效。</p>
       <div class="actions"><button class="primary" :disabled="busy">保存权限</button><button type="button" class="secondary" :disabled="busy" @click="draft = null">取消</button></div>

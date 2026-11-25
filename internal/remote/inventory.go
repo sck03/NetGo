@@ -51,7 +51,11 @@ type Inventory struct {
 
 func (m *Manager) List(c model.Credential) (Inventory, error) {
 	out := Inventory{Hosts: []HostSummary{}, Grants: []GrantSummary{}, Sessions: []model.RemoteSession{}}
-	e := m.Store.RemoteRead(func(st *model.State) error {
+	state, lastGeneration, e := m.Store.RemoteInventory(c.DeviceID)
+	if e != nil {
+		return out, e
+	}
+	e = func(st *model.State) error {
 		now := m.now()
 		if e := current(st, c, now); e != nil {
 			return e
@@ -84,12 +88,8 @@ func (m *Manager) List(c model.Credential) (Inventory, error) {
 				out.Hosts = append(out.Hosts, summary)
 			}
 		}
-		var lastGeneration uint64
 		for _, r := range st.RemoteSessions {
-			if r.ControllerID == c.DeviceID && r.Generation > lastGeneration {
-				lastGeneration = r.Generation
-			}
-			if admin || r.ControllerID == c.DeviceID || r.HostID == c.DeviceID {
+			if r.State != "closed" && (admin || r.ControllerID == c.DeviceID || r.HostID == c.DeviceID) {
 				r.ControllerAuth = ""
 				out.Sessions = append(out.Sessions, r)
 			}
@@ -98,7 +98,7 @@ func (m *Manager) List(c model.Credential) (Inventory, error) {
 			out.NextGeneration = lastGeneration + 1
 		}
 		return nil
-	})
+	}(&state)
 	sort.Slice(out.Hosts, func(i, j int) bool { return out.Hosts[i].ID < out.Hosts[j].ID })
 	sort.Slice(out.Grants, func(i, j int) bool { return out.Grants[i].ID < out.Grants[j].ID })
 	sort.Slice(out.Sessions, func(i, j int) bool { return out.Sessions[i].ID < out.Sessions[j].ID })

@@ -19,7 +19,7 @@
 | Go 全量 go test -race ./... | 通过，包括新增无人值守和传输密钥测试 |
 | Go 全量 go vet ./... | 通过 |
 | Windows 原生构建 / CTest | 16/16；包含真实回环 TLS 的共享 host/client 集成、文件边界与取消测试 |
-| Windows GPU 合成画面 | RX 580 2048SP、驱动 31.0.14051.5006；GPU NV12 → 硬件 H.264 → 解码 40/40 帧、500,016 字节；[命令与输出](evidence/2026-11-26-remote-host/gpu-probe.txt) |
+| Windows GPU 合成画面 | RX 580 2048SP、驱动 31.0.14051.5006；GPU NV12 → 硬件 H.264 → 解码 40/40 帧、500,016 字节；[命令与输出](https://github.com/sck03/NetGo/blob/92969551d3989395bcf2556702649ed9dc9c8e3b/docs/evidence/2026-11-26-remote-host/gpu-probe.txt) |
 | 管理页面 npm test | 21/21 |
 | 管理页面 npm run build | 通过 |
 | Python 工具测试 | 60 项运行，59 通过、1 项 Linux 符号链接语义在 Windows 跳过 |
@@ -27,7 +27,7 @@
 
 ## GitHub main 构建验证
 
-以下构建均验证代码提交 `5bbd26dd4484aec166cbe0d41f9c057835deec0a`，发布开关关闭。最终文档提交仅补充验证证据；未启动部署或创建 Release。时间按北京时间 2026-11-26 记录，GitHub 对应 UTC 2026-11-25。七项均已完成并通过；[API 证据](evidence/2026-11-26-remote-host/github-builds.json) 保存运行编号、代码提交、任务结果和产物摘要。产物摘要由 GitHub 提供，未在本次最终核验中下载全部压缩包重新计算。
+以下构建均验证代码提交 `5bbd26dd4484aec166cbe0d41f9c057835deec0a`，发布开关关闭。最终文档提交仅补充验证证据；未启动部署或创建 Release。时间按北京时间 2026-11-26 记录，GitHub 对应 UTC 2026-11-25。七项均已完成并通过；[API 证据](https://github.com/sck03/NetGo/blob/92969551d3989395bcf2556702649ed9dc9c8e3b/docs/evidence/2026-11-26-remote-host/github-builds.json) 保存运行编号、代码提交、任务结果和产物摘要。产物摘要由 GitHub 提供，未在本次最终核验中下载全部压缩包重新计算。
 
 | 目标 | 构建记录 | 结果 |
 | --- | --- | --- |

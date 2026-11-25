@@ -1,5 +1,0 @@
-PASS matching hostname, usable validity and private key
-PASS wrong certificate hostname rejected
-PASS mismatched certificate/private key rejected
-PASS certificate near expiry rejected
-Certificate deployment and systemd recovery NOT-RUN; validation mode made no service changes

@@ -2,6 +2,7 @@
 import { computed, onMounted, onUnmounted, ref, watch } from 'vue'
 import { expiryInput, expiryPayload, hostStatusLabel, remoteCapabilities, remotePermissions as permissions } from '../../../packages/ui/remote'
 import { LatestQuery } from '../../../packages/ui/query'
+import RemoteHistory from './RemoteHistory.vue'
 type Host = { id: string; name: string; platform: string; status: string; require_consent: boolean; capabilities: number }
 type Grant = { id: string; user_id: string; host_id: string; capabilities: number; active: boolean; expires_at: string }
 type Session = { id: string; user_id: string; host_id: string; state: string; capabilities: number }
@@ -102,4 +103,5 @@ onUnmounted(() => { alive = false; query.invalidate(); if (timer) clearInterval(
     <div class="access-list"><div v-for="grant in inventory.grants" :key="grant.id" class="access-row"><div><strong>{{ users[grant.user_id]?.alias || grant.user_id }}</strong><small>访问 {{ hostNames[grant.host_id] || grant.host_id }}</small></div><div><span>{{ label(grant.capabilities) }}</span><small>{{ grant.active ? (expiryInput(grant.expires_at) ? '到期：' + expiryInput(grant.expires_at).replace('T', ' ') : '不设到期时间') : '授权已到期' }}</small></div><div class="actions"><button class="secondary" :disabled="busy" @click="editGrant(grant)">修改</button><button class="secondary danger-text" :disabled="busy" @click="revoke(grant)">撤销</button></div></div><p v-if="loaded && !inventory.grants.length" class="empty">尚未授予桌面访问权限。</p></div>
   </section>
   <section class="card"><h3>正在进行的远控</h3><div v-for="session in activeSessions" :key="session.id" class="access-row"><div><strong>{{ users[session.user_id]?.alias || session.user_id }}</strong><small>连接 {{ hostNames[session.host_id] || session.host_id }}</small></div><div><span class="status-pill" :class="session.state === 'active' ? 'ready' : 'busy'">{{ session.state === 'active' ? '已连接' : '连接验证中' }}</span><small>{{ label(session.capabilities) }}</small></div><button class="secondary danger-text" :disabled="busy" @click="change('/netgo/v2/remote/sessions/' + encodeURIComponent(session.id), 'DELETE', undefined, '远控会话已停止，桌面授权仍然保留。')">停止会话</button></div><div v-if="loaded && !activeSessions.length" class="empty">当前没有远控会话。</div></section>
+  <RemoteHistory :request="request" :users="users" :hosts="hostNames" />
 </template>

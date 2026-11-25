@@ -56,13 +56,14 @@ index 0000000..bc43a7c
 +}
 diff --git a/client/cmd/netgo_rpc.go b/client/cmd/netgo_rpc.go
 new file mode 100644
-index 0000000..f206a86
 --- /dev/null
 +++ b/client/cmd/netgo_rpc.go
-@@ -0,0 +1,249 @@
+@@ -0,0 +1,259 @@
 +package cmd
 +
 +import (
++	"bufio"
++	"bytes"
 +	"context"
 +	"encoding/json"
 +	"errors"
@@ -83,21 +84,29 @@ index 0000000..f206a86
 +var netgoRPCCmd = &cobra.Command{
 +	Use: "netgo-rpc", Hidden: true, Args: cobra.NoArgs,
 +	RunE: func(cmd *cobra.Command, _ []string) error {
-+		var req netgoRPCRequest
-+		decoder := json.NewDecoder(io.LimitReader(cmd.InOrStdin(), 65537))
-+		decoder.DisallowUnknownFields()
-+		if err := decoder.Decode(&req); err != nil {
-+			return json.NewEncoder(cmd.OutOrStdout()).Encode(map[string]string{"error": "engine_invalid_request"})
++		scanner := bufio.NewScanner(cmd.InOrStdin())
++		scanner.Buffer(make([]byte, 4096), 65537)
++		encoder := json.NewEncoder(cmd.OutOrStdout())
++		for scanner.Scan() {
++			var req netgoRPCRequest
++			decoder := json.NewDecoder(bytes.NewReader(scanner.Bytes()))
++			decoder.DisallowUnknownFields()
++			var tail any
++			if err := decoder.Decode(&req); err != nil || decoder.Decode(&tail) != io.EOF {
++				if err := encoder.Encode(map[string]string{"error": "engine_invalid_request"}); err != nil {
++					return err
++				}
++				continue
++			}
++			result, err := netgoRPC(cmd.Context(), req)
++			if err != nil {
++				result = map[string]string{"error": "engine_rpc_failed"}
++			}
++			if err := encoder.Encode(result); err != nil {
++				return err
++			}
 +		}
-+		var tail any
-+		if decoder.Decode(&tail) != io.EOF {
-+			return json.NewEncoder(cmd.OutOrStdout()).Encode(map[string]string{"error": "engine_invalid_request"})
-+		}
-+		result, err := netgoRPC(cmd.Context(), req)
-+		if err != nil {
-+			result = map[string]string{"error": "engine_rpc_failed"}
-+		}
-+		return json.NewEncoder(cmd.OutOrStdout()).Encode(result)
++		return scanner.Err()
 +	},
 +}
 +
@@ -165,7 +174,7 @@ index 0000000..f206a86
 +		disableDNS := !req.Internet
 +		return client.Login(metadata.NewOutgoingContext(ctx, md), &proto.LoginRequest{
 +			ManagementUrl: p.Origin, ProfileName: &name, Username: &user.Username, DisableAutoConnect: &yes,
-+			ServerSSHAllowed: &no, DisableServerRoutes: &yes, DisableIpv6: &yes, BlockInbound: &yes, DisableDns: &disableDNS,
++			ServerSSHAllowed: &no, DisableServerRoutes: &yes, DisableIpv6: &yes, BlockInbound: &no, DisableDns: &disableDNS,
 +		})
 +	}
 +	switch req.Action {
@@ -1753,6 +1762,42 @@ new file mode 100644
 +	ctx := context.WithValue(a.ctx, system.DeviceNameCtxKey, deviceName)
 +	err, _ = connection.Login(ctx, "", token)
 +	return err
++}
+diff --git a/client/cmd/netgo_rpc_stream_test.go b/client/cmd/netgo_rpc_stream_test.go
+new file mode 100644
+--- /dev/null
++++ b/client/cmd/netgo_rpc_stream_test.go
+@@ -0,0 +1,31 @@
++package cmd
++
++import (
++	"bytes"
++	"encoding/json"
++	"strings"
++	"testing"
++
++	"github.com/spf13/cobra"
++)
++
++func TestNetGoRPCFramedRequests(t *testing.T) {
++	command := &cobra.Command{}
++	command.SetIn(strings.NewReader("{invalid}\n{\"unknown\":true}\n"))
++	var output bytes.Buffer
++	command.SetOut(&output)
++	if err := netgoRPCCmd.RunE(command, nil); err != nil {
++		t.Fatal(err)
++	}
++	decoder := json.NewDecoder(&output)
++	for range 2 {
++		var result map[string]string
++		if err := decoder.Decode(&result); err != nil || result["error"] != "engine_invalid_request" {
++			t.Fatal(result, err)
++		}
++	}
++	command.SetIn(strings.NewReader(strings.Repeat("x", 65537) + "\n"))
++	if err := netgoRPCCmd.RunE(command, nil); err == nil {
++		t.Fatal("unbounded frame accepted")
++	}
 +}
 diff --git a/client/android/exec.go b/client/android/exec.go
 --- a/client/android/exec.go

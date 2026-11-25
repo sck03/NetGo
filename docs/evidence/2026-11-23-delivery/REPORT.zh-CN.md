@@ -1,5 +1,7 @@
 # Debian 13 与公网 VPS 接续交付
 
+> 历史提交记录；原始日志、截图与测试数据已从当前目录清理。可在 Git 提交 `9296955` 的相同路径查看，不能作为本轮修改的验证结果。
+
 日期：2026-11-23（Asia/Shanghai）。方案 v1.9；目标 0.2.4-dev；基线 eb89241。继承原会话未提交实现与全部实施授权。
 
 接续更正（2026-11-23）：本文件保留旧轮次原始结果。后续 `/root/netgo-installer-lab/vps-final/result.json` 因未报告预期中继路径为 FAIL，不能只引用下方较早 18 项 PASS 作为最终关闭。`.cache/verification-0.2.4-project-final` 在原生测试通过后因运行中 EXE 文件锁而失败；新进程已修复并完成新的 Windows 15 段验证。最新范围与结果见 [v2.0 接续报告](../2026-11-23-continuation/REPORT.zh-CN.md)。

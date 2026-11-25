@@ -132,6 +132,10 @@ struct Monitor {
     Watchdog watchdog;
     SessionFence session;
     std::atomic_bool stop = false;
+    std::mutex snapshotMutex;
+    std::string snapshotID;
+    Json snapshot;
+    uint64_t observed = 0;
     std::thread worker;
     Monitor(ng_remote_host &h, std::string b)
         : host(h), boot(std::move(b)), worker([this] {
@@ -144,9 +148,16 @@ struct Monitor {
                       auto s = session.snapshot();
                       if (!s.second.empty()) {
                           try {
+                              auto sent = monotonic_time_ms();
                               auto a = host.call("GET", std::string(base) + "/sessions/" + s.second);
                               if (a.at("session").value("state", "") == "closed")
                                   session.reject(s);
+                              else {
+                                  std::lock_guard lock(snapshotMutex);
+                                  snapshotID = s.second;
+                                  snapshot = std::move(a);
+                                  observed = sent;
+                              }
                           } catch (...) {
                               session.reject(s);
                           }
@@ -168,6 +179,14 @@ struct Monitor {
     }
     bool live() { return !stop && host.active() && watchdog.live(); }
     bool authorized() { return live() && session.live(); }
+    bool renewal(const std::string &id, const Json &ticket, Json &out, uint64_t &at) {
+        std::lock_guard lock(snapshotMutex);
+        if (snapshotID != id || !snapshot.is_object() || snapshot.at("ticket") != ticket ||
+            monotonic_time_ms() - observed > 5000) return false;
+        out = snapshot;
+        at = observed;
+        return true;
+    }
 };
 Message receive(Connection &c, Kind kind, const Continue &allowed) {
     Message m;
@@ -335,7 +354,27 @@ void run(ng_remote_host &h) {
                 Bytes buffer(max_message);
                 uint64_t commandWindow = monotonic_time_ms(), lastCommand = commandWindow;
                 unsigned commands = 0;
+                Json pendingRenewal;
                 while (monitor.authorized() && gate.check()) {
+                    // Control IO belongs to Monitor. Capture/input continue using
+                    // the old, bounded ticket while a fresh authorization arrives.
+                    Json fresh;
+                    uint64_t observed = 0;
+                    if (!pendingRenewal.is_null() && monitor.renewal(id, pendingRenewal, fresh, observed)) {
+                        bool hadInput = gate.check(NG_REMOTE_INPUT), hadUpload = gate.check(NG_REMOTE_UPLOAD),
+                             hadDownload = gate.check(NG_REMOTE_DOWNLOAD);
+                        auto bytes = decode(pendingRenewal, NG_REMOTE_TICKET_SIZE);
+                        gate.clock.observe(fresh.at("server_unix_ms"), observed);
+                        require(ng_remote_gate_renew(gate.value, bytes.data(), bytes.size()) == NG_REMOTE_OK,
+                                "remote_renewal_invalid");
+                        pendingRenewal = Json();
+                        if (hadInput && !gate.check(NG_REMOTE_INPUT) && h.o.input) {
+                            constexpr char release[] = R"({"type":"release"})";
+                            require(h.o.input(h.o.context, release, sizeof(release)-1) == 0, "remote_input_unavailable");
+                        }
+                        if (files && ((hadUpload && !gate.check(NG_REMOTE_UPLOAD)) ||
+                                      (hadDownload && !gate.check(NG_REMOTE_DOWNLOAD)))) files->cancel();
+                    }
                     if (files && monotonic_time_ms() - lastCommand > 30000) {
                         files->cancel();
                         lastCommand = monotonic_time_ms();
@@ -346,26 +385,10 @@ void run(ng_remote_host &h) {
                         if (m.kind == Kind::close)
                             break;
                         if (m.kind == Kind::renew) {
-                            bool hadInput = gate.check(NG_REMOTE_INPUT),
-                                 hadUpload = gate.check(NG_REMOTE_UPLOAD),
-                                 hadDownload = gate.check(NG_REMOTE_DOWNLOAD);
                             auto update = json(m);
-                            auto bytes = decode(update.at("ticket"), NG_REMOTE_TICKET_SIZE);
-                            auto now = monotonic_time_ms();
-                            auto fresh = h.call("GET", std::string(base) + "/sessions/" + id);
-                            gate.clock.observe(fresh.value("server_unix_ms", uint64_t(0)), now);
-                            require(update.at("ticket") == fresh.at("ticket") &&
-                                        ng_remote_gate_renew(gate.value, bytes.data(), bytes.size()) ==
-                                            NG_REMOTE_OK,
-                                    "remote_renewal_invalid");
-                            if (hadInput && !gate.check(NG_REMOTE_INPUT) && h.o.input) {
-                                constexpr char release[] = R"({"type":"release"})";
-                                require(h.o.input(h.o.context, release, sizeof(release) - 1) == 0,
-                                        "remote_input_unavailable");
-                            }
-                            if (files && ((hadUpload && !gate.check(NG_REMOTE_UPLOAD)) ||
-                                          (hadDownload && !gate.check(NG_REMOTE_DOWNLOAD))))
-                                files->cancel();
+                            require(pendingRenewal.is_null(), "remote_renewal_pending");
+                            (void)decode(update.at("ticket"), NG_REMOTE_TICKET_SIZE);
+                            pendingRenewal = update.at("ticket");
                         } else if (m.kind == Kind::input) {
                             auto events = json(m);
                             require(valid_input_batch(events), "remote_invalid_input");

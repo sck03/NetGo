@@ -65,7 +65,8 @@ func (d *Daemon) login(ctx context.Context, p site.Profile, mode, token string) 
 		md.Append("netgo-ca-bin", p.CA)
 	}
 	ctx = metadata.NewOutgoingContext(ctx, md)
-	return d.RPC.Login(ctx, &pb.LoginRequest{ManagementUrl: p.Origin, ProfileName: &name, Username: &d.Username, DisableDns: boolp(!d.internet), DisableAutoConnect: boolp(true), ServerSSHAllowed: boolp(false), DisableServerRoutes: boolp(true), DisableIpv6: boolp(true), BlockInbound: boolp(true)})
+	// Managed ACLs remain default-deny and admit only authorized peers and ports.
+	return d.RPC.Login(ctx, &pb.LoginRequest{ManagementUrl: p.Origin, ProfileName: &name, Username: &d.Username, DisableDns: boolp(!d.internet), DisableAutoConnect: boolp(true), ServerSSHAllowed: boolp(false), DisableServerRoutes: boolp(true), DisableIpv6: boolp(true), BlockInbound: boolp(false)})
 }
 func (d *Daemon) Prepare(ctx context.Context, p site.Profile) (string, error) {
 	if _, e := d.RPC.Down(ctx, &pb.DownRequest{}); e != nil {

@@ -7,6 +7,7 @@ import (
 	"log/slog"
 	"net/http"
 	"netgo/internal/api"
+	"netgo/internal/devices"
 	"netgo/internal/diagnostics"
 	"netgo/internal/engine/netbird"
 	"netgo/internal/identity"
@@ -60,17 +61,22 @@ func run() error {
 	}
 	monitor := diagnostics.NewMonitor()
 	go monitor.Run(ctx, c)
+	networkDone := make(chan struct{})
+	go func() { defer close(networkDone); reconciler.Run(ctx) }()
+	defer func() { stop(); <-networkDone }()
 	remoteKey, e := remote.LoadKey(c.Database + ".remote-key")
 	if e != nil {
 		return e
 	}
 	remotes := &remote.Manager{Store: s, SiteID: c.Site.ID, Key: remoteKey, Peers: m}
-	srv := &api.Server{Config: c, Store: s, Auth: auth, Sessions: leases, Remote: remotes, Management: m, Web: webui.Handler("admin"), Reconcile: reconciler.Ensure, Monitor: monitor, Logger: slog.Default()}
+	deviceService := &devices.Service{Store: s, Sessions: leases, Management: m}
+	srv := &api.Server{Config: c, Store: s, Auth: auth, Sessions: leases, Remote: remotes, Devices: deviceService, Management: m, Web: webui.Handler("admin"), Reconcile: reconciler.Ensure, Monitor: monitor, Logger: slog.Default()}
 	httpServer := &http.Server{Addr: c.Listen, Handler: srv.Handler(), ReadHeaderTimeout: 5 * time.Second, ReadTimeout: 20 * time.Second, WriteTimeout: 30 * time.Second, IdleTimeout: 60 * time.Second}
 	errc := make(chan error, 1)
 	go func() { errc <- httpServer.ListenAndServe() }()
 	ticker := time.NewTicker(5 * time.Second)
 	defer ticker.Stop()
+	var nextCleanup time.Time
 	for {
 		select {
 		case <-ctx.Done():
@@ -89,13 +95,13 @@ func run() error {
 				slog.Error("lease sweep failed")
 			}
 			cancel()
-			state, err := s.View()
-			if err == nil && state.Revision != state.ObservedRevision {
-				apply, cancel := context.WithTimeout(ctx, 20*time.Second)
-				if err = reconciler.Apply(apply); err != nil {
-					slog.Warn("network reconciliation pending")
+			if !time.Now().Before(nextCleanup) {
+				cleanup, cancel := context.WithTimeout(ctx, 4*time.Second)
+				if err := deviceService.Retry(cleanup); err != nil {
+					slog.Warn("device cleanup pending")
 				}
 				cancel()
+				nextCleanup = time.Now().Add(time.Minute)
 			}
 		}
 	}

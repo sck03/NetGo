@@ -28,4 +28,3 @@ apps/android/local.properties
 *.keystore
 *.jks
 *.log
-!docs/evidence/**/*.log

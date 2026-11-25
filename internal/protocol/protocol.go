@@ -15,7 +15,7 @@ type Health struct {
 	Protocol     int      `json:"protocol"`
 	SiteID       string   `json:"site_id"`
 	Capabilities []string `json:"capabilities"`
-	ServerUnix   int64    `json:"server_unix,omitempty"`
+	ServerUnix   int64    `json:"server_unix"`
 }
 
 func Capabilities() []string {
@@ -34,7 +34,7 @@ func (h Health) Validate(siteID string) error {
 			return ErrIncompatible
 		}
 	}
-	if h.ServerUnix != 0 && (h.ServerUnix < 946684800 || h.ServerUnix > 4102444800) {
+	if h.ServerUnix < 946684800 || h.ServerUnix > 4102444800 {
 		return errors.New("invalid_control_health")
 	}
 	return nil

@@ -226,13 +226,15 @@ func (c *Controller) set(gen uint64, fn func(*Status)) {
 }
 func (c *Controller) Disconnect() error { c.op.Lock(); defer c.op.Unlock(); return c.disconnect() }
 func (c *Controller) disconnect() error {
+	return c.disconnectWithin(25 * time.Second)
+}
+
+func (c *Controller) disconnectWithin(timeout time.Duration) error {
 	c.mu.Lock()
 	cancel, done := c.cancel, c.done
 	c.status.Generation++
-	c.status.State = "disconnected"
+	c.status.State = "disconnecting"
 	c.status.Error = ""
-	c.cancel = nil
-	c.done = nil
 	c.remote = nil
 	c.mu.Unlock()
 	if cancel != nil {
@@ -241,7 +243,7 @@ func (c *Controller) disconnect() error {
 	if done != nil {
 		select {
 		case <-done:
-		case <-time.After(25 * time.Second):
+		case <-time.After(timeout):
 			c.mu.Lock()
 			c.cleanupFailed = true
 			c.status.State = "failed"
@@ -255,7 +257,11 @@ func (c *Controller) disconnect() error {
 	err := c.Engine.Down(ctx)
 	c.mu.Lock()
 	defer c.mu.Unlock()
+	// Retain the worker fence across retries until deferred cleanup finishes.
+	c.cancel = nil
+	c.done = nil
 	c.cleanupFailed = err != nil
+	c.status.State = "disconnected"
 	if err != nil {
 		c.status.State = "failed"
 		c.status.Error = "engine_cleanup_failed"
@@ -514,10 +520,6 @@ func (c *Controller) run(ctx context.Context, gen uint64, p site.Profile, alias 
 			}
 			c.set(gen, func(s *Status) {
 				s.Lease = lease
-				if de != nil {
-					s.State = "recovering"
-					return
-				}
 				s.Data = ds
 				s.Error = ""
 				if ds.Path == "negotiating" {

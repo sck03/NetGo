@@ -1,5 +1,7 @@
 # 方案 v1.5 完整性复核与实施记录
 
+> 历史提交记录；原始日志、截图与测试数据已从当前目录清理。可在 Git 提交 `9296955` 的相同路径查看，不能作为本轮修改的验证结果。
+
 日期：2026-11-22（Asia/Shanghai）。基于原有 0.2.1-dev 工作区继续，产出版本 0.2.2-dev；不重置已有改动。范围：Windows C++20、Debian 13 amd64/Go、管理网页、部署与验收工具。
 
 ## 判定
@@ -44,7 +46,7 @@ C2/C3 中间验证：Go 全部内部/命令包竞态通过；`npm test` 七项�
 | 固定上游补丁 | 新补丁摘要对应专用 checkout 重放，RPC 测试及 Windows NetBird 构建通过 |
 | 产品交付检查 | 五个 Linux Go 产品交叉编译及 release manifest 校验通过 |
 
-逐项耗时和日志摘要见 [verification.json](verification/verification.json)；[source-inputs.txt](verification/source-inputs.txt) 保存每个代码/构建/测试输入的 SHA-256。代码总指纹：`e618924ed08cac43982d88d4c9f47f588728b581d626b0b3262299985401dc1a`。文档、日志、生成资产与运行秘密不计入代码指纹。
+逐项耗时和日志摘要见 [verification.json](https://github.com/sck03/NetGo/blob/92969551d3989395bcf2556702649ed9dc9c8e3b/docs/evidence/2026-11-22-completion/verification/verification.json)；[source-inputs.txt](https://github.com/sck03/NetGo/blob/92969551d3989395bcf2556702649ed9dc9c8e3b/docs/evidence/2026-11-22-completion/verification/source-inputs.txt) 保存每个代码/构建/测试输入的 SHA-256。代码总指纹：`e618924ed08cac43982d88d4c9f47f588728b581d626b0b3262299985401dc1a`。文档、日志、生成资产与运行秘密不计入代码指纹。
 
 仅复制验证文本日志与清单；没有把生成的部署秘密、私钥或运行数据库放入证据目录。
 

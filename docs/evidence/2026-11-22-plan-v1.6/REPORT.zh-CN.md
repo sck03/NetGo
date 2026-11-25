@@ -1,5 +1,7 @@
 # 方案 v1.6 连续实施与审阅记录
 
+> 历史提交记录；原始日志、截图与测试数据已从当前目录清理。可在 Git 提交 `9296955` 的相同路径查看，不能作为本轮修改的验证结果。
+
 日期：2026-11-22（Asia/Shanghai）。范围：Debian 13 amd64 服务端、Windows C++20 客户端、Linux 诊断 CLI、管理网页、部署与验收工具。
 
 ## D0：基线与方案校正
@@ -16,9 +18,9 @@
 | D02 | 申请租约后 NetBird 路由下发异步，Linux 只查询一次而可能过早报告失败 | 与 Windows 适配一致等待最多 15 秒，受调用方取消/截止约束；全量授权资源就绪后选择并去重 | 延迟下发、取消、未完整路由和 daemon 错误回归 |
 | D07 | gRPC 按顺序探测 TLS，最多八个候选中前面卡住的入口可耗尽 20 秒核心 RPC 预算 | 传递候选类别，并发直达、800ms 后备用、每候选 3 秒；保留 SNI/authority、TLS/HTTP2 校验和取消清理 | 七个卡住入口加最后一个可用入口，修复前失败，修复后通过；优先级、取消、错误 TLS 身份与输入边界回归 |
 
-修复前实际执行 `go test ./internal/engine/netbird -run 'TestPrepare|TestRoutes' -count=1`，四项回归失败，分别为重复 profile、同名歧义、异步路由及取消错误。修复后执行 `go test -race ./internal/engine/netbird ./internal/client -count=1`，两包通过，见 [客户端专项日志](d1-client-tests.txt)。测试使用 daemon RPC 替身，不启用工作站 VPN。
+修复前实际执行 `go test ./internal/engine/netbird -run 'TestPrepare|TestRoutes' -count=1`，四项回归失败，分别为重复 profile、同名歧义、异步路由及取消错误。修复后执行 `go test -race ./internal/engine/netbird ./internal/client -count=1`，两包通过，见 [客户端专项日志](https://github.com/sck03/NetGo/blob/92969551d3989395bcf2556702649ed9dc9c8e3b/docs/evidence/2026-11-22-plan-v1.6/d1-client-tests.txt)。测试使用 daemon RPC 替身，不启用工作站 VPN。
 
-gRPC 在独立上游工作副本增加真实回环 TLS/gRPC 测试：原实现于 2 秒调用期限内失败，见 [修复前日志](d1-grpc-before.txt)；修改后执行 `go test -race ./client/grpc ./client/cmd -run TestNetGo -count=1`，两包通过，见 [修复后日志](d1-grpc-after.txt)。补丁已从固定源码重新生成，并在 D3 用另一个干净 checkout 重放构建通过；未进行真实远程 Management/Signal/LAN 测试。
+gRPC 在独立上游工作副本增加真实回环 TLS/gRPC 测试：原实现于 2 秒调用期限内失败，见 [修复前日志](https://github.com/sck03/NetGo/blob/92969551d3989395bcf2556702649ed9dc9c8e3b/docs/evidence/2026-11-22-plan-v1.6/d1-grpc-before.txt)；修改后执行 `go test -race ./client/grpc ./client/cmd -run TestNetGo -count=1`，两包通过，见 [修复后日志](https://github.com/sck03/NetGo/blob/92969551d3989395bcf2556702649ed9dc9c8e3b/docs/evidence/2026-11-22-plan-v1.6/d1-grpc-after.txt)。补丁已从固定源码重新生成，并在 D3 用另一个干净 checkout 重放构建通过；未进行真实远程 Management/Signal/LAN 测试。
 
 ## D2：部署与交付
 
@@ -45,7 +47,7 @@ gRPC 在独立上游工作副本增加真实回环 TLS/gRPC 测试：原实现�
 | 部署与证书 | 脚本语法/计划、证书正反输入与六种配置组合通过；没有安装或启用系统服务 |
 | 交付输入 | 验证前后源码指纹一致；构建文件摘要已记录，复制后的日志重新校验通过 |
 
-逐项命令日志和摘要见 [verification.json](verification/verification.json)，绑定复核见 [verification-binding.json](verification-binding.json)。170 个代码/构建/测试输入的指纹为 `142184de441c3c2c2ee8f52de35ab1f5865571dc7a7ac897cd93222920a40a6d`。相对本轮开始的 v1.5 输入，修改 17 个、新增 7 个、删除 0 个；详见 [源码差异索引](source-delta.json)。历史未提交实现一并保留。
+逐项命令日志和摘要见 [verification.json](https://github.com/sck03/NetGo/blob/92969551d3989395bcf2556702649ed9dc9c8e3b/docs/evidence/2026-11-22-plan-v1.6/verification/verification.json)，绑定复核见 [verification-binding.json](https://github.com/sck03/NetGo/blob/92969551d3989395bcf2556702649ed9dc9c8e3b/docs/evidence/2026-11-22-plan-v1.6/verification-binding.json)。170 个代码/构建/测试输入的指纹为 `142184de441c3c2c2ee8f52de35ab1f5865571dc7a7ac897cd93222920a40a6d`。相对本轮开始的 v1.5 输入，修改 17 个、新增 7 个、删除 0 个；详见 [源码差异索引](https://github.com/sck03/NetGo/blob/92969551d3989395bcf2556702649ed9dc9c8e3b/docs/evidence/2026-11-22-plan-v1.6/source-delta.json)。历史未提交实现一并保留。
 
 ## D4：文档与终检
 
@@ -67,6 +69,6 @@ Git 暂存区实际复核通过：348 个文件与工作区逐字节一致，170
 
 用户要求最后清理无用/无效文件并推送 GitHub main。已确认 origin 为 `https://github.com/sck03/NetGo.git`，fetch 后本地与远端 main 无分叉。清理仅针对已被现行实现取代的临时目录、旧验证产物及 Android/Zig 缓存；当前源码、锁定构建输入、历史有效证据和开发包保留。
 
-批量永久删除被自动审批以 `blocked by policy` 拒绝，改用 Windows 回收站执行可恢复清理。20 项、共 1,584,006,847 字节（约 1.48 GiB）的废弃文件已移入回收站，接续复核确认这些路径均已从工作区移除；没有清空回收站。逐项目录边界与 reparse point 检查、文件数和结果见 [清理计划](cleanup-plan.json)与[实际结果](cleanup-result.json)。临时 gRPC 副本在清理前已确认全部修改保存在交付补丁。
+批量永久删除被自动审批以 `blocked by policy` 拒绝，改用 Windows 回收站执行可恢复清理。20 项、共 1,584,006,847 字节（约 1.48 GiB）的废弃文件已移入回收站，接续复核确认这些路径均已从工作区移除；没有清空回收站。逐项目录边界与 reparse point 检查、文件数和结果见 [清理计划](https://github.com/sck03/NetGo/blob/92969551d3989395bcf2556702649ed9dc9c8e3b/docs/evidence/2026-11-22-plan-v1.6/cleanup-plan.json)与[实际结果](https://github.com/sck03/NetGo/blob/92969551d3989395bcf2556702649ed9dc9c8e3b/docs/evidence/2026-11-22-plan-v1.6/cleanup-result.json)。临时 gRPC 副本在清理前已确认全部修改保存在交付补丁。
 
 开发包与清理核验已完成，当前源码、文档和有效历史证据按用户授权纳入本轮提交并正常推送 `https://github.com/sck03/NetGo.git` 的 main。实际提交与远端一致性以 GitHub main 历史和本地 `dist/packages/NetGo-0.2.3-dev-main-receipt.json` 为准；该回执在推送成功后生成，不放入源码 ZIP，避免摘要和提交号自引用。

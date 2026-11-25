@@ -47,6 +47,7 @@ struct HostItem: Identifiable { let id: String; let name: String; let status: St
 	private var pendingImport: Data?
     let viewer = RemoteViewer()
     @Published var transferFiles:[String] = []
+    @Published var remoteCapabilities: UInt32 = 0
     @Published var lastDownload:URL?
     private var selectedUpload:URL?
 #if os(macOS)
@@ -75,6 +76,7 @@ struct HostItem: Identifiable { let id: String; let name: String; let status: St
         selected = UserDefaults.standard.string(forKey:"remoteSite") ?? sites.first?.id ?? ""
         viewer.changed = { [weak self] text in Task { @MainActor in self?.message = text } }
         viewer.event = { [weak self] value in Task { @MainActor in self?.exchangeEvent(value) } }
+        viewer.permissionsChanged = { [weak self] bits in Task { @MainActor in self?.remoteCapabilities=bits } }
 #if os(macOS)
         host.changed = { [weak self] text in Task { @MainActor in self?.message=text;if text.contains("系统设置") {self?.remoteSuspended=true} } }
 #endif

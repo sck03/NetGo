@@ -7,6 +7,8 @@ import (
 	"netgo/internal/gateway"
 	"netgo/internal/model"
 	"netgo/internal/store"
+	"reflect"
+	"sort"
 	"sync"
 	"time"
 )
@@ -19,12 +21,14 @@ type Peers interface {
 	Verify(context.Context, string) (Binding, error)
 }
 type Manager struct {
-	mu    sync.Mutex
-	Store *store.Store
-	Gate  gateway.Gate
-	Peers Peers
-	TTL   time.Duration
-	Now   func() time.Time
+	mu        sync.Mutex
+	Store     *store.Store
+	Gate      gateway.Gate
+	Peers     Peers
+	TTL       time.Duration
+	Now       func() time.Time
+	applied   []model.Lease
+	lastApply time.Time
 }
 
 func (m *Manager) now() time.Time {
@@ -67,10 +71,21 @@ func (m *Manager) update(ctx context.Context, fn func(*model.State) error) error
 		if e := gateway.ValidateCapacity(leases); e != nil {
 			return e
 		}
+		sort.Slice(leases, func(i, j int) bool { return leases[i].ID < leases[j].ID })
+		if !m.lastApply.IsZero() && m.now().Sub(m.lastApply) < time.Minute && reflect.DeepEqual(m.applied, leases) {
+			return nil
+		}
 		touched = true
-		return m.Gate.Apply(ctx, leases)
+		if e := m.Gate.Apply(ctx, leases); e != nil {
+			return e
+		}
+		m.applied = leases
+		m.lastApply = m.now()
+		return nil
 	})
 	if e != nil && touched {
+		m.lastApply = time.Time{}
+		m.applied = nil
 		cleanup, cancel := context.WithTimeout(context.Background(), 4*time.Second)
 		defer cancel()
 		_ = m.Gate.Apply(cleanup, nil)
@@ -85,6 +100,7 @@ func (m *Manager) update(ctx context.Context, fn func(*model.State) error) error
 func (m *Manager) Reset(ctx context.Context) error {
 	m.mu.Lock()
 	defer m.mu.Unlock()
+	m.lastApply = time.Time{}
 	return m.update(ctx, func(st *model.State) error {
 		st.Leases = map[string]model.Lease{}
 		st.Operations = map[string]model.Operation{}
@@ -163,9 +179,8 @@ func (m *Manager) Acquire(ctx context.Context, c model.Credential, peer string, 
 				resources = append(resources, r)
 			}
 		}
-		if len(resources) == 0 {
-			return model.ErrForbidden
-		}
+		// Overlay admission is independent of LAN access. An empty resource set
+		// installs no gateway allowance; remote sessions still require a grant.
 		if m.TTL <= 0 || m.TTL > 120*time.Second {
 			return errors.New("invalid lease TTL")
 		}
@@ -191,12 +206,11 @@ func (m *Manager) Renew(ctx context.Context, c model.Credential, id string, gene
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	var result model.Lease
-	state, e := m.Store.View()
+	prior, e := m.Store.Lease(id)
 	if e != nil {
 		return result, e
 	}
-	prior, ok := state.Leases[id]
-	if !ok || prior.UserID != c.UserID || prior.DeviceID != c.DeviceID {
+	if prior.UserID != c.UserID || prior.DeviceID != c.DeviceID {
 		return result, model.ErrForbidden
 	}
 	p, e := m.Peers.Verify(ctx, prior.PeerID)
@@ -228,9 +242,6 @@ func (m *Manager) Renew(ctx context.Context, c model.Credential, id string, gene
 			if r, ok := st.Resources[rid]; ok && r.Enabled {
 				l.Resources = append(l.Resources, r)
 			}
-		}
-		if len(l.Resources) == 0 {
-			return model.ErrForbidden
 		}
 		st.Leases[id] = l
 		result = l
@@ -290,6 +301,12 @@ func (m *Manager) mutateScope(ctx context.Context, matches func(model.Lease) boo
 func (m *Manager) Sweep(ctx context.Context) error {
 	m.mu.Lock()
 	defer m.mu.Unlock()
+	if !m.lastApply.IsZero() && m.now().Sub(m.lastApply) < time.Minute {
+		due, err := m.Store.SessionCleanupDue(m.now())
+		if err != nil || !due {
+			return err
+		}
+	}
 	return m.update(ctx, func(st *model.State) error {
 		now := m.now()
 		for k, o := range st.Operations {

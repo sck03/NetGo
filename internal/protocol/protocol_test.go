@@ -7,7 +7,7 @@ import (
 )
 
 func TestHealthRequiresAllNativeCapabilities(t *testing.T) {
-	h := Health{Protocol: 2, SiteID: "site", Capabilities: Capabilities()}
+	h := Health{Protocol: 2, SiteID: "site", Capabilities: Capabilities(), ServerUnix: time.Now().Unix()}
 	if err := h.Validate("site"); err != nil {
 		t.Fatal(err)
 	}

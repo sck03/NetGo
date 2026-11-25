@@ -168,15 +168,11 @@ func (r *Reconciler) applyLatest(ctx context.Context, coalesce bool) error {
 		return nil
 	}
 	e = r.apply(ctx, st, peers)
-	saveErr := r.Store.Update(func(s *model.State) error {
-		if e != nil {
-			s.LastError = "network reconciliation failed"
-		} else {
-			s.LastError = ""
-			s.ObservedRevision = st.Revision
-		}
-		return nil
-	})
+	message := ""
+	if e != nil {
+		message = "network reconciliation failed"
+	}
+	saveErr := r.Store.Observe(st.Revision, message)
 	if e == nil {
 		e = saveErr
 	}
@@ -249,6 +245,7 @@ func (r *Reconciler) apply(ctx context.Context, st model.State, peers []ownedPee
 	if e != nil {
 		return e
 	}
+	desiredGroups := map[string]bool{prefix + "gateway": true}
 	var routers []struct {
 		ID         string `json:"id"`
 		Peer       string `json:"peer"`
@@ -286,6 +283,7 @@ func (r *Reconciler) apply(ctx context.Context, st model.State, peers []ownedPee
 	for _, id := range ids {
 		v := st.Resources[id]
 		name := prefix + "resource:" + id
+		desiredGroups[name] = true
 		gid, e := upsert("/groups", name, map[string]any{"peers": []string{}}, groups)
 		if e != nil {
 			return e
@@ -309,7 +307,9 @@ func (r *Reconciler) apply(ctx context.Context, st model.State, peers []ownedPee
 				}
 			}
 		}
-		gid, e := upsert("/groups", prefix+"user:"+model.Hash(u.ID)[:16], map[string]any{"peers": sourcePeers}, groups)
+		name := prefix + "user:" + model.Hash(u.ID)[:16]
+		desiredGroups[name] = true
+		gid, e := upsert("/groups", name, map[string]any{"peers": sourcePeers}, groups)
 		if e != nil {
 			return e
 		}
@@ -355,11 +355,10 @@ func (r *Reconciler) apply(ctx context.Context, st model.State, peers []ownedPee
 	if e := r.reconcileDNS(ctx, prefix, dnsGroups); e != nil {
 		return e
 	}
-	desiredRemoteGroups := map[string]bool{}
 	for _, route := range model.RemoteRoutes(st) {
 		name := prefix + "remote:" + model.Hash(route.ID)[:24]
-		desiredRemoteGroups[name+":controller"] = true
-		desiredRemoteGroups[name+":host"] = true
+		desiredGroups[name+":controller"] = true
+		desiredGroups[name+":host"] = true
 		source, e := upsert("/groups", name+":controller", map[string]any{"peers": []string{route.ControllerPeer}}, groups)
 		if e != nil {
 			return e
@@ -389,7 +388,7 @@ func (r *Reconciler) apply(ctx context.Context, st model.State, peers []ownedPee
 		}
 	}
 	for _, g := range groups {
-		if strings.HasPrefix(g.Name, prefix+"remote:") && !desiredRemoteGroups[g.Name] {
+		if strings.HasPrefix(g.Name, prefix) && !desiredGroups[g.Name] {
 			if _, e = m.Request(ctx, "DELETE", "/groups/"+g.ID, nil, nil); e != nil {
 				return e
 			}

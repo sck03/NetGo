@@ -8,7 +8,7 @@ export function validateHealth(health: any, expectedSite = '') {
   const required = ['native-auth-v1', 'device-signature-v1', 'leases-v1', 'profile-revision-v1', 'admin-v1', 'diagnostics-v1']
   if (!health || health.protocol !== 2 || !Array.isArray(health.capabilities) || !required.every(x => health.capabilities.includes(x))) throw Error('服务端协议不兼容，请使用匹配版本的客户端和服务端')
   if (typeof health.site_id !== 'string' || !health.site_id || (expectedSite && health.site_id !== expectedSite)) throw Error('站点身份不一致')
-  if (health.server_unix !== undefined) {
+  {
     if (!Number.isSafeInteger(health.server_unix) || health.server_unix < 946684800 || health.server_unix > 4102444800) throw Error('服务端时间格式无效')
   }
   return health.site_id as string
@@ -97,7 +97,7 @@ export class AdminSession {
     const health = await this.send('/netgo/v2/health', 'GET')
     siteID = validateHealth(health, siteID)
     if (generation !== this.generation) throw Error('管理登录已取消')
-    if (health.server_unix !== undefined) { this.serverTime = health.server_unix * 1000; this.observedAt = performance.now() }
+    this.serverTime = health.server_unix * 1000; this.observedAt = performance.now()
     const key = await crypto.subtle.generateKey({ name: 'Ed25519' }, false, ['sign', 'verify']) as CryptoKeyPair
     if (generation !== this.generation) throw Error('管理登录已取消')
     this.key = key

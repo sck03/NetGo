@@ -40,7 +40,7 @@ int main() {
                           "COM1.bin", ".secret", "file "})
             check(!valid_file_name(name), "unsafe name");
         check(valid_file_name("report.txt"), "valid name rejected");
-        std::vector<uint8_t> content(70001);
+        std::vector<uint8_t> content(file_chunk*10+17);
         for (size_t i = 0; i < content.size(); ++i)
             content[i] = uint8_t(i * 31);
         {
@@ -123,11 +123,15 @@ int main() {
             std::vector<Json> events;
             Exchange exchange([&](const Json &e) { events.push_back(e); });
             Files remote(root / "remote");
+            size_t maxInFlight=0;
             auto pump = [&] {
                 for (int i = 0; i < 100; ++i) {
-                    auto q = exchange.next(63);
-                    if (q.is_null())
-                        return;
+                    std::vector<Json> batch;
+                    for(unsigned slot=0;slot<9;++slot){auto q=exchange.next(63);if(q.is_null())break;batch.push_back(std::move(q));}
+                    check(batch.size()<=8,"transfer window unbounded");
+                    maxInFlight=std::max(maxInFlight,batch.size());
+                    if(batch.empty())return;
+                    for(const auto& q:batch){
                     auto a = q.at("action").get<std::string>();
                     Json r;
                     if (a == "file.begin")
@@ -148,6 +152,7 @@ int main() {
                     } else
                         throw std::runtime_error("unexpected request");
                     exchange.receive({{"id", q.at("id")}, {"result", r}});
+                    }
                 }
                 throw std::runtime_error("transfer did not finish");
             };
@@ -165,6 +170,7 @@ int main() {
             pump();
             check(events.back().at("done") && !events.back().contains("error"), "download failed");
             check(fs::file_size(root / "local/download.bin") == content.size(), "download size");
+            check(maxInFlight==8,"transfers still wait for every chunk acknowledgement");
             exchange.push({{"action", "upload"},
                            {"name", "denied.bin"},
                            {"path", path_text(root / "local/source.bin")}});

@@ -332,7 +332,7 @@ void run(ng_remote_client &c) {
                                    renewal.at("netgo_requested_mono_ms").get<uint64_t>());
                 require(ng_remote_gate_renew(gate.handle, bytes.data(), bytes.size()) == NG_REMOTE_OK,
                         "remote_renewal_invalid");
-                connection.send(message(Kind::renew, {{"ticket", renewal.at("ticket")}}));
+                connection.enqueue(message(Kind::renew, {{"ticket", renewal.at("ticket")}}));
             }
             if (c.options.input && gate.check(NG_REMOTE_INPUT)) {
                 std::array<char, 65536> input{};
@@ -345,7 +345,7 @@ void run(ng_remote_client &c) {
                     require(events.is_array(), "remote_invalid_input");
                     if (!events.empty()) {
                         require(netgo::remote::valid_input_batch(events), "remote_invalid_input");
-                        connection.send(message(Kind::input, events));
+                        connection.enqueue(message(Kind::input, events));
                     }
                 }
             }
@@ -355,9 +355,14 @@ void run(ng_remote_client &c) {
             current.struct_size = sizeof(current);
             current.abi_version = NG_REMOTE_ABI;
             require(ng_remote_gate_poll(gate.handle, &current) == NG_REMOTE_OK, "remote_closed");
-            auto command = c.exchange.next(current.capabilities);
-            if (!command.is_null())
-                connection.send(message(Kind::command, command));
+            if (!connection.outputPending()) {
+                for (unsigned burst = 0; burst < 4; ++burst) {
+                    auto command = c.exchange.next(current.capabilities);
+                    if (command.is_null()) break;
+                    connection.enqueue(message(Kind::command, command));
+                }
+            }
+            connection.flush();
             Message m;
             if (!connection.receive(m, 20))
                 continue;

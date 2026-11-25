@@ -1,8 +1,0 @@
-ok  	github.com/netbirdio/netbird/client/firewall/uspfilter	9.143s
-ok  	github.com/netbirdio/netbird/client/grpc	1.031s
-ok  	github.com/netbirdio/netbird/client/cmd	0.234s
-ok  	github.com/netbirdio/netbird/client/internal/peer	0.055s
-ok  	github.com/netbirdio/netbird/shared/relay/client	2.003s
-ok  	github.com/netbirdio/netbird/shared/relay/tls	0.070s
-ok  	github.com/netbirdio/netbird/shared/relay/client/dialer/ws	0.142s
-ok  	github.com/netbirdio/netbird/shared/relay/client/dialer/quic	0.148s

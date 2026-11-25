@@ -6,7 +6,8 @@
 #include <chrono>
 namespace netgo::remote {
 // Only the viewer worker owns file handles and protocol state. UI producers
-// submit bounded commands; each chunk is acknowledged before the next is sent.
+// submit bounded commands. Eight ordered chunks can be in flight; commits and
+// cancellation wait for their acknowledgements and never publish partial files.
 class Exchange {
   public:
     using Json = nlohmann::json;
@@ -25,10 +26,13 @@ class Exchange {
     std::deque<Json> queue_, discarded_;
     bool cancel_ = false, cancelling_ = false;
     std::function<void(const Json &)> event_;
-    Json active_, pending_, ready_, chunk_;
+    struct Pending { Json request; std::chrono::steady_clock::time_point deadline; };
+    std::deque<Pending> pending_;
+    Json active_, ready_;
     std::unique_ptr<Files> local_;
-    std::string localToken_, remoteToken_, sha_;
-    std::uint64_t id_ = 0, offset_ = 0, size_ = 0;
-    std::chrono::steady_clock::time_point deadline_, progress_;
+    std::string localToken_, remoteToken_, sha_, failure_;
+    std::uint64_t id_ = 0, offset_ = 0, sent_ = 0, size_ = 0;
+    bool dataDone_ = false;
+    std::chrono::steady_clock::time_point progress_;
 };
 } // namespace netgo::remote

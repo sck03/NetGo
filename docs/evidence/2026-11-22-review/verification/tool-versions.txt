@@ -1,6 +1,0 @@
-go version go1.27.4 windows/amd64
-v26.13.1
-Python 3.13.3
-cmake version 4.3.4
-
-CMake suite maintained and supported by Kitware (kitware.com/cmake).

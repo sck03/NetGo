@@ -62,14 +62,15 @@ type Resource struct {
 	Enabled  bool     `json:"enabled"`
 }
 type Device struct {
-	ClientType   string    `json:"client_type,omitempty"`
-	ID           string    `json:"id"`
-	UserID       string    `json:"user_id"`
-	PublicKey    string    `json:"public_key"`
-	WireGuardKey string    `json:"wireguard_key"`
-	PeerID       string    `json:"peer_id"`
-	IP           string    `json:"ip"`
-	CreatedAt    time.Time `json:"created_at"`
+	DeletePending bool      `json:"delete_pending"`
+	ClientType    string    `json:"client_type,omitempty"`
+	ID            string    `json:"id"`
+	UserID        string    `json:"user_id"`
+	PublicKey     string    `json:"public_key"`
+	WireGuardKey  string    `json:"wireguard_key"`
+	PeerID        string    `json:"peer_id"`
+	IP            string    `json:"ip"`
+	CreatedAt     time.Time `json:"created_at"`
 }
 type Lease struct {
 	ID         string     `json:"id"`

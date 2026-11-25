@@ -1,5 +1,0 @@
-PASS 79 remote gate checks (test verifier; no media/crypto integration claim)
-PASS C ABI linked from C11 on Debian
-7f83343e430a9fbdfffa7098bcaf05c5982d0f7a1c8c1a5495c1a63d3aa72679  src/session.cpp
-c47455631319c45da0589446d32fc178d27c8c8d1e242f5b7926e0f645273ee1  tests/session_tests.cpp
-71176eac2b008f8b710c381c58f2f1ccd2a3699ff78550d967e7786bed691c22  include/netgo_remote.h

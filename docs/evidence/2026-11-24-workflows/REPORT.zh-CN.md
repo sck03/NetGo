@@ -1,5 +1,7 @@
 # 独立构建参数与 Releases 发布验证
 
+> 历史提交记录；原始日志、截图与测试数据已从当前目录清理。可在 Git 提交 `9296955` 的相同路径查看，不能作为本轮修改的验证结果。
+
 日期：2026-11-24，Asia/Shanghai。本轮只构建与验证，所有云端测试均为 publish=false，没有创建 GitHub Release。
 
 ## 交付行为
@@ -37,7 +39,7 @@
 
 自定义 VPS 0.3.1-rc.1：[45355844088](https://github.com/sck03/NetGo/actions/runs/45355844088)。macOS Intel 0.3.1-dev、构建号 2：[45359010505](https://github.com/sck03/NetGo/actions/runs/45359010505)，Mach-O 架构、标准版本、完整版本和构建号均已核验。Windows 云端 EXE 的 --version、FileVersion 和 ProductVersion 一致。
 
-九份发布暂存产物实际下载核对摘要和 CRC，运行归档、版本与主程序架构检查通过。运行包未发现开发缓存、源码对象、Python 脚本、私钥或数据库。完整资产摘要、架构与 Apple plist 核验结果见 [CI 回执](CI.json)。工作流源码和回归检查已通过，但此次始终未执行真实 Release 写入。
+九份发布暂存产物实际下载核对摘要和 CRC，运行归档、版本与主程序架构检查通过。运行包未发现开发缓存、源码对象、Python 脚本、私钥或数据库。完整资产摘要、架构与 Apple plist 核验结果见 [CI 回执](https://github.com/sck03/NetGo/blob/92969551d3989395bcf2556702649ed9dc9c8e3b/docs/evidence/2026-11-24-workflows/CI.json)。工作流源码和回归检查已通过，但此次始终未执行真实 Release 写入。
 
 ## 验证范围
 

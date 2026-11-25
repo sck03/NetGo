@@ -196,7 +196,8 @@ func (n *Native) Complete(ctx context.Context, id, alias, password, signature st
 		n.mu.Unlock()
 		return errors.New("rate_limited")
 	}
-	n.attempts[alias] = append(a, time.Now())
+	attemptedAt := time.Now()
+	n.attempts[alias] = append(a, attemptedAt)
 	if len(n.attempts) > 4096 {
 		for k, v := range n.attempts {
 			if len(v) == 0 || time.Since(v[len(v)-1]) > time.Minute {
@@ -221,6 +222,14 @@ func (n *Native) Complete(ctx context.Context, id, alias, password, signature st
 	}
 	n.mu.Lock()
 	defer n.mu.Unlock()
+	// Successful sign-ins do not consume the account's failed-attempt budget.
+	kept := n.attempts[alias][:0]
+	for _, at := range n.attempts[alias] {
+		if !at.Equal(attemptedAt) {
+			kept = append(kept, at)
+		}
+	}
+	n.attempts[alias] = kept
 	t.Code = code
 	t.UserID = u.ID
 	t.AuthRevision = u.AuthRevision
@@ -259,7 +268,7 @@ func (n *Native) Exchange(ctx context.Context, id, verifier, signature string) (
 			out.ExpiresAt = u.ExpiresAt
 		}
 		d, exists := st.Devices[out.DeviceID]
-		if exists && (d.WireGuardKey != t.Begin.WireGuardKey || d.ClientType != t.Begin.ClientType) {
+		if exists && (d.DeletePending || d.WireGuardKey != t.Begin.WireGuardKey || d.ClientType != t.Begin.ClientType) {
 			return model.ErrForbidden
 		}
 		if !exists {

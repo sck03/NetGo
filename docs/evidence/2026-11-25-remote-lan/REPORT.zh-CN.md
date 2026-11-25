@@ -1,5 +1,7 @@
 # 远控状态、授权与旁路由诊断验证
 
+> 历史提交记录；原始日志、截图与测试数据已从当前目录清理。可在 Git 提交 `9296955` 的相同路径查看，不能作为本轮修改的验证结果。
+
 日期：2026-11-25（Asia/Shanghai）。接续“优化远程桌面与服务器访问配置”。本轮使用新接口，无旧客户端回退分支；LAN 服务端、管理网页与客户端需要同步更新。
 
 ## 实现
@@ -47,7 +49,7 @@ VPS 临时客户端已通过公网辅助控制入口与 Relay 连接，真实 Fa
 | 撤销互联网权限 | 当前 VPN 会话退出；此前成功访问的 Fake-IP 目标变为不可达；新互联网连接被拒绝 |
 | 保留 LAN 权限 | 撤权后同一账号关闭互联网模式仍能连接和访问获授权 LAN HTTPS，Fake-IP 目标仍被阻断 |
 
-逐次结果及初次失败见 [LIVE.json](LIVE.json) 和 [原始结果摘录](LIVE-LOGS.txt)。Debian 构建、竞态检查、内核规则测试和原生 CTest 输出见 [TEST-LOGS.txt](TEST-LOGS.txt)。远控登记测试使用真实 VPN 租约及接口，但没有运行物理桌面采集端，不能算完整媒体远控验收。
+逐次结果及初次失败见 [LIVE.json](https://github.com/sck03/NetGo/blob/92969551d3989395bcf2556702649ed9dc9c8e3b/docs/evidence/2026-11-25-remote-lan/LIVE.json) 和 [原始结果摘录](https://github.com/sck03/NetGo/blob/92969551d3989395bcf2556702649ed9dc9c8e3b/docs/evidence/2026-11-25-remote-lan/LIVE-LOGS.txt)。Debian 构建、竞态检查、内核规则测试和原生 CTest 输出见 [TEST-LOGS.txt](https://github.com/sck03/NetGo/blob/92969551d3989395bcf2556702649ed9dc9c8e3b/docs/evidence/2026-11-25-remote-lan/TEST-LOGS.txt)。远控登记测试使用真实 VPN 租约及接口，但没有运行物理桌面采集端，不能算完整媒体远控验收。
 
 ### 首次请求异常调查
 
@@ -71,7 +73,7 @@ VPS 临时客户端已通过公网辅助控制入口与 Relay 连接，真实 Fa
 | macOS arm64 | 45597017002 | success |
 | iOS arm64 | 45597017149 | success |
 
-逐项运行、步骤和产物记录见 [CI.json](CI.json)。独立下载四个服务器包及 Windows 包，核对 GitHub 外层 ZIP 摘要、发布清单、各文件摘要和旁置校验文件、源码提交、归档路径及 CRC；服务器 ELF 分别核对 amd64 / arm64，Windows 便携包内可执行文件核对 amd64。结果见 [ARTIFACTS.json](ARTIFACTS.json)。一次 GitHub 只读查询连接中断后重试成功，未改动产品代码。LAN 实机二进制在库存查询移入独立文件之前编译，摘要已单独记录；云构建包对应最终代码提交。
+逐项运行、步骤和产物记录见 [CI.json](https://github.com/sck03/NetGo/blob/92969551d3989395bcf2556702649ed9dc9c8e3b/docs/evidence/2026-11-25-remote-lan/CI.json)。独立下载四个服务器包及 Windows 包，核对 GitHub 外层 ZIP 摘要、发布清单、各文件摘要和旁置校验文件、源码提交、归档路径及 CRC；服务器 ELF 分别核对 amd64 / arm64，Windows 便携包内可执行文件核对 amd64。结果见 [ARTIFACTS.json](https://github.com/sck03/NetGo/blob/92969551d3989395bcf2556702649ed9dc9c8e3b/docs/evidence/2026-11-25-remote-lan/ARTIFACTS.json)。一次 GitHub 只读查询连接中断后重试成功，未改动产品代码。LAN 实机二进制在库存查询移入独立文件之前编译，摘要已单独记录；云构建包对应最终代码提交。
 
 ### 清理和运行状态
 

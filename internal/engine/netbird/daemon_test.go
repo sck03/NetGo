@@ -23,6 +23,7 @@ type daemonRPC struct {
 	selected      *pb.SelectNetworksRequest
 	selectErr     error
 	loginMetadata metadata.MD
+	loginRequest  *pb.LoginRequest
 }
 
 func (r *daemonRPC) Down(context.Context, *pb.DownRequest, ...grpc.CallOption) (*pb.DownResponse, error) {
@@ -40,7 +41,8 @@ func (r *daemonRPC) AddProfile(_ context.Context, req *pb.AddProfileRequest, _ .
 	return &pb.AddProfileResponse{}, nil
 }
 
-func (r *daemonRPC) Login(ctx context.Context, _ *pb.LoginRequest, _ ...grpc.CallOption) (*pb.LoginResponse, error) {
+func (r *daemonRPC) Login(ctx context.Context, req *pb.LoginRequest, _ ...grpc.CallOption) (*pb.LoginResponse, error) {
+	r.loginRequest = req
 	r.logins++
 	r.loginMetadata, _ = metadata.FromOutgoingContext(ctx)
 	return &pb.LoginResponse{UserCode: "same-device-key"}, nil
@@ -55,6 +57,9 @@ func TestLoginPassesCandidateKindsWithAddresses(t *testing.T) {
 	}}
 	if err := d.Login(context.Background(), profile, "test-token"); err != nil {
 		t.Fatal(err)
+	}
+	if rpc.loginRequest.BlockInbound == nil || *rpc.loginRequest.BlockInbound {
+		t.Fatal("managed inbound ACL is bypassed")
 	}
 	if !reflect.DeepEqual(rpc.loginMetadata.Get("netgo-candidate-kind"), []string{"auxiliary", "direct"}) ||
 		!reflect.DeepEqual(rpc.loginMetadata.Get("netgo-candidate"), []string{"backup.example:24443", "wan2.example:10443"}) {

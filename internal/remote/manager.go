@@ -396,6 +396,10 @@ func (m *Manager) sweep(st *model.State, now time.Time) {
 }
 
 func (m *Manager) Sweep() error {
+	due, err := m.Store.RemoteCleanupDue(m.now())
+	if err != nil || !due {
+		return err
+	}
 	return m.Store.RemoteUpdate(func(st *model.State) error { m.sweep(st, m.now()); return nil })
 }
 

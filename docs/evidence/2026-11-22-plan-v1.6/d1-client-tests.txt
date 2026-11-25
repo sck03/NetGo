@@ -1,2 +1,0 @@
-ok  	netgo/internal/engine/netbird	1.336s
-ok  	netgo/internal/client	1.316s

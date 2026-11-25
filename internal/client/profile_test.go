@@ -18,6 +18,7 @@ import (
 	"strings"
 	"sync/atomic"
 	"testing"
+	"time"
 )
 
 func TestAuthenticatedProfileSyncProbesBeforePersisting(t *testing.T) {
@@ -25,7 +26,7 @@ func TestAuthenticatedProfileSyncProbesBeforePersisting(t *testing.T) {
 	var published atomic.Value
 	server := httptest.NewTLSServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.URL.Path == "/netgo/v2/health" {
-			_ = json.NewEncoder(w).Encode(protocol.Health{Protocol: 2, SiteID: "site", Capabilities: protocol.Capabilities()})
+			_ = json.NewEncoder(w).Encode(protocol.Health{Protocol: 2, SiteID: "site", Capabilities: protocol.Capabilities(), ServerUnix: time.Now().Unix()})
 			return
 		}
 		if r.URL.Path != "/netgo/v2/site" || r.Header.Get("Authorization") != "Bearer token" || r.Header.Get(protocol.Header) != "2" {

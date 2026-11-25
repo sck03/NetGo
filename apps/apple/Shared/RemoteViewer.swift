@@ -19,6 +19,7 @@ final class RemoteViewer {
     private var sessionControl: ((String,String,String,String) throws -> String)?
     var changed: ((String) -> Void)?
     var event: (([String:Any]) -> Void)?
+    var permissionsChanged: ((UInt32) -> Void)?
     private(set) var site = ""
     private(set) var capabilities: UInt32 = 0
 
@@ -55,7 +56,7 @@ final class RemoteViewer {
                 let v = Unmanaged<RemoteViewer>.fromOpaque(ctx!).takeUnretainedValue()
                 return ng_remote_input_read(v.inputs, output, capacity, length)
             }
-            options.format = { ctx, width, height, _, caps in let v = Unmanaged<RemoteViewer>.fromOpaque(ctx!).takeUnretainedValue(); v.lock.lock(); v.width = width; v.height = height; v.capabilities = caps; v.lock.unlock(); return 0 }
+            options.format = { ctx, width, height, _, caps in let v = Unmanaged<RemoteViewer>.fromOpaque(ctx!).takeUnretainedValue(); v.lock.lock(); v.width = width; v.height = height; v.capabilities = caps; let epoch=v.sessionGeneration; v.lock.unlock(); DispatchQueue.main.async { if v.current(epoch) { v.permissionsChanged?(caps) } }; return 0 }
             options.video = { ctx, bytes, size, time in Unmanaged<RemoteViewer>.fromOpaque(ctx!).takeUnretainedValue().media.video(Data(bytes:bytes!,count:size),time:time) ? 0 : -1 }
             options.audio = { ctx, bytes, size in Unmanaged<RemoteViewer>.fromOpaque(ctx!).takeUnretainedValue().media.audio(Data(bytes:bytes!,count:size)) ? 0 : -1 }
             options.event = { ctx,json in let v=Unmanaged<RemoteViewer>.fromOpaque(ctx!).takeUnretainedValue();if let data=String(cString:json!).data(using:.utf8),let object=(try? JSONSerialization.jsonObject(with:data)) as? [String:Any] { let epoch=v.sessionGeneration;DispatchQueue.main.async { if v.current(epoch)||(object["action"] as? String=="upload"&&object["done"] as? Bool==true){v.event?(object)} } } }
@@ -67,6 +68,8 @@ final class RemoteViewer {
                 lock.lock(); client = nil; lock.unlock(); ng_remote_client_destroy(created)
             }
             lock.lock(); client = nil; running = false; capabilities = 0; lock.unlock()
+            let ended=sessionGeneration
+            DispatchQueue.main.async { if self.current(ended) { self.permissionsChanged?(0) } }
             free(sitePointer); free(hostPointer); sitePointer = nil; hostPointer = nil; media.stop()
         }
     }
@@ -94,7 +97,7 @@ final class RemoteViewer {
     @discardableResult func command(_ value:[String:Any]) -> Bool {
         lock.lock();defer { lock.unlock() };guard running,let client,let data=try? JSONSerialization.data(withJSONObject:value) else { return false };return data.withUnsafeBytes { bytes in ng_remote_client_command(client,bytes.baseAddress?.assumingMemoryBound(to:CChar.self),bytes.count)==0 }
     }
-    func stop() { lock.lock(); generation &+= 1; running = false; if let client = client { ng_remote_client_cancel(client) }; lock.unlock(); media.stop() }
+    func stop() { lock.lock(); generation &+= 1; let ended=generation; running = false; capabilities=0; if let client = client { ng_remote_client_cancel(client) }; lock.unlock(); DispatchQueue.main.async { if self.current(ended) { self.permissionsChanged?(0) } }; media.stop() }
 }
 
 extension Data {

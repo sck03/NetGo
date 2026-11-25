@@ -101,7 +101,8 @@ int main(int argc,char** argv){
   require(unchanged==interleaved,"unchanged form reordered imported entries");validateProfileUpdate(interleaved,unchanged);
   rejects([&]{profileEndpoints(p,"192.168.18.220:10443","192.168.18.220:10443");},"duplicate endpoints");
   rejects([&]{profileEndpoints(p,"","vps.example:24443");},"missing direct entry");
-  auto health=Json{{"protocol",2},{"site_id","test"},{"capabilities",{"native-auth-v1","device-signature-v1","leases-v1","profile-revision-v1"}}};
+  auto health=Json{{"protocol",2},{"site_id","test"},{"server_unix",int64_t(std::time(nullptr))},{"capabilities",{"native-auth-v1","device-signature-v1","leases-v1","profile-revision-v1"}}};
+  auto noClock=health;noClock.erase("server_unix");rejects([&]{validateHealth(noClock,"test");},"missing server clock accepted");
   validateHealth(health,"test");
   auto timed=health;timed["server_unix"]=int64_t(std::time(nullptr));validateHealth(timed,"test");
   timed["server_unix"]=int64_t(std::time(nullptr))+60;

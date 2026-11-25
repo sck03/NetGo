@@ -20,7 +20,7 @@ func testSite(t *testing.T, siteID string) *httptest.Server {
 	t.Helper()
 	srv := httptest.NewTLSServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "application/json")
-		_ = json.NewEncoder(w).Encode(protocol.Health{Protocol: 2, SiteID: siteID, Capabilities: protocol.Capabilities()})
+		_ = json.NewEncoder(w).Encode(protocol.Health{Protocol: 2, SiteID: siteID, Capabilities: protocol.Capabilities(), ServerUnix: time.Now().Unix()})
 	}))
 	t.Cleanup(srv.Close)
 	return srv

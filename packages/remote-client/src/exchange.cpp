@@ -55,11 +55,14 @@ void Exchange::finish(const std::string &error) {
             e["path"] = active_.at("path");
         event_(e);
     }
-    active_ = pending_ = ready_ = chunk_ = Json();
+    active_ = ready_ = Json();
+    pending_.clear();
     localToken_.clear();
     remoteToken_.clear();
     sha_.clear();
-    size_ = offset_ = 0;
+    failure_.clear();
+    size_ = offset_ = sent_ = 0;
+    dataDone_ = false;
 }
 void Exchange::discard(std::deque<Json> commands, const std::string &error) {
     for (auto &c : commands) {
@@ -88,8 +91,12 @@ void Exchange::reset() noexcept {
 }
 Exchange::Json Exchange::send(Json command) {
     command["id"] = ++id_;
-    pending_ = command;
-    deadline_ = std::chrono::steady_clock::now() + std::chrono::seconds(10);
+    auto tracked = command;
+    if (tracked.contains("data")) {
+        tracked["bytes"] = decode64(tracked.at("data"), file_chunk).size();
+        tracked.erase("data");
+    }
+    pending_.push_back({std::move(tracked), std::chrono::steady_clock::now() + std::chrono::seconds(10)});
     return command;
 }
 Exchange::Json Exchange::next(uint32_t caps) {
@@ -112,17 +119,27 @@ Exchange::Json Exchange::next(uint32_t caps) {
         if ((caps & required) != required)
             cancelling_ = true;
     }
-    if (!pending_.is_null()) {
-        require(std::chrono::steady_clock::now() < deadline_, "remote_command_timeout");
-        return {};
+    if (!pending_.empty()) {
+        require(std::chrono::steady_clock::now() < pending_.front().deadline, "remote_command_timeout");
+        if (cancelling_ || pending_.size() >= 8) return {};
     }
     if (cancelling_) {
         cancelling_ = false;
-        finish("remote_transfer_cancelled");
+        finish(failure_.empty() ? "remote_transfer_cancelled" : failure_);
         active_ = {{"action", "cancel"}};
         return send({{"action", "file.cancel"}});
     }
+    if (ready_.is_null() && !active_.is_null() && !remoteToken_.empty() && !dataDone_) {
+        if (active_.at("action") == "upload") advanceUpload();
+        else if (active_.at("action") == "download") {
+            ready_ = {{"action", "file.read"}, {"token", remoteToken_}, {"offset", sent_}};
+            sent_ += std::min<std::uint64_t>(file_chunk, size_ - sent_);
+            dataDone_ = sent_ == size_;
+        }
+    }
     if (!ready_.is_null()) {
+        auto step = ready_.at("action");
+        if (!pending_.empty() && step != "file.read" && step != "file.write") return {};
         auto out = std::move(ready_);
         ready_ = Json();
         return send(std::move(out));
@@ -160,20 +177,21 @@ Exchange::Json Exchange::next(uint32_t caps) {
     }
 }
 void Exchange::advanceUpload() {
-    chunk_ = local_->read(localToken_, offset_);
-    if (chunk_.at("done").get<bool>())
-        sha_ = chunk_.at("sha256");
-    auto data = chunk_.at("data").get<std::string>();
+    auto chunk = local_->read(localToken_, sent_);
+    dataDone_ = chunk.at("done").get<bool>();
+    if (dataDone_) sha_ = chunk.at("sha256");
+    auto data = chunk.at("data").get<std::string>();
     if (data.empty()) {
         ready_ = {{"action", "file.commit"}, {"token", remoteToken_}, {"sha256", sha_}};
         return;
     }
-    ready_ = {{"action", "file.write"}, {"token", remoteToken_}, {"offset", offset_}, {"data", data}};
+    ready_ = {{"action", "file.write"}, {"token", remoteToken_}, {"offset", sent_}, {"data", data}};
+    sent_ += decode64(data, file_chunk).size();
 }
 void Exchange::receive(const Json &reply) {
-    require(!pending_.is_null() && reply.at("id") == pending_.at("id"), "remote_command_mismatch");
-    auto request = std::move(pending_);
-    pending_ = Json();
+    require(!pending_.empty() && reply.at("id") == pending_.front().request.at("id"), "remote_command_mismatch");
+    auto request = std::move(pending_.front().request);
+    pending_.pop_front();
     {
         std::lock_guard lock(mutex_);
         if (cancel_) {
@@ -185,7 +203,8 @@ void Exchange::receive(const Json &reply) {
     if (cancelling_)
         return;
     if (reply.contains("error")) {
-        finish(reply.at("error").get<std::string>());
+        failure_ = reply.at("error").get<std::string>();
+        cancelling_ = true;
         return;
     }
     try {
@@ -194,15 +213,12 @@ void Exchange::receive(const Json &reply) {
         if (action == "upload") {
             if (step == "file.begin") {
                 remoteToken_ = result.at("token");
-                advanceUpload();
             } else if (step == "file.write") {
-                auto data = decode64(chunk_.at("data"), file_chunk);
-                offset_ += data.size();
+                require(request.at("offset") == offset_, "remote_file_offset_mismatch");
+                offset_ += request.at("bytes").get<std::uint64_t>();
                 require(result.at("offset") == offset_, "remote_file_offset_mismatch");
                 if (offset_ == size_)
                     ready_ = {{"action", "file.commit"}, {"token", remoteToken_}, {"sha256", sha_}};
-                else
-                    advanceUpload();
             } else {
                 require(step == "file.commit" && result.at("done").get<bool>(), "remote_file_incomplete");
                 finish();
@@ -232,7 +248,6 @@ void Exchange::receive(const Json &reply) {
                 }
                 require(!bytes.empty() && offset_ < size_, "remote_invalid_file_chunk");
             }
-            ready_ = {{"action", "file.read"}, {"token", remoteToken_}, {"offset", offset_}};
         } else {
             auto event = result;
             event["action"] = action;
@@ -248,9 +263,8 @@ void Exchange::receive(const Json &reply) {
             progress_ = now;
         }
     } catch (const std::exception &e) {
-        finish(e.what());
-        active_ = {{"action", "cancel"}};
-        ready_ = {{"action", "file.cancel"}};
+        failure_ = e.what();
+        cancelling_ = true;
     }
 }
 } // namespace netgo::remote

@@ -28,16 +28,21 @@ def run(binary):
     wan_ready=threading.Event()
     class Handler(http.server.BaseHTTPRequestHandler):
         protocol_version="HTTP/1.1"
+        def setup(self):
+            super().setup()
+            self.health_seen=False
         def log_message(self,*args): pass
         def reply(self,value):
             data=json.dumps(value,separators=(",",":")).encode()
             self.send_response(200);self.send_header("Content-Type","application/json");self.send_header("Content-Length",str(len(data)));self.end_headers();self.wfile.write(data)
         def do_GET(self):
+            self.health_seen=True
             events.append(("health",self.headers["Host"]))
             self.reply({"protocol":2,"site_id":"unavailable" if getattr(self.server,"wan",False) and not wan_ready.is_set() else "fixture",
                         "capabilities":["native-auth-v1","device-signature-v1","leases-v1","profile-revision-v1","admin-v1","diagnostics-v1"],
                         "server_unix":int(time.time())+getattr(self.server,"clock_skew",0)})
         def do_POST(self):
+            assert self.health_seen, "signed request opened a new connection instead of reusing authenticated health transport"
             body=self.rfile.read(int(self.headers["Content-Length"]))
             token="fixture-token";stamp=self.headers["X-NetGo-Time"];nonce=self.headers["X-NetGo-Nonce"]
             assert abs(int(stamp)-int(time.time())-getattr(self.server,"clock_skew",0)) <= 3

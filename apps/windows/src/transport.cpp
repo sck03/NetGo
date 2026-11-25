@@ -13,6 +13,14 @@
 #include <bit>
 
 namespace netgo {
+struct Transport::Link {
+ std::mutex mutex;
+ SOCKET socket=INVALID_SOCKET;
+ std::unique_ptr<SSL,decltype(&SSL_free)> tls{nullptr,SSL_free};
+ Clock::time_point used{};
+ void reset(){tls.reset();if(socket!=INVALID_SOCKET){closesocket(socket);socket=INVALID_SOCKET;}}
+ ~Link(){reset();}
+};
 static std::string lower(std::string s){for(char& c:s)c=char(std::tolower(static_cast<unsigned char>(c)));return s;}
 static bool protectControlSocket(SOCKET socket,const sockaddr* target,const std::string& gatewayIP){
  sockaddr_in gateway{};gateway.sin_family=AF_INET;
@@ -38,63 +46,6 @@ static bool protectControlSocket(SOCKET socket,const sockaddr* target,const std:
  DWORD index=target->sa_family==AF_INET?htonl(selected):selected;
  return setsockopt(socket,target->sa_family==AF_INET?IPPROTO_IP:IPPROTO_IPV6,target->sa_family==AF_INET?IP_UNICAST_IF:IPV6_UNICAST_IF,reinterpret_cast<const char*>(&index),sizeof(index))==0;
 }
-void validateHealth(const Json& h,const std::string& siteID) {
- if(h.value("site_id","")!=siteID)throw Error("site_identity_mismatch");
- if(h.value("protocol",0)!=2||!h.contains("capabilities")||!h["capabilities"].is_array())throw Error("protocol_incompatible");
- for(const auto& c:{"native-auth-v1","device-signature-v1","leases-v1","profile-revision-v1"}){
-  if(std::find(h["capabilities"].begin(),h["capabilities"].end(),Json(c))==h["capabilities"].end())throw Error("protocol_incompatible");
- }
- if(h.contains("server_unix")){
-  if(!h["server_unix"].is_number_integer())throw Error("invalid_control_health");
-  auto remote=h["server_unix"].get<int64_t>();
-  if(remote<946684800||remote>4102444800)throw Error("invalid_control_health");
- }
-}
-HttpResponse decodeHttp(const std::string& raw) {
- auto end=raw.find("\r\n\r\n");if(end==std::string::npos||end>32768)throw Error("invalid_http_response");
- std::istringstream lines(raw.substr(0,end));std::string version,line;int code=0;lines>>version>>code;std::getline(lines,line);
- if((version!="HTTP/1.1"&&version!="HTTP/1.0")||code<100||code>599)throw Error("invalid_http_response");
- bool chunked=false;size_t length=SIZE_MAX;
- while(std::getline(lines,line)) {
-  auto colon=line.find(':');if(colon==std::string::npos||colon==0)throw Error("invalid_http_header");
-  auto k=lower(line.substr(0,colon));auto v=lower(line.substr(colon+1));
-  auto first=v.find_first_not_of(" \t\r");auto last=v.find_last_not_of(" \t\r");v=first==std::string::npos?"":v.substr(first,last-first+1);
-  if(k=="transfer-encoding"){if(chunked||v!="chunked")throw Error("unsupported_http_encoding");chunked=true;}
-  if(k=="content-encoding"&&v!="identity")throw Error("unsupported_http_encoding");
-  if(k=="content-length"){
-   if(v.empty()||v.find_first_not_of("0123456789")!=std::string::npos||length!=SIZE_MAX)throw Error("invalid_http_length");
-   unsigned long long n=std::stoull(v);
-   if(n>4*maxJson)throw Error("http_response_too_large");
-   length=size_t(n);
-  }
- }
- std::string b=raw.substr(end+4);
- if(b.size()>4*maxJson||(chunked&&length!=SIZE_MAX))throw Error("invalid_http_framing");
- if(chunked) {
-  size_t at=0;std::string decoded;
-  for(;;) {
-   auto next=b.find("\r\n",at);if(next==std::string::npos||next-at>128)throw Error("invalid_http_chunk");
-   auto text=b.substr(at,next-at);text=text.substr(0,text.find(';'));
-   if(text.empty()||text.find_first_not_of("0123456789abcdefABCDEF")!=std::string::npos)throw Error("invalid_http_chunk");
-   auto n=std::stoull(text,nullptr,16);at=next+2;
-   if(n==0){
-    // Require the terminal empty line, including when trailers are present.
-    for(;;){
-     auto trailer=b.find("\r\n",at);if(trailer==std::string::npos||trailer-at>32768)throw Error("invalid_http_chunk");
-     if(trailer==at){at+=2;break;}
-     auto colon=b.find(':',at);if(colon==std::string::npos||colon==at||colon>=trailer)throw Error("invalid_http_chunk");
-     auto name=lower(b.substr(at,colon-at));if(name=="content-length"||name=="transfer-encoding")throw Error("invalid_http_framing");
-     at=trailer+2;
-    }
-    if(at!=b.size())throw Error("invalid_http_chunk");
-    break;
-   }
-   if(n>4*maxJson||at+n+2>b.size()||b.substr(at+size_t(n),2)!="\r\n")throw Error("invalid_http_chunk");
-   decoded.append(b,at,size_t(n));at+=size_t(n)+2;if(decoded.size()>4*maxJson)throw Error("http_response_too_large");
-  }b=std::move(decoded);
- }else if(length!=SIZE_MAX){if(b.size()!=length)throw Error("invalid_http_length");}
- return {code,b};
-}
 static void windowsRoots(X509_STORE* store) {
  for(DWORD location:{DWORD(CERT_SYSTEM_STORE_CURRENT_USER),DWORD(CERT_SYSTEM_STORE_LOCAL_MACHINE)}) {
   HCERTSTORE roots=CertOpenStore(CERT_STORE_PROV_SYSTEM_W,0,0,location|CERT_STORE_READONLY_FLAG,L"ROOT");
@@ -108,6 +59,7 @@ static void windowsRoots(X509_STORE* store) {
 }
 Transport::Transport(Json p,std::chrono::milliseconds cooldown):profile_(std::move(p)),context_(SSL_CTX_new(TLS_client_method()),SSL_CTX_free),cooldown_(cooldown) {
  validateProfile(profile_);if(!context_)throw Error("tls_initialization_failed");
+ for(size_t i=0;i<profile_["Candidates"].size();++i)links_.push_back(std::make_shared<Link>());
  SSL_CTX_set_min_proto_version(context_.get(),TLS1_2_VERSION);SSL_CTX_set_verify(context_.get(),SSL_VERIFY_PEER,nullptr);
  SSL_CTX_set_purpose(context_.get(),X509_PURPOSE_SSL_SERVER);auto store=SSL_CTX_get_cert_store(context_.get());windowsRoots(store);
  auto ca=profile_.value("CA","");
@@ -120,6 +72,18 @@ Transport::Transport(Json p,std::chrono::milliseconds cooldown):profile_(std::mo
 }
 Json Transport::requestAt(size_t index,const std::string& method,const std::string& path,const std::string& body,const std::string& headers) {
  auto deadline=Clock::now()+std::chrono::seconds(path=="/netgo/v2/health"?3:20);
+ auto& link=*links_.at(index);
+ std::lock_guard serial(link.mutex);
+ struct Failure { Link& link; bool reusable=false; ~Failure(){if(!reusable)link.reset();} } failure{link};
+ if(Clock::now()-link.used>std::chrono::seconds(30))link.reset();
+ auto waitTLS=[&](int error){
+  if(error!=SSL_ERROR_WANT_READ&&error!=SSL_ERROR_WANT_WRITE)throw Error("control_tls_failed");
+  auto left=std::chrono::duration_cast<std::chrono::microseconds>(deadline-Clock::now()).count();
+  if(left<=0)throw Error("control_timeout");
+  fd_set set;FD_ZERO(&set);FD_SET(link.socket,&set);timeval wait{long(left/1000000),long(left%1000000)};
+  if(::select(0,error==SSL_ERROR_WANT_READ?&set:nullptr,error==SSL_ERROR_WANT_WRITE?&set:nullptr,nullptr,&wait)<=0)throw Error("control_timeout");
+ };
+ if(!link.tls){
  auto target=address(profile_["Candidates"].at(index).at("Address"));
  ADDRINFOEXW hints{},*list=nullptr;hints.ai_family=AF_UNSPEC;hints.ai_socktype=SOCK_STREAM;hints.ai_protocol=IPPROTO_TCP;
  Handle completion(CreateEventW(nullptr,TRUE,FALSE,nullptr));if(!completion.value)throw Error("control_dns_failed");
@@ -152,41 +116,50 @@ Json Transport::requestAt(size_t index,const std::string& method,const std::stri
   }closesocket(candidate);
  }
  if(raw==INVALID_SOCKET)throw Error("control_unreachable");
- struct SocketGuard{SOCKET s;~SocketGuard(){closesocket(s);}} guard{raw};
- struct Deadline {
-  std::mutex mutex;std::condition_variable ready;bool stopped=false;std::thread worker;
-  Deadline(SOCKET s,Clock::time_point until):worker([this,s,until]{std::unique_lock lock(mutex);if(!ready.wait_until(lock,until,[this]{return stopped;}))shutdown(s,SD_BOTH);}){}
-  ~Deadline(){{std::lock_guard lock(mutex);stopped=true;}ready.notify_one();worker.join();}
- } timeoutGuard(raw,deadline);
- u_long nonblock=0;ioctlsocket(raw,FIONBIO,&nonblock);
- auto remainingMs=std::chrono::duration_cast<std::chrono::milliseconds>(deadline-Clock::now()).count();
- if(remainingMs<=0)throw Error("control_unreachable");
- DWORD timeout=DWORD(std::max<int64_t>(1,remainingMs));
- setsockopt(raw,SOL_SOCKET,SO_RCVTIMEO,reinterpret_cast<char*>(&timeout),sizeof(timeout));setsockopt(raw,SOL_SOCKET,SO_SNDTIMEO,reinterpret_cast<char*>(&timeout),sizeof(timeout));
+ link.socket=raw;
  std::unique_ptr<SSL,decltype(&SSL_free)> tls(SSL_new(context_.get()),SSL_free);auto host=originHost(profile_.at("Origin"));
  if(!tls||SSL_set_fd(tls.get(),int(raw))!=1||SSL_set_tlsext_host_name(tls.get(),host.c_str())!=1)throw Error("tls_initialization_failed");
  in_addr v4{};in6_addr v6{};bool ip=InetPtonA(AF_INET,host.c_str(),&v4)==1||InetPtonA(AF_INET6,host.c_str(),&v6)==1;
  auto param=SSL_get0_param(tls.get());X509_VERIFY_PARAM_set_hostflags(param,X509_CHECK_FLAG_NO_PARTIAL_WILDCARDS);
  if((ip?X509_VERIFY_PARAM_set1_ip_asc(param,host.c_str()):X509_VERIFY_PARAM_set1_host(param,host.c_str(),0))!=1)throw Error("tls_identity_failed");
- if(SSL_connect(tls.get())!=1||SSL_get_verify_result(tls.get())!=X509_V_OK)throw Error("tls_certificate_failed");
+ link.tls=std::move(tls);
+ for(;;){int result=SSL_connect(link.tls.get());if(result==1)break;waitTLS(SSL_get_error(link.tls.get(),result));}
+ if(SSL_get_verify_result(link.tls.get())!=X509_V_OK)throw Error("tls_certificate_failed");
+ }
+ auto* tls=link.tls.get();
  std::string authority=profile_.at("Origin").get<std::string>().substr(8);if(authority.back()=='/')authority.pop_back();
- std::string req=method+" "+path+" HTTP/1.1\r\nHost: "+authority+"\r\nConnection: close\r\nAccept: application/json\r\nAccept-Encoding: identity\r\nContent-Type: application/json\r\n"+headers+"Content-Length: "+std::to_string(body.size())+"\r\n\r\n"+body;
- size_t pos=0;while(pos<req.size()){int n=SSL_write(tls.get(),req.data()+pos,int(req.size()-pos));if(n<=0){wipe(req);throw Error("control_write_failed");}pos+=size_t(n);}wipe(req);
- std::string rawResponse;char buffer[8192];
- while(Clock::now()<deadline) {
-  int n=SSL_read(tls.get(),buffer,sizeof(buffer));if(n<=0) {
-   int e=SSL_get_error(tls.get(),n);
-   if(e==SSL_ERROR_ZERO_RETURN||(e==SSL_ERROR_SYSCALL&&n==0))break;
-   // A complete Content-Length response is accepted even without close_notify.
-   try {decodeHttp(rawResponse);break;}catch(const std::exception&){throw Error("control_read_failed");}
+ std::string req=method+" "+path+" HTTP/1.1\r\nHost: "+authority+"\r\nConnection: keep-alive\r\nAccept: application/json\r\nAccept-Encoding: identity\r\nContent-Type: application/json\r\n"+headers+"Content-Length: "+std::to_string(body.size())+"\r\n\r\n"+body;
+ size_t pos=0;
+ try {
+  while(pos<req.size()){
+   int result=SSL_write(tls,req.data()+pos,int(req.size()-pos));
+   if(result>0)pos+=size_t(result);else waitTLS(SSL_get_error(tls,result));
   }
-  rawResponse.append(buffer,n);if(rawResponse.size()>4*maxJson+32768)throw Error("http_response_too_large");
-  auto h=rawResponse.find("\r\n\r\n");
-  if(h!=std::string::npos&&lower(rawResponse.substr(0,h)).find("content-length:")!=std::string::npos){
-   try{decodeHttp(rawResponse);break;}catch(const std::exception&){}
+ }catch(...){wipe(req);throw;}
+ wipe(req);
+ std::string rawResponse;char buffer[8192];bool framed=false,closed=false;
+ while(Clock::now()<deadline){
+  int count=SSL_read(tls,buffer,sizeof(buffer));
+  if(count<=0){
+   int error=SSL_get_error(tls,count);
+   if(error==SSL_ERROR_ZERO_RETURN||(error==SSL_ERROR_SYSCALL&&count==0)){closed=true;break;}
+   waitTLS(error);continue;
+  }
+  rawResponse.append(buffer,count);
+  if(rawResponse.size()>4*maxJson+32768)throw Error("http_response_too_large");
+  auto end=rawResponse.find("\r\n\r\n");
+  if(end!=std::string::npos){
+   auto header=lower(rawResponse.substr(0,end));
+   if(header.find("content-length:")!=std::string::npos||header.find("transfer-encoding:")!=std::string::npos){
+    try{decodeHttp(rawResponse);framed=true;break;}catch(const std::exception&){}
+   }
   }
  }
+ if(!framed&&!closed)throw Error("control_timeout");
  auto response=decodeHttp(rawResponse);
+ auto header=lower(rawResponse.substr(0,rawResponse.find("\r\n\r\n")));
+ failure.reusable=framed&&!closed&&header.starts_with("http/1.1")&&header.find("connection: close")==std::string::npos;
+ link.used=Clock::now();
  if(response.status<200||response.status>=300) {
   auto v=Json::parse(response.body,nullptr,false);std::string e=v.is_object()?v.value("error","remote_rejected"):"remote_rejected";
   if(!std::regex_match(e,std::regex(R"(^[a-zA-Z0-9_]{1,80}$)")))e="remote_rejected";
@@ -197,7 +170,7 @@ Json Transport::requestAt(size_t index,const std::string& method,const std::stri
 }
 bool Transport::probe(size_t i) {
  try{auto h=requestAt(i,"GET","/netgo/v2/health","","");validateHealth(h,profile_.at("ID"));
-  if(h.contains("server_unix")){std::lock_guard lock(clockMutex_);clocks_.resize(profile_["Candidates"].size());clocks_[i]={std::chrono::system_clock::time_point(std::chrono::seconds(h["server_unix"].get<int64_t>())),Clock::now(),true};}
+  {std::lock_guard lock(clockMutex_);clocks_.resize(profile_["Candidates"].size());clocks_[i]={std::chrono::system_clock::time_point(std::chrono::seconds(h["server_unix"].get<int64_t>())),Clock::now(),true};}
   return true;}
  catch(const std::exception& e){if(std::string(e.what())=="protocol_incompatible")incompatible_=true;return false;}
 }

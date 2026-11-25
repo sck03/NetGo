@@ -9,6 +9,9 @@ import org.netgo.runtime.mobile.Client
 @Keep
 class NativeRemote(private val site: String, private val host: String, private val surface: Surface, private val controlClient: Client) {
     @Volatile private var active = true
+	val isActive: Boolean get() = active
+	@Volatile var presenting = true
+	var capabilitiesChanged: ((Int) -> Unit)? = null
     @Volatile var capabilities = 0; private set
     private var decoder: MediaCodec? = null
     private var sound: AudioTrack? = null
@@ -40,25 +43,27 @@ class NativeRemote(private val site: String, private val host: String, private v
                 .setAudioAttributes(AudioAttributes.Builder().setUsage(AudioAttributes.USAGE_MEDIA).setContentType(AudioAttributes.CONTENT_TYPE_MOVIE).build())
                 .setAudioFormat(AudioFormat.Builder().setSampleRate(48000).setChannelMask(AudioFormat.CHANNEL_OUT_STEREO).setEncoding(AudioFormat.ENCODING_PCM_16BIT).build())
                 .setBufferSizeInBytes(19200).setTransferMode(AudioTrack.MODE_STREAM).build().apply { play() }
-            capabilities = caps; true
+            capabilities = caps
+            android.os.Handler(android.os.Looper.getMainLooper()).post { if (active) capabilitiesChanged?.invoke(caps) }
+            true
         }
     } catch (_: Exception) { false }
     @Keep fun onVideo(bytes: ByteArray, stamp: Long): Boolean = try {
         if (!active) false else {
             val codec = decoder ?: error("decoder_unavailable")
             val drained = MediaCodec.BufferInfo()
-            while (true) { val output=codec.dequeueOutputBuffer(drained,0); if(output<0) break; codec.releaseOutputBuffer(output,true) }
+            while (true) { val output=codec.dequeueOutputBuffer(drained,0); if(output<0) break; codec.releaseOutputBuffer(output,presenting) }
             var index = codec.dequeueInputBuffer(10000)
             var attempts=0
             while(index<0 && active && attempts++<2) {
-                while(true) {val output=codec.dequeueOutputBuffer(drained,0);if(output<0)break;codec.releaseOutputBuffer(output,true)}
+                while(true) {val output=codec.dequeueOutputBuffer(drained,0);if(output<0)break;codec.releaseOutputBuffer(output,presenting)}
                 index=codec.dequeueInputBuffer(10000)
             }
             // Never silently discard a reference frame; bound waiting and stop on overload.
             if (index < 0 || !active) error("decoder_backpressure")
             if (index >= 0) { codec.getInputBuffer(index)!!.apply { clear(); put(bytes) }; codec.queueInputBuffer(index, 0, bytes.size, stamp / 10, 0) }
             val info = MediaCodec.BufferInfo()
-            while (true) { val output = codec.dequeueOutputBuffer(info, 0); if (output < 0) break; codec.releaseOutputBuffer(output, true) }
+            while (true) { val output = codec.dequeueOutputBuffer(info, 0); if (output < 0) break; codec.releaseOutputBuffer(output, presenting) }
             true
         }
     } catch (_: Exception) { false }
@@ -73,10 +78,11 @@ class NativeRemote(private val site: String, private val host: String, private v
         }
     } catch (_: Exception) { false }
     @Keep fun onStatus(code: String) { if (active) NetGoRuntime.message.value = when (code) { "remote_connected" -> "远程桌面已连接"; "remote_waiting_consent" -> "等待主机确认…"; "remote_host_busy" -> "对方正在使用远程桌面，请稍后刷新"; "remote_host_unavailable" -> "对方暂不可连接，请检查 VPN 和桌面共享"; "remote_view_forbidden" -> "当前账号没有观看权限"; else -> code } }
-    @Keep fun onClosed() { active = false; android.os.Handler(android.os.Looper.getMainLooper()).post { finished?.invoke() }; pendingAudio=ByteArray(0); runCatching { decoder?.stop() }; decoder?.release(); decoder = null; runCatching { sound?.stop() }; sound?.release(); sound = null; if (current === this) current = null }
+    @Keep fun onClosed() { active = false; capabilities = 0; android.os.Handler(android.os.Looper.getMainLooper()).post { capabilitiesChanged?.invoke(0); finished?.invoke() }; pendingAudio=ByteArray(0); runCatching { decoder?.stop() }; decoder?.release(); decoder = null; surface.release(); runCatching { sound?.stop() }; sound?.release(); sound = null; if (current === this) current = null }
     companion object {
         init { System.loadLibrary("netgo-remote-jni") }
         @Volatile private var current: NativeRemote? = null
         fun stopCurrent() { current?.stop() }
+        fun releaseCurrentInput() { current?.send(JSONObject().put("type", "release")) }
     }
 }

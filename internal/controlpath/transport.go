@@ -96,14 +96,12 @@ func (s *Selector) probe(ctx context.Context, c site.Candidate) error {
 	if e = h.Validate(s.Profile.ID); e != nil {
 		return e
 	}
-	if h.ServerUnix != 0 {
-		s.mu.Lock()
-		if s.clocks == nil {
-			s.clocks = map[string]clockSample{}
-		}
-		s.clocks[c.ID] = clockSample{time.Unix(h.ServerUnix, 0), time.Now()}
-		s.mu.Unlock()
+	s.mu.Lock()
+	if s.clocks == nil {
+		s.clocks = map[string]clockSample{}
 	}
+	s.clocks[c.ID] = clockSample{time.Unix(h.ServerUnix, 0), time.Now()}
+	s.mu.Unlock()
 	return nil
 }
 func (s *Selector) Select(ctx context.Context) (site.Candidate, error) {

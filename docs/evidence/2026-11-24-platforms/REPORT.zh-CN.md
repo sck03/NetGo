@@ -1,5 +1,7 @@
 # 独立平台构建、时钟修复与节点实机验证
 
+> 历史提交记录；原始日志、截图与测试数据已从当前目录清理。可在 Git 提交 `9296955` 的相同路径查看，不能作为本轮修改的验证结果。
+
 本轮对应0.3.0-dev / API v2 / schema 2。五个客户端、LAN服务端和VPS分别拥有构建脚本和GitHub工作流。LAN/VPS安装维护统一Go，最终用户不需要Python；Apple客户端已实现并继续推进设备验收。
 
 ## 已执行验证
@@ -42,7 +44,7 @@
 
 Go连接/控制/节点竞态检查及隔离网络namespace内的内核路由归属/恢复测试通过。Linux首次网络服务启动后故障注入，保留动态生成的配置和归属记录，随后重试安装及重复卸载通过。撤销凭据后客户端以unauthorized结束连接，避免持续显示重连。
 
-七份Actions产物均已下载并核对API提供的SHA-256、归档完整性和运行文件清单，包内SHA256SUMS逐项匹配。Windows绿色包根目录仅一个NetGo.exe，内部网络准备器位于.netgo；Linux桌面包8个文件，LAN包24个文件，VPS包10个文件，macOS包12个文件，iOS两份运行包各9个文件。Android APK仅保留arm64所需原生库，开发报告位于APK之外。运行包未发现Python脚本、私钥、数据库、源码对象或缓存。构建提交、运行链接与产物摘要见 [CI回执](CI.json)。
+七份Actions产物均已下载并核对API提供的SHA-256、归档完整性和运行文件清单，包内SHA256SUMS逐项匹配。Windows绿色包根目录仅一个NetGo.exe，内部网络准备器位于.netgo；Linux桌面包8个文件，LAN包24个文件，VPS包10个文件，macOS包12个文件，iOS两份运行包各9个文件。Android APK仅保留arm64所需原生库，开发报告位于APK之外。运行包未发现Python脚本、私钥、数据库、源码对象或缓存。构建提交、运行链接与产物摘要见 [CI回执](https://github.com/sck03/NetGo/blob/92969551d3989395bcf2556702649ed9dc9c8e3b/docs/evidence/2026-11-24-platforms/CI.json)。
 
 当前Git跟踪/待提交路径检查未发现缓存、工具链、node_modules、运行数据库、EXE/APK/AAR/IPA、ZIP或私钥；必要Gradle wrapper JAR保留。运行包只包含角色所需程序和许可证；LAN使用frpc，不携带VPS专用frps。开发构建/测试可用Python，终端用户维护使用Go。
 

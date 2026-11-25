@@ -19,6 +19,8 @@ HttpResponse decodeHttp(const std::string& raw);
 class Transport {
  Json profile_;
  std::shared_ptr<ssl_ctx_st> context_;
+ struct Link;
+ std::vector<std::shared_ptr<Link>> links_;
  std::atomic_size_t selected_{0};
  int directSuccess_ = 0;
  size_t directCandidate_ = SIZE_MAX;

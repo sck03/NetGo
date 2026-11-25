@@ -5,7 +5,7 @@ import { AdminSession, validateHealth } from '../../packages/ui/auth.ts'
 const enc = new TextEncoder()
 const unb64 = s => Buffer.from(s, 'base64url')
 const sha = s => createHash('sha256').update(s).digest('hex')
-const health = { protocol: 2, site_id: 'site', capabilities: ['native-auth-v1','device-signature-v1','leases-v1','profile-revision-v1','admin-v1','diagnostics-v1'] }
+const health = { protocol: 2, site_id: 'site', server_unix: Math.floor(Date.now()/1000), capabilities: ['native-auth-v1','device-signature-v1','leases-v1','profile-revision-v1','admin-v1','diagnostics-v1'] }
 
 function server(t, role = 'admin', clockOffset = 0) {
   const original = globalThis.fetch

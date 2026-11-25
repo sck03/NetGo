@@ -1,2 +1,0 @@
-ok  	github.com/netbirdio/netbird/client/grpc	1.307s
-ok  	github.com/netbirdio/netbird/client/cmd	0.201s

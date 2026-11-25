@@ -1,7 +1,0 @@
-{
-  "version": "0.2.1-dev",
-  "protocol": 1,
-  "schema": 1,
-  "os": "linux",
-  "arch": "amd64"
-}
