@@ -18,7 +18,7 @@ struct HostItem: Identifiable { let id: String; let name: String; let status: St
 @MainActor final class ClientModel: ObservableObject {
     @Published var sites: [SiteItem] = []
     @Published var hosts: [HostItem] = []
-    @Published var selected = "" { didSet { if selected != oldValue { invalidate() } } }
+    @Published var selected = "" { didSet { if selected != oldValue { if oldValue.isEmpty {invalidate()} else {disconnect()} } } }
     @Published var replaceSessions = false
     @Published var resources: [String] = []
     private var epoch: UInt64 = 0

@@ -85,3 +85,5 @@ Windows 构建需要 UCRT64 GCC/CMake/Ninja 和 Python cryptography；Linux桌�
 构建和发布成功不代表完整设备验收。未签名 APK/IPA 仍需签名；Apple 真机、跨设备远控、UAC/锁屏/多屏和长期运行状态见 [进度](PROGRESS.zh-CN.md)。安装使用说明见 [INSTALLERS](INSTALLERS.zh-CN.md)。
 
 本轮参数、产物及发布控制验证见 [工作流验证记录](evidence/2026-11-24-workflows/REPORT.zh-CN.md)。
+
+2026-11-25 补记：Android 构建要求本机已安装 JDK 17（设置 JAVA_HOME），CI 通过 setup-java 明确提供。已移除多余的 Foojay 自动下载工具链插件，避免插件仓库解析失败阻断已有 JDK 的构建。其他锁定工具链不变。

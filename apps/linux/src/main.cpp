@@ -24,7 +24,7 @@ struct State {
  std::string root,socket,site;Json profileList=Json::array(),hostList=Json::array();
  std::atomic_bool alive=true,remoteActive=false,jobBusy=false,renderPending=false;std::thread job,remote,cancelJob;netgo::desktop_linux::OperationEpoch epoch;std::atomic_bool cancelling=false;
  std::mutex mutex;Frame frame;netgo::remote::InputQueue inputs;uint32_t caps=0;std::unique_ptr<netgo::desktop_linux::Decoder> decoder;
- ng_remote_client* client=nullptr;bool smoke=false;unsigned timer=0;
+ ng_remote_client* client=nullptr;bool smoke=false,loadingProfiles=false;unsigned timer=0;
  ~State(){alive=false;remoteActive=false;if(job.joinable())job.join();if(remote.joinable())remote.join();if(cancelJob.joinable())cancelJob.join();if(service){g_subprocess_send_signal(service,SIGTERM);g_object_unref(service);}if(ime)g_object_unref(ime);}
 };
 State* state=nullptr;
@@ -110,7 +110,7 @@ void view(std::string host){
  });
 }
 void refresh(){task([]{
- auto profiles=call("GET","/desktop/profiles");mainThread([profiles=std::move(profiles)]{if(!state->alive)return;state->profileList=profiles;names(state->profiles,profiles,"Name");});
+ auto profiles=call("GET","/desktop/profiles");mainThread([profiles=std::move(profiles)]{if(!state->alive)return;auto previous=selected(state->profiles,state->profileList,"ID");state->loadingProfiles=true;state->profileList=profiles;names(state->profiles,profiles,"Name");for(size_t i=0;i<profiles.size();++i)if(profiles[i].value("ID","")==previous)gtk_drop_down_set_selected(GTK_DROP_DOWN(state->profiles),unsigned(i));state->loadingProfiles=false;});
  });}
 void chooseProfile(GObject* dialog,GAsyncResult* result,void*){
  GError* error=nullptr;auto file=gtk_file_dialog_open_finish(GTK_FILE_DIALOG(dialog),result,&error);if(!file){if(error)g_error_free(error);return;}auto path=g_file_get_path(file);std::string name=path?path:"";g_free(path);g_object_unref(file);
@@ -161,6 +161,7 @@ void activate(GtkApplication* app,void*){
  auto keys=gtk_event_controller_key_new();g_signal_connect(keys,"key-pressed",callback(+[](GtkEventControllerKey* c,guint key,guint,GdkModifierType mods,void*)->gboolean{if(!(mods&(GDK_CONTROL_MASK|GDK_ALT_MASK))&&gtk_im_context_filter_keypress(state->ime,gtk_event_controller_get_current_event(GTK_EVENT_CONTROLLER(c))))return TRUE;auto code=virtualKey(key);if(code)queue({{"type","key"},{"code",code},{"extended",code>=33&&code<=46},{"down",true}});return TRUE;}),nullptr);g_signal_connect(keys,"key-released",callback(+[](GtkEventControllerKey*,guint key,guint,GdkModifierType,void*){auto code=virtualKey(key);if(code)queue({{"type","key"},{"code",code},{"extended",code>=33&&code<=46},{"down",false}});}),nullptr);gtk_widget_add_controller(state->picture,keys);
  auto focus=gtk_event_controller_focus_new();g_signal_connect(focus,"enter",callback(+[](GtkEventControllerFocus*,void*){gtk_im_context_focus_in(state->ime);}),nullptr);g_signal_connect(focus,"leave",callback(+[](GtkEventControllerFocus*,void*){gtk_im_context_focus_out(state->ime);queue({{"type","release"}});}),nullptr);gtk_widget_add_controller(state->picture,focus);
  g_signal_connect(state->window,"close-request",callback(+[](GtkWindow*,void*)->gboolean{stopRemote();state->alive=false;return FALSE;}),nullptr);
+ g_signal_connect(state->profiles,"notify::selected",callback(+[](GObject*,GParamSpec*,void*){if(state->loadingProfiles||state->site.empty())return;auto id=selected(state->profiles,state->profileList,"ID");if(id!=state->site){stopRemote();disconnectNetwork();state->site.clear();gtk_label_set_text(GTK_LABEL(state->resources),"");}}),nullptr);
  gtk_window_present(GTK_WINDOW(state->window));
  if(state->smoke){g_timeout_add(1000,[](void*)->gboolean{g_application_quit(G_APPLICATION(state->app));return G_SOURCE_REMOVE;},nullptr);return;}
  if(!std::filesystem::exists(state->socket)){try{startService();}catch(const std::exception& e){status(e.what());}}

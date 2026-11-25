@@ -26,9 +26,8 @@ dependencyResolutionManagement {
   }
 }
 
-plugins {
-  id("org.gradle.toolchains.foojay-resolver-convention") version "1.0.0"
-}
+// The build requires an installed JDK 17 (CI provisions it explicitly).
+// Avoid an unrelated settings-plugin download before project configuration.
 
 rootProject.name = "NetGo"
 

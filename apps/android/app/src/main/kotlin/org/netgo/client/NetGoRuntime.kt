@@ -25,7 +25,7 @@ object NetGoRuntime {
     private val epoch = AtomicLong()
     private val hostRequest = AtomicLong()
     @Volatile var selectedSite = ""
-        set(value) { if (field != value) { epoch.incrementAndGet(); hostRequest.incrementAndGet(); hosts.value = emptyList(); NativeRemote.stopCurrent() }; field = value }
+        set(value) { if (field != value) { field=value; disconnect() } }
     private var polling: Job? = null
     suspend fun ready(): Client = withTimeout(15000) { while (client == null) delay(50); client!! }
     fun execute(action: suspend (Client) -> Unit): Job {
@@ -41,8 +41,9 @@ object NetGoRuntime {
         polling = scope.launch {
             while (isActive && client === value) {
                 try {
+                    val version=epoch.get()
                     val next = JSONObject(value.status())
-                    if (client === value) {
+                    if (client === value && version == epoch.get()) {
                         status.value = next
                         if (next.optString("state") != "connected") { hostRequest.incrementAndGet(); hosts.value = emptyList() }
                         refreshProfiles(value)
