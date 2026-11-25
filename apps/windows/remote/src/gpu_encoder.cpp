@@ -1,6 +1,7 @@
 #include "gpu_encoder.hpp"
 #include <windows.h>
 #include <d3d11.h>
+#include <d3d10.h>
 #include <mfapi.h>
 #include <mfidl.h>
 #include <mferror.h>
@@ -8,6 +9,8 @@
 #include <wrl/client.h>
 #include <stdexcept>
 #include <cstdio>
+#include <chrono>
+#include <thread>
 using Microsoft::WRL::ComPtr;
 namespace netgo::video {
 namespace {
@@ -49,6 +52,9 @@ struct GpuEncoder::Impl {
         try {
             check(MFStartup(MF_VERSION), "gpu MF startup");
             mf = true;
+            ComPtr<ID3D10Multithread> multithread;
+            check(s.context->QueryInterface(IID_PPV_ARGS(&multithread)), "gpu multithread protection");
+            multithread->SetMultithreadProtected(TRUE);
             check(device.As(&video), "gpu video device");
             check(s.context->QueryInterface(IID_PPV_ARGS(&context)), "gpu video context");
             D3D11_VIDEO_PROCESSOR_CONTENT_DESC d{};
@@ -72,6 +78,12 @@ struct GpuEncoder::Impl {
             check(MFTEnumEx(MFT_CATEGORY_VIDEO_ENCODER, MFT_ENUM_FLAG_HARDWARE | MFT_ENUM_FLAG_SORTANDFILTER,
                             &in, &out, &choices, &count),
                   "hardware codec discovery");
+            auto releaseChoices = [count](IMFActivate **list) {
+                for (UINT32 i = 0; i < count; ++i)
+                    list[i]->Release();
+                CoTaskMemFree(list);
+            };
+            std::unique_ptr<IMFActivate *, decltype(releaseChoices)> choiceOwner(choices, releaseChoices);
             for (UINT32 i = 0; i < count; ++i) {
                 if (!encoder) {
                     ComPtr<IMFTransform> candidate;
@@ -98,13 +110,21 @@ struct GpuEncoder::Impl {
                         }
                     }
                 }
-                choices[i]->Release();
             }
-            CoTaskMemFree(choices);
             if (!encoder)
                 throw std::runtime_error("gpu_h264_encoder_unavailable");
             check(encoder->ProcessMessage(MFT_MESSAGE_NOTIFY_BEGIN_STREAMING, 0), "gpu begin");
             check(encoder->ProcessMessage(MFT_MESSAGE_NOTIFY_START_OF_STREAM, 0), "gpu stream");
+            // Desktop Duplication may not produce another surface for a static screen.
+            // Wait boundedly for the first input slot instead of losing that first frame.
+            auto deadline = std::chrono::steady_clock::now() + std::chrono::milliseconds(500);
+            while (!need && std::chrono::steady_clock::now() < deadline) {
+                drain();
+                if (!need)
+                    std::this_thread::sleep_for(std::chrono::milliseconds(1));
+            }
+            if (!need)
+                throw std::runtime_error("gpu_encoder_not_ready");
         } catch (...) {
             cleanup();
             throw;

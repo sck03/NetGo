@@ -132,7 +132,8 @@ struct Files::Impl {
     std::uint64_t size = 0, offset = 0;
     bool uploading = false;
     std::unique_ptr<Digest> digest;
-    explicit Impl(const fs::path &p) {
+    bool quota;
+    explicit Impl(const fs::path &p, bool budget) : quota(budget) {
         require(!p.empty() && p.is_absolute(), "remote_exchange_root_required");
         fs::create_directories(p);
         require(!fs::is_symlink(fs::symlink_status(p)), "remote_exchange_symlink");
@@ -173,8 +174,9 @@ struct Files::Impl {
         }
         return h;
 #else
-        auto h = openat(directory, n.c_str(),
-                        (create ? O_WRONLY | O_CREAT | O_EXCL : O_RDONLY) | O_NOFOLLOW | O_CLOEXEC, 0600);
+        auto h = openat(
+            directory, n.c_str(),
+            (create ? O_WRONLY | O_CREAT | O_EXCL : O_RDONLY | O_NONBLOCK) | O_NOFOLLOW | O_CLOEXEC, 0600);
         struct stat st{};
         if (h >= 0 && (fstat(h, &st) || !S_ISREG(st.st_mode) || st.st_nlink != 1)) {
             closeFile(h);
@@ -214,7 +216,7 @@ struct Files::Impl {
         uploading = false;
     }
 };
-Files::Files(const fs::path &root) : impl_(std::make_unique<Impl>(root)) {}
+Files::Files(const fs::path &root, bool quota) : impl_(std::make_unique<Impl>(root, quota)) {}
 Files::~Files() = default;
 void Files::cancel() noexcept { impl_->cancel(); }
 Json Files::list() {
@@ -246,13 +248,16 @@ std::string Files::begin(const std::string &name, std::uint64_t size) {
     auto &p = *impl_;
     require(valid_file_name(name) && size <= max_file_bytes, "remote_invalid_file");
     require(p.file == invalid, "remote_transfer_busy");
-    auto listing = list();
-    std::uint64_t used = 0;
-    for (const auto &e : listing) {
-        require(e.at("name") != name, "remote_file_exists");
-        used += e.at("size").get<std::uint64_t>();
+    require(!fs::exists(p.root / utf8_path(name)), "remote_file_exists");
+    if (p.quota) {
+        auto listing = list();
+        std::uint64_t used = 0;
+        for (const auto &e : listing) {
+            require(e.at("name") != name, "remote_file_exists");
+            used += e.at("size").get<std::uint64_t>();
+        }
+        require(listing.size() < 256 && used + size <= 2 * max_file_bytes, "remote_exchange_full");
     }
-    require(listing.size() < 256 && used + size <= 2 * max_file_bytes, "remote_exchange_full");
     p.token = randomToken();
     p.temp = ".netgo-" + p.token + ".part";
     p.file = p.child(p.temp, true);

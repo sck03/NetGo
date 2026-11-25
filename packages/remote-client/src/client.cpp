@@ -413,6 +413,13 @@ extern "C" int32_t ng_remote_client_run(ng_remote_client *c) {
         return NG_REMOTE_CLIENT_INVALID;
     if (c->started.exchange(true))
         return NG_REMOTE_CLIENT_BUSY;
+    struct Cleanup {
+        ng_remote_client *client;
+        ~Cleanup() {
+            client->cancelled = true;
+            client->exchange.reset();
+        }
+    } cleanup{c};
     try {
         run(*c);
         return NG_REMOTE_CLIENT_OK;

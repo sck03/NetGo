@@ -2,11 +2,7 @@
 #include "connection.hpp"
 #include "remote_transport.hpp"
 #include "remote_input.hpp"
-#include "netgo_remote_ticket.h"
 #include "netgo_remote_client.h"
-#include "netgo_remote_clock.hpp"
-#include "netgo_remote_watchdog.hpp"
-#include "netgo_remote_session_fence.hpp"
 #include "desktop_capture.hpp"
 #include "video_codec.hpp"
 #include "gpu_encoder.hpp"
@@ -16,7 +12,6 @@
 #include <cstring>
 #include "audio.hpp"
 #include <openssl/evp.h>
-#include <openssl/rand.h>
 #include <d3d11.h>
 #include <wrl/client.h>
 #include <set>
@@ -26,10 +21,7 @@
 
 namespace netgo::desktop {
 namespace {
-using remote::Connection;
-using remote::Key;
 using remote::Kind;
-using remote::Message;
 using Bytes = std::vector<unsigned char>;
 constexpr unsigned fps = 20;
 constexpr char base[] = "/netgo/v2/remote";
@@ -396,13 +388,6 @@ void host(const std::string &site, Callbacks cb) {
         try {
             auto &h = *static_cast<Host *>(p);
             *length = 0;
-            if (h.capture->packets.empty() && h.audio) {
-                for (auto &packet : h.audio->capture()) {
-                    if (h.capture->packets.size() >= 8)
-                        throw Error("remote_audio_backpressure");
-                    h.capture->packets.push_back({remote::Kind::audio, std::move(packet)});
-                }
-            }
             if (h.capture->packets.empty()) {
                 if (h.capture->gpu) {
                     for (auto &packet : h.capture->gpu->drain())
@@ -415,6 +400,13 @@ void host(const std::string &site, Callbacks cb) {
                         throw Error("remote_capture_lost");
                     if (!h.capture->error.empty())
                         throw Error(h.capture->error);
+                }
+                if (h.audio) {
+                    for (auto &packet : h.audio->capture()) {
+                        if (h.capture->packets.size() >= 8)
+                            throw Error("remote_audio_backpressure");
+                        h.capture->packets.push_back({remote::Kind::audio, std::move(packet)});
+                    }
                 }
             }
             if (!h.capture->packets.empty()) {

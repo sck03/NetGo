@@ -211,7 +211,7 @@ struct HostItem: Identifiable { let id: String; let name: String; let status: St
             message="已复制远端剪贴板"
         } else if let files=value["files"] as? [[String:Any]] { transferFiles=files.compactMap{$0["name"] as? String} }
         else if let bytes=value["bytes"] as? NSNumber,let size=value["size"] as? NSNumber { message="文件传输：\(bytes) / \(size) 字节" }
-        if value["done"] as? Bool == true { if value["action"] as? String == "upload" { selectedUpload?.stopAccessingSecurityScopedResource();selectedUpload=nil };if value["action"] as? String == "download",value["error"]==nil,let path=value["path"] as? String { lastDownload=URL(fileURLWithPath:path) } }
+        if value["done"] as? Bool == true { if value["action"] as? String == "upload",value["path"] as? String == selectedUpload?.path { selectedUpload?.stopAccessingSecurityScopedResource();selectedUpload=nil };if value["action"] as? String == "download",value["error"]==nil,let path=value["path"] as? String { lastDownload=URL(fileURLWithPath:path) } }
     }
     func sendClipboard() {
 #if os(macOS)

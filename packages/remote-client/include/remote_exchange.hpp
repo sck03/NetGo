@@ -18,10 +18,11 @@ class Exchange {
 
   private:
     void finish(const std::string &error = {});
+    void discard(std::deque<Json> commands, const std::string &error);
     Json send(Json command);
     void advanceUpload();
     std::mutex mutex_;
-    std::deque<Json> queue_;
+    std::deque<Json> queue_, discarded_;
     bool cancel_ = false, cancelling_ = false;
     std::function<void(const Json &)> event_;
     Json active_, pending_, ready_, chunk_;

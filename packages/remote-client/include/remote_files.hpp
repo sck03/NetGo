@@ -15,7 +15,7 @@ std::string path_text(const std::filesystem::path &);
 // links, nonregular files and existing upload destinations are rejected.
 class Files {
   public:
-    explicit Files(const std::filesystem::path &root);
+    explicit Files(const std::filesystem::path &root, bool exchangeQuota = true);
     ~Files();
     Files(const Files &) = delete;
     nlohmann::json list();

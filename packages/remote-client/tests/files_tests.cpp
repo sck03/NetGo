@@ -4,6 +4,9 @@
 #include <fstream>
 #include <iostream>
 #include <functional>
+#ifndef _WIN32
+#include <sys/stat.h>
+#endif
 using namespace netgo::remote;
 using Json = nlohmann::json;
 namespace fs = std::filesystem;
@@ -91,6 +94,28 @@ int main() {
             denied([&] { files.open("link.bin"); });
             fs::remove(root / "remote/link.bin");
         }
+#ifndef _WIN32
+        check(mkfifo((root / "remote/pipe").c_str(), 0600) == 0, "create fifo");
+        {
+            Files files(root / "remote");
+            denied([&] { files.open("pipe"); });
+            files.list();
+        }
+        fs::remove(root / "remote/pipe");
+#endif
+        fs::create_directories(root / "full-local");
+        for (unsigned i = 0; i < 256; ++i)
+            std::ofstream(root / "full-local" / ("existing-" + std::to_string(i)));
+        {
+            Files quota(root / "full-local");
+            denied([&] { quota.begin("blocked", 0); });
+        }
+        {
+            Files selected(root / "full-local", false);
+            auto token = selected.begin("chosen.txt", 0);
+            selected.commit(token, hash({}));
+        }
+        check(fs::exists(root / "full-local/chosen.txt"), "local destination inherited host quota");
         std::ofstream source(root / "local/source.bin", std::ios::binary);
         source.write(reinterpret_cast<const char *>(content.data()), std::streamsize(content.size()));
         source.close();
@@ -177,6 +202,23 @@ int main() {
             exchange.receive({{"id", pending.at("id")}, {"result", last}});
             pump();
             check(!fs::exists(root / "local/cancel-download.bin"), "cancelled final chunk published");
+            events.clear();
+            exchange.push({{"action", "upload"},
+                           {"name", "queued.bin"},
+                           {"path", path_text(root / "local/source.bin")}});
+            exchange.push({{"action", "cancel"}});
+            pump();
+            check(events.size() >= 2 && events.front().at("action") == "upload" &&
+                      events.front().contains("error"),
+                  "queued cancel lost completion");
+            events.clear();
+            exchange.push({{"action", "download"},
+                           {"name", "queued.bin"},
+                           {"path", path_text(root / "local/unused.bin")}});
+            exchange.reset();
+            check(events.size() == 1 && events.front().at("action") == "download" &&
+                      events.front().contains("error"),
+                  "queued disconnect lost completion");
             for (auto &e : fs::directory_iterator(root / "remote"))
                 check(e.path().filename().string().rfind(".netgo-", 0) != 0, "temporary upload leaked");
         }

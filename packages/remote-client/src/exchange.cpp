@@ -28,10 +28,13 @@ bool Exchange::push(const Json &c) {
         std::lock_guard lock(mutex_);
         if (action == "cancel") {
             cancel_ = true;
-            queue_.clear();
+            while (!queue_.empty()) {
+                discarded_.push_back(std::move(queue_.front()));
+                queue_.pop_front();
+            }
             return true;
         }
-        if (queue_.size() >= 4)
+        if (queue_.size() + discarded_.size() >= 4)
             return false;
         queue_.push_back(c);
         return true;
@@ -56,13 +59,25 @@ void Exchange::finish(const std::string &error) {
     sha_.clear();
     size_ = offset_ = 0;
 }
+void Exchange::discard(std::deque<Json> commands, const std::string &error) {
+    for (auto &c : commands) {
+        Json e = {{"action", c.value("action", "")}, {"done", true}, {"error", error}};
+        if (c.contains("path"))
+            e["path"] = c.at("path");
+        event_(e);
+    }
+}
 void Exchange::reset() noexcept {
     try {
+        std::deque<Json> queued, discarded;
         {
             std::lock_guard lock(mutex_);
-            queue_.clear();
+            queued.swap(queue_);
+            discarded.swap(discarded_);
             cancel_ = false;
         }
+        discard(std::move(queued), "remote_disconnected");
+        discard(std::move(discarded), "remote_transfer_cancelled");
         cancelling_ = false;
         finish("remote_disconnected");
     } catch (...) {
@@ -77,10 +92,13 @@ Exchange::Json Exchange::send(Json command) {
 }
 Exchange::Json Exchange::next(uint32_t caps) {
     bool cancel = false;
+    std::deque<Json> discarded;
     {
         std::lock_guard lock(mutex_);
         cancel = std::exchange(cancel_, false);
+        discarded.swap(discarded_);
     }
+    discard(std::move(discarded), "remote_transfer_cancelled");
     if (cancel)
         cancelling_ = true;
     if (!active_.is_null()) {
@@ -124,7 +142,7 @@ Exchange::Json Exchange::next(uint32_t caps) {
         require((caps & required) == required, "remote_command_forbidden");
         if (action == "upload") {
             auto p = utf8_path(active_.at("path").get<std::string>());
-            local_ = std::make_unique<Files>(p.parent_path());
+            local_ = std::make_unique<Files>(p.parent_path(), false);
             auto u = p.filename().u8string();
             auto info = local_->open(std::string(reinterpret_cast<const char *>(u.data()), u.size()));
             size_ = info.at("size");
@@ -194,7 +212,7 @@ void Exchange::receive(const Json &reply) {
                 require(size_ <= max_file_bytes, "remote_file_too_large");
                 remoteToken_ = result.at("token");
                 auto p = utf8_path(active_.at("path").get<std::string>());
-                local_ = std::make_unique<Files>(p.parent_path());
+                local_ = std::make_unique<Files>(p.parent_path(), false);
                 auto u = p.filename().u8string();
                 localToken_ =
                     local_->begin(std::string(reinterpret_cast<const char *>(u.data()), u.size()), size_);

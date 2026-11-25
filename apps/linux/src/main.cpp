@@ -36,7 +36,10 @@ struct State {
     GtkWidget *resources = nullptr;
     std::string root, socket, site;
     Json profileList = Json::array(), hostList = Json::array();
-    std::atomic_bool alive = true, remoteActive = false, jobBusy = false, renderPending = false;
+    std::atomic_bool alive = true, remoteActive = false, jobBusy = false, renderPending = false,
+                     remoteStopping = false;
+    std::atomic_uint64_t remoteVersion = 0;
+    std::atomic_bool forgetUnattended = false;
     std::thread job, remote, cancelJob;
     netgo::desktop_linux::OperationEpoch epoch;
     std::atomic_bool cancelling = false;
@@ -212,6 +215,14 @@ void task(std::function<void()> action) {
         } catch (const std::exception &e) {
             status(e.what());
         }
+        if (state->forgetUnattended.exchange(false)) {
+            try {
+                call("DELETE", "/desktop/unattended");
+            } catch (const std::exception &e) {
+                state->forgetUnattended = true;
+                status(e.what());
+            }
+        }
         state->jobBusy = false;
     });
 }
@@ -290,6 +301,9 @@ bool point(double x, double y, bool clamp) {
     return true;
 }
 void stopRemote() {
+    ++state->remoteVersion;
+    if (state->remoteActive)
+        state->remoteStopping = true;
     state->remoteActive = false;
     std::lock_guard lock(state->mutex);
     if (state->client)
@@ -299,27 +313,37 @@ void stopRemote() {
     state->inputs.clear();
 }
 void view(std::string host) {
-    if (state->remoteActive.exchange(true))
+    state->suspended = true;
+    if (state->remoteStopping || state->remoteActive.exchange(true))
         return;
     if (state->remote.joinable())
         state->remote.join();
     gtk_widget_set_sensitive(state->remoteButton, FALSE);
-    state->remote = std::thread([host = std::move(host)] {
+    auto site = state->site;
+    auto version = ++state->remoteVersion;
+    state->remote = std::thread([host = std::move(host), site, version] {
+        struct ViewerContext {
+            std::string site;
+            uint64_t version;
+        };
+        ViewerContext bridge{site, version};
         ng_remote_client_options o{};
+        o.context = &bridge;
         o.struct_size = sizeof(o);
         o.abi_version = NG_REMOTE_CLIENT_ABI;
-        o.site_id = state->site.c_str();
+        o.site_id = site.c_str();
         o.host_id = host.c_str();
         o.capabilities =
             NG_REMOTE_VIEW | NG_REMOTE_INPUT | NG_REMOTE_CLIPBOARD | NG_REMOTE_UPLOAD | NG_REMOTE_DOWNLOAD;
         o.active = [](void *) -> int32_t { return state->alive && state->remoteActive ? 1 : 0; };
-        o.control = [](void *, const char *method, const char *path, const char *body, const char *idem,
+        o.control = [](void *p, const char *method, const char *path, const char *body, const char *idem,
                        char *output, size_t capacity, size_t *length) -> int32_t {
             try {
+                const auto &activeSite = static_cast<ViewerContext *>(p)->site;
                 auto value = std::string(method) == "CONTEXT"
-                                 ? call("GET", "/desktop/remote/context?site=" + state->site)
+                                 ? call("GET", "/desktop/remote/context?site=" + activeSite)
                                  : call("POST", "/desktop/remote/call",
-                                        {{"site", state->site},
+                                        {{"site", activeSite},
                                          {"method", method},
                                          {"path", path},
                                          {"body", *body ? Json::parse(body) : Json()},
@@ -334,10 +358,11 @@ void view(std::string host) {
                 return -1;
             }
         };
-        o.sign = [](void *, const uint8_t *message, size_t size, uint8_t output[64]) -> int32_t {
+        o.sign = [](void *p, const uint8_t *message, size_t size, uint8_t output[64]) -> int32_t {
             try {
-                auto result = call("POST", "/desktop/remote/sign",
-                                   {{"Site", state->site}, {"Message", base64(message, size)}});
+                auto result = call(
+                    "POST", "/desktop/remote/sign",
+                    {{"Site", static_cast<ViewerContext *>(p)->site}, {"Message", base64(message, size)}});
                 auto bytes = decode(result.at("signature"), 64);
                 std::copy(bytes.begin(), bytes.end(), output);
                 return 0;
@@ -378,10 +403,13 @@ void view(std::string host) {
                 return -1;
             }
         };
-        o.event = [](void *, const char *text) {
+        o.event = [](void *p, const char *text) {
             try {
                 auto e = Json::parse(text);
-                mainThread([e] {
+                auto version = static_cast<ViewerContext *>(p)->version;
+                mainThread([e, version] {
+                    if (!state->alive || state->remoteVersion != version)
+                        return;
                     if (e.contains("error")) {
                         status("操作失败：" + e.at("error").get<std::string>());
                         return;
@@ -413,6 +441,8 @@ void view(std::string host) {
             {
                 std::lock_guard lock(state->mutex);
                 state->client = client;
+                if (!state->remoteActive)
+                    ng_remote_client_cancel(client);
             }
             ng_remote_client_run(client);
             {
@@ -424,6 +454,7 @@ void view(std::string host) {
             status("remote_client_failed");
         state->decoder.reset();
         state->remoteActive = false;
+        state->remoteStopping = false;
         {
             std::lock_guard lock(state->mutex);
             state->caps = 0;
@@ -527,7 +558,7 @@ void configureStartup(bool enabled) {
 }
 void shareDesktop() {
     state->suspended = false;
-    if (state->site.empty() || state->remoteActive.exchange(true))
+    if (state->site.empty() || state->remoteStopping || state->remoteActive.exchange(true))
         return;
     if (state->remote.joinable())
         state->remote.join();
@@ -691,6 +722,7 @@ void shareDesktop() {
                 mainThread([] { state->suspended = true; });
         }
         state->remoteActive = false;
+        state->remoteStopping = false;
     });
 }
 void transferChosen(GObject *obj, GAsyncResult *result, void *data) {
@@ -989,7 +1021,9 @@ void activate(GtkApplication *app, void *) {
                          }
                          if (!enabled) {
                              stopRemote();
-                             task([] { call("DELETE", "/desktop/unattended"); });
+                             state->forgetUnattended = true;
+                             if (!state->jobBusy)
+                                 task([] {});
                          }
                      }),
                      nullptr);
