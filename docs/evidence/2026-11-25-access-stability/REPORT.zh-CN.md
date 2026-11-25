@@ -22,6 +22,10 @@ Debian 实机：全 internal/cmd Go race、全包 vet、GTK 构建和 8 项 CTes
 
 本轮维护器在 LAN 验证 ens32、192.168.18.0/23、IPv4 转发和受管旁路由规则；DNS 返回 Fake-IP，样本 3ms。逐次新建 TCP/TLS 连接、不自动重试：LAN 直达 6 次、LAN 经 VPS 备用入口 6 次、VPS 经自身备用入口 6 次健康查询全部通过；保留原始站点 SNI/Host、CA 和协议/站点校验。旁路由 DNS 另采样 8 次全部通过。
 
+直达查询 47–48ms；LAN 经 VPS 入口 1047–2512ms；VPS 经自身入口 549–1284ms。逐次 TCP、TLS 和请求总耗时保存在 NETWORK.json。最终本地与 Debian 源码的 440 项输入指纹相同，最终增量的 8 项 CTest 和 Go 校验通过。
+
+云包核对补记：Git 提交的代码指纹为 56aeaee01d158a13564d95052d9cd005bcf0f51b95832c468e9d5b50f4cd2bba，与两个 LAN 构建信息完全一致；本地/实机测试目录为 8333e1cb49b8c0b540aea28f00784bfa26981f16ebf2f1b91c9eb5d39336eecf。逐文件对比 git archive 确认唯一差异为 tests/contracts/remote/possession.txt 的 5 个 CRLF/LF 换行字节，内容相同。没有把两个不同的字节指纹写成相同；SOURCE-COMMIT.json 保留完整差异和包内源码绑定结果。
+
 这些是配置、内核和分段网络检查，本轮没有把健康查询当作完整 VPN 业务访问。前轮首次 DNS 超时 / TLS EOF 仍缺少失败时的完整路径证据，未关闭根因，也未增加掩盖错误的自动重试。
 
 ## 界面验收边界
@@ -37,6 +41,10 @@ Debian 实机：全 internal/cmd Go race、全包 vet、GTK 构建和 8 项 CTes
 
 ## 交付与清理
 
-功能提交及云构建结果将在本轮最终证据中记录。原有 LAN/VPS 服务和默认网关保持。仅使用临时源码目录、隔离 netns 和只读网络探测；没有创建管理员设备、用户或授权资源。
+功能提交 49744ef 已推送 main。Windows、Linux、Android、macOS、iOS 客户端和 LAN/VPS 的 amd64、arm64 共九项云构建全部成功，无重跑。Windows 和四个服务器运行包的下载摘要、包内清单与摘要、ZIP 路径及 CRC、PE/ELF 架构、源码提交和 publish skipped 均独立校验通过。五个包的 BUILDINFO 也已核对源码绑定；CI.json、ARTIFACTS.json、SOURCE-COMMIT.json 保留记录。后续提交只归档文档与证据，不改变经过验证的产品源码。
 
-前轮 .cache/remote-lan-20261125 的递归删除再次被自动审批拒绝，返回 blocked by policy；未改用其他方法绕过。本轮临时文件将在验证证据保存后清理，实际回执另行记录。
+原有 LAN/VPS 服务和默认网关保持。仅使用临时源码目录、隔离 netns 和只读网络探测；没有创建管理员设备、用户或授权资源。
+
+LAN 本轮临时源码、程序、构建及两个归档共删除 58,544,500 字节；VPS 三个探测文件共删除 4,616 字节。LAN 服务、VPS 服务及 SSH 正常，默认网关不变，LAN 已安装程序摘要与安装清单一致。清理回执保存在 CLEANUP.json。
+
+本地清理受自动审批阻止：前轮 .cache/remote-lan-20261125 的递归删除返回 blocked by policy；本轮证据归档后，对 .cache/continuation-access-20261125 中文件按限定目录逐项删除的操作也被拒绝，原因为 blocked by policy。两次均在命令执行前被拒绝，没有实际删除，也未改用其他方法绕过。只读复核显示前轮 105 个文件、363,407,071 字节（约 346.57 MiB）；本轮 92 个文件、312,875,696 字节（约 298.38 MiB），没有重解析点。两目录均被 Git 忽略。本轮缓存仅含源码、测试记录、公共站点配置和下载包，没有新增账号/设备凭据；服务器临时文件已清理。

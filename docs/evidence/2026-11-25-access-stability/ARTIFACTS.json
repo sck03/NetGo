@@ -1,0 +1,327 @@
+{
+  "schema": 1,
+  "source_commit": "49744efaf2341e4458e964bd679d7e40f40bd390",
+  "verified": [
+    {
+      "run_id": 45628537086,
+      "head_sha": "49744efaf2341e4458e964bd679d7e40f40bd390",
+      "target": "vps",
+      "arch": "amd64",
+      "version": "0.3.0-dev",
+      "artifact": {
+        "id": 15030525675,
+        "name": "release-vps-0.3.0-dev-amd64-none-45628537086",
+        "size_in_bytes": 23702303,
+        "digest": "sha256:5d2de3a7c6414093fd1406423569a99fc8ccde478fff7d01710acbb17bb1a0f0"
+      },
+      "assets": [
+        {
+          "name": "NetGo-0.3.0-dev-vps-linux-amd64.zip",
+          "sha256": "e3c4fcc39087c6d2d3d323187945e77aa439a12c9e053bb0273d49cf42fbd843",
+          "bytes": 20257616
+        },
+        {
+          "name": "NetGo-0.3.0-dev-vps-linux-amd64.zip.sha256",
+          "sha256": "07d977bbd348cb6f5be7dfd7525f107dc5d4c9c4d8761b703c8e7891b31497f5",
+          "bytes": 102
+        },
+        {
+          "name": "netgo-vps-installer-linux-amd64",
+          "sha256": "5b8f68d3ff719b80dba6d6a22c45bb1edb04fce683c804bb4e1a4ac6607cd2c5",
+          "bytes": 8294560
+        },
+        {
+          "name": "netgo-vps-installer-linux-amd64.sha256",
+          "sha256": "6dda6953661281ec1f8ac52c3557dc551881cddef1d9804f9b90ad7c4c26a335",
+          "bytes": 98
+        },
+        {
+          "name": "NetGo-0.3.0-dev-vps-amd64-none-BUILDINFO.json",
+          "sha256": "6a643bc04b04ad1bf4e96e39b749071d2200d90e07a097600cb99696bd8ff872",
+          "bytes": 202
+        },
+        {
+          "name": "NetGo-0.3.0-dev-vps-amd64-none-BUILDINFO.json.sha256",
+          "sha256": "bb7134716eae72d83dc45beba46598a698b7ef59960e7055d75d091b57507cc3",
+          "bytes": 112
+        }
+      ],
+      "verified_binaries": [
+        "dist/vps/bin/frps",
+        "dist/vps/bin/netbird-relay",
+        "dist/vps/bin/netgo-vpsctl"
+      ],
+      "checks": [
+        "GitHub archive digest",
+        "asset manifest digests and sidecars",
+        "archive paths and CRC",
+        "native machine architecture",
+        "source commit",
+        "publish skipped"
+      ]
+    },
+    {
+      "run_id": 45628537159,
+      "head_sha": "49744efaf2341e4458e964bd679d7e40f40bd390",
+      "target": "windows",
+      "arch": "amd64",
+      "version": "0.3.0-dev",
+      "artifact": {
+        "id": 15030836971,
+        "name": "release-windows-0.3.0-dev-amd64-none-45628537159",
+        "size_in_bytes": 30017970,
+        "digest": "sha256:49cac9e489594cd2f0bbff8cba19b5e3dfbf41ed6fba346cbe1f2ca4fc65233b"
+      },
+      "assets": [
+        {
+          "name": "NetGo-0.3.0-dev-windows-amd64-Setup.exe",
+          "sha256": "45dec6e319be622faa420afa0b063fe1206d667304e83c7aa2e1da569d2dc537",
+          "bytes": 15561216
+        },
+        {
+          "name": "NetGo-0.3.0-dev-windows-amd64-Setup.exe.sha256",
+          "sha256": "6896ee2ce529b4167be0bfb2a8ce911451b200fd289f5601b29f5908f29aaf9c",
+          "bytes": 107
+        },
+        {
+          "name": "NetGo-0.3.0-dev-windows-amd64-portable.zip",
+          "sha256": "2efb07ef3694f72bfd74f78d9a72a796580f7d75760a88e006ff363e3c5720dc",
+          "bytes": 15226799
+        },
+        {
+          "name": "NetGo-0.3.0-dev-windows-amd64-portable.zip.sha256",
+          "sha256": "1b6e48d9420bbee8d30ad80eb82b89621586ee5dc1d78d3b0df0f9f978183891",
+          "bytes": 110
+        },
+        {
+          "name": "NetGo-0.3.0-dev-windows-amd64-none-BUILDINFO.json",
+          "sha256": "060c8cc19a87f8441c37307fcbfc7eddcc840e267b2a5cdfe14f56095c279059",
+          "bytes": 181
+        },
+        {
+          "name": "NetGo-0.3.0-dev-windows-amd64-none-BUILDINFO.json.sha256",
+          "sha256": "b94cf0610f1b845990aff9ab5343963ea2174ece9bc22e714ea85cd361f3c95a",
+          "bytes": 117
+        }
+      ],
+      "verified_binaries": [
+        ".netgo/NetGo-Network-Setup.exe",
+        "NetGo.exe"
+      ],
+      "checks": [
+        "GitHub archive digest",
+        "asset manifest digests and sidecars",
+        "archive paths and CRC",
+        "native machine architecture",
+        "source commit",
+        "publish skipped"
+      ]
+    },
+    {
+      "run_id": 45628537222,
+      "head_sha": "49744efaf2341e4458e964bd679d7e40f40bd390",
+      "target": "linux-server",
+      "arch": "amd64",
+      "version": "0.3.0-dev",
+      "artifact": {
+        "id": 15030915686,
+        "name": "release-linux-server-0.3.0-dev-amd64-none-45628537222",
+        "size_in_bytes": 104994941,
+        "digest": "sha256:2837e0e3a6352471b477ad83475420b3405629cf269224bd22fe4f18719610c3"
+      },
+      "assets": [
+        {
+          "name": "NetGo-0.3.0-dev-linux-amd64.zip",
+          "sha256": "e3bd981cd897b718f3135a8dbaa86af3d36012e881fd9a1b0209193f20f314fa",
+          "bytes": 97608107
+        },
+        {
+          "name": "NetGo-0.3.0-dev-linux-amd64.zip.sha256",
+          "sha256": "6b5b1b4da8606036d42cd097b460b72d5ee73da6c31eeef29254494f7770593d",
+          "bytes": 98
+        },
+        {
+          "name": "netgo-server-installer-linux-amd64",
+          "sha256": "2041d78812b9923d6d99f4b13f548c16eccfe7a6de966820769fe8e8b8567374",
+          "bytes": 18952352
+        },
+        {
+          "name": "netgo-server-installer-linux-amd64.sha256",
+          "sha256": "9e5fc6ec6e291fe8806744de27a2e08d542924aef29ce1f69de9fae9c0d1d4c5",
+          "bytes": 101
+        },
+        {
+          "name": "NetGo-0.3.0-dev-linux-server-amd64-none-BUILDINFO.json",
+          "sha256": "326f399ba70aff0a1bb5a2d931988fb9eb334fc27f937bf80ec152e2089bb5a5",
+          "bytes": 3129
+        },
+        {
+          "name": "NetGo-0.3.0-dev-linux-server-amd64-none-BUILDINFO.json.sha256",
+          "sha256": "2b8a7d79cb7ce7555175777e41386fbc8014ef1cfdb80ad6b35f791ebae773c4",
+          "bytes": 121
+        },
+        {
+          "name": "NetGo-0.3.0-dev-linux-server-amd64-none-SBOM.cdx.json",
+          "sha256": "40e0105fee063ed1f2183735660e6cc5064b4d649ab5cf094d2f47512407d12c",
+          "bytes": 50476
+        },
+        {
+          "name": "NetGo-0.3.0-dev-linux-server-amd64-none-SBOM.cdx.json.sha256",
+          "sha256": "604145a1e274ad0cf2cbd824a781cfb01b68e0f3d11f486d04886ab350075da8",
+          "bytes": 120
+        }
+      ],
+      "verified_binaries": [
+        "dist/linux-amd64/netgo-ddns",
+        "dist/linux-amd64/netgo-helper",
+        "dist/linux-amd64/netgo-server",
+        "dist/linux-amd64/netgoctl",
+        "dist/upstream-linux-amd64/caddy",
+        "dist/upstream-linux-amd64/frpc",
+        "dist/upstream-linux-amd64/netbird",
+        "dist/upstream-linux-amd64/netbird-relay",
+        "dist/upstream-linux-amd64/netbird-server"
+      ],
+      "checks": [
+        "GitHub archive digest",
+        "asset manifest digests and sidecars",
+        "archive paths and CRC",
+        "native machine architecture",
+        "source commit",
+        "publish skipped"
+      ]
+    },
+    {
+      "run_id": 45628764971,
+      "head_sha": "49744efaf2341e4458e964bd679d7e40f40bd390",
+      "target": "linux-server",
+      "arch": "arm64",
+      "version": "0.3.0-dev",
+      "artifact": {
+        "id": 15030955911,
+        "name": "release-linux-server-0.3.0-dev-arm64-none-45628764971",
+        "size_in_bytes": 94439566,
+        "digest": "sha256:23d543ba3df79c88ca2fbadbd38f750260b2ea714c133539505e720e041d3bd7"
+      },
+      "assets": [
+        {
+          "name": "NetGo-0.3.0-dev-linux-arm64.zip",
+          "sha256": "49a12166d7f47a2dfa94614a17d71a8947d0d2fb79a4ae35e82b3db347e343c5",
+          "bytes": 87681627
+        },
+        {
+          "name": "NetGo-0.3.0-dev-linux-arm64.zip.sha256",
+          "sha256": "7d71da8aa566753e6cf23ece54e3872e6d430eaa4cc9ce081db341fb76fc9354",
+          "bytes": 98
+        },
+        {
+          "name": "netgo-server-installer-linux-arm64",
+          "sha256": "709059286d303217633600c0e0dfef71dc2f5984bd40e6109e1db69766549ec3",
+          "bytes": 17825952
+        },
+        {
+          "name": "netgo-server-installer-linux-arm64.sha256",
+          "sha256": "4edb6c52cdfd2328a386fec59bcdc22a61fce6e47a132f256ad01c3e1751e8e0",
+          "bytes": 101
+        },
+        {
+          "name": "NetGo-0.3.0-dev-linux-server-arm64-none-BUILDINFO.json",
+          "sha256": "5eea0eb7b276a0e57d48adca9bde52e1bc7481ecca07569676f3dbc341d12982",
+          "bytes": 3129
+        },
+        {
+          "name": "NetGo-0.3.0-dev-linux-server-arm64-none-BUILDINFO.json.sha256",
+          "sha256": "54adf1bec3088995872fcf040814ea012e5fea977c4660c2de7f9697d1fda99d",
+          "bytes": 121
+        },
+        {
+          "name": "NetGo-0.3.0-dev-linux-server-arm64-none-SBOM.cdx.json",
+          "sha256": "19987c69f2f12cb61c010fefcd16b406e2698ca0ca383eabe74301c83752b376",
+          "bytes": 50476
+        },
+        {
+          "name": "NetGo-0.3.0-dev-linux-server-arm64-none-SBOM.cdx.json.sha256",
+          "sha256": "ddeee6d0b821f1e1d09037ffedd187a550def8fe810bf2788834fbbc7c8d355b",
+          "bytes": 120
+        }
+      ],
+      "verified_binaries": [
+        "dist/linux-arm64/netgo-ddns",
+        "dist/linux-arm64/netgo-helper",
+        "dist/linux-arm64/netgo-server",
+        "dist/linux-arm64/netgoctl",
+        "dist/upstream-linux-arm64/caddy",
+        "dist/upstream-linux-arm64/frpc",
+        "dist/upstream-linux-arm64/netbird",
+        "dist/upstream-linux-arm64/netbird-relay",
+        "dist/upstream-linux-arm64/netbird-server"
+      ],
+      "checks": [
+        "GitHub archive digest",
+        "asset manifest digests and sidecars",
+        "archive paths and CRC",
+        "native machine architecture",
+        "source commit",
+        "publish skipped"
+      ]
+    },
+    {
+      "run_id": 45628775902,
+      "head_sha": "49744efaf2341e4458e964bd679d7e40f40bd390",
+      "target": "vps",
+      "arch": "arm64",
+      "version": "0.3.0-dev",
+      "artifact": {
+        "id": 15029383769,
+        "name": "release-vps-0.3.0-dev-arm64-none-45628775902",
+        "size_in_bytes": 21161284,
+        "digest": "sha256:9aaae876a56536f2cb48d4162b052ef5e62d27eb22c49b1d54f14781d8c05d67"
+      },
+      "assets": [
+        {
+          "name": "NetGo-0.3.0-dev-vps-linux-arm64.zip",
+          "sha256": "df5b96aaf7ee4d047917efb2a691d56f60246555b69f28fb1e6479dc470b3e78",
+          "bytes": 18039943
+        },
+        {
+          "name": "NetGo-0.3.0-dev-vps-linux-arm64.zip.sha256",
+          "sha256": "2408867b8bc7fcacf184354c603f82aceed39bfefed36bf6c809d37a5286d0bf",
+          "bytes": 102
+        },
+        {
+          "name": "netgo-vps-installer-linux-arm64",
+          "sha256": "ca906ad2f2487c2596eb6e59c9fa515d34e48a9a1fc1055e49b0d50ff14cd0e3",
+          "bytes": 7667872
+        },
+        {
+          "name": "netgo-vps-installer-linux-arm64.sha256",
+          "sha256": "06d14072f1cb61e98c7dfaddc5010a2c7fec7a3c10810b16456594cfa6cb91df",
+          "bytes": 98
+        },
+        {
+          "name": "NetGo-0.3.0-dev-vps-arm64-none-BUILDINFO.json",
+          "sha256": "a06d94f244ea6ee05d1c03ae658c454950d37c18cb7c034180b05e67cd803d02",
+          "bytes": 202
+        },
+        {
+          "name": "NetGo-0.3.0-dev-vps-arm64-none-BUILDINFO.json.sha256",
+          "sha256": "2465983977de55838904df84aa7a2a10bc8c7adb0f636ff98e7eaae76bbc806c",
+          "bytes": 112
+        }
+      ],
+      "verified_binaries": [
+        "dist/vps/bin/frps",
+        "dist/vps/bin/netbird-relay",
+        "dist/vps/bin/netgo-vpsctl"
+      ],
+      "checks": [
+        "GitHub archive digest",
+        "asset manifest digests and sidecars",
+        "archive paths and CRC",
+        "native machine architecture",
+        "source commit",
+        "publish skipped"
+      ]
+    }
+  ]
+}

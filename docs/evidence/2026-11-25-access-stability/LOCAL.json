@@ -1,0 +1,59 @@
+{
+  "schema": 1,
+  "commit": "49744efaf2341e4458e964bd679d7e40f40bd390",
+  "code_sha256": "8333e1cb49b8c0b540aea28f00784bfa26981f16ebf2f1b91c9eb5d39336eecf",
+  "native": {
+    "path": ".cache/native-build/NetGo.exe",
+    "bytes": 7131136,
+    "sha256": "bc8d1ff64867c247163e17a074965fc3bd857b81cc9592841e7e363f481af0be",
+    "ctest_passed": 13,
+    "shared_viewer_scenarios": 19
+  },
+  "linux": {
+    "source_sha256": "8333e1cb49b8c0b540aea28f00784bfa26981f16ebf2f1b91c9eb5d39336eecf",
+    "ctest_passed": 8,
+    "go_race": "all internal/cmd packages",
+    "go_vet": "all packages",
+    "kernel": [
+      "lease renewal and revocation",
+      "bypass ownership and restoration"
+    ]
+  },
+  "frontend": {
+    "tests_passed": 19,
+    "typecheck": "PASS",
+    "vite": "PASS"
+  },
+  "network_timing": [
+    {
+      "origin": "LAN",
+      "entry": "local",
+      "samples": 6,
+      "min_ms": 47,
+      "median_ms": 48,
+      "max_ms": 48
+    },
+    {
+      "origin": "LAN",
+      "entry": "vps1",
+      "samples": 6,
+      "min_ms": 1047,
+      "median_ms": 1295,
+      "max_ms": 2512
+    },
+    {
+      "origin": "VPS",
+      "entry": "vps1",
+      "samples": 6,
+      "min_ms": 549,
+      "median_ms": 750.5,
+      "max_ms": 1284
+    }
+  ],
+  "ui": {
+    "accessibility": "controls, Chinese error text and disabled actions observed",
+    "browser": "blocked: missing network policy",
+    "screenshots": "failed: capture factory 0x80004002 after retry",
+    "click": "failed: coordinate input geometry is unavailable"
+  }
+}
