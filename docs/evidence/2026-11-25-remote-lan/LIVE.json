@@ -1,0 +1,316 @@
+{
+  "date": "2026-11-25",
+  "timezone": "Asia/Shanghai",
+  "code_commit": "6b8462c9a97dd7887199d4a5b48598f4e246e7e2",
+  "live_binaries": {
+    "server_sha256": "5e4a45d5ffc333c7e983d82dc7cfcdf3294606bb56375a8f1071cf43cb1cc36e",
+    "client_sha256": "2ca3bdae01240f5e606a8d17a81a8041047168bd758cc98ea30c3caebd3a5e76",
+    "note": "Live LAN server compiled before the behavior-preserving inventory file move; final CI artifacts correspond exactly to code_commit."
+  },
+  "control": "auxiliary",
+  "data": "auxiliary_relay",
+  "remote_registration": [
+    "ready",
+    "offline after 16s without heartbeat",
+    "ready after heartbeat",
+    "disabled"
+  ],
+  "heartbeat": {
+    "heartbeats": 24,
+    "max_seconds": 1.16,
+    "median_seconds": 0.743,
+    "host_status": "ready"
+  },
+  "network_samples": [
+    {
+      "sample": 0,
+      "result": "PASS",
+      "seconds": 1.112
+    },
+    {
+      "sample": 1,
+      "result": "PASS",
+      "seconds": 1.248
+    },
+    {
+      "sample": 2,
+      "result": "PASS",
+      "seconds": 1.084
+    },
+    {
+      "sample": 3,
+      "result": "PASS",
+      "seconds": 1.109
+    },
+    {
+      "sample": 4,
+      "result": "PASS",
+      "seconds": 1.312
+    },
+    {
+      "sample": 5,
+      "result": "PASS",
+      "seconds": 1.88
+    },
+    {
+      "sample": 6,
+      "result": "PASS",
+      "seconds": 2.1
+    },
+    {
+      "sample": 7,
+      "result": "PASS",
+      "seconds": 2.458
+    },
+    {
+      "sample": 8,
+      "result": "PASS",
+      "seconds": 1.346
+    },
+    {
+      "sample": 9,
+      "result": "PASS",
+      "seconds": 1.298
+    },
+    {
+      "sample": 10,
+      "result": "PASS",
+      "seconds": 1.515
+    },
+    {
+      "sample": 11,
+      "result": "PASS",
+      "seconds": 1.145
+    },
+    {
+      "sample": 12,
+      "result": "PASS",
+      "seconds": 1.301
+    },
+    {
+      "sample": 13,
+      "result": "PASS",
+      "seconds": 1.141
+    },
+    {
+      "sample": 14,
+      "result": "PASS",
+      "seconds": 1.28
+    },
+    {
+      "sample": 15,
+      "result": "PASS",
+      "seconds": 1.286
+    }
+  ],
+  "network_summary": {
+    "samples": 16,
+    "passed": 16
+  },
+  "reconnect_samples": [
+    {
+      "sample": 0,
+      "epoch": 1795604043.422,
+      "connected": true,
+      "dns_system": {
+        "ok": true,
+        "seconds": 0.199
+      },
+      "https_example": {
+        "ok": true,
+        "seconds": 1.478
+      },
+      "https_exit": {
+        "ok": true,
+        "seconds": 2.17
+      }
+    },
+    {
+      "sample": 1,
+      "epoch": 1795604078.344,
+      "connected": true,
+      "dns_system": {
+        "ok": true,
+        "seconds": 0.205
+      },
+      "https_example": {
+        "ok": true,
+        "seconds": 1.475
+      },
+      "https_exit": {
+        "ok": true,
+        "seconds": 1.702
+      }
+    },
+    {
+      "sample": 2,
+      "epoch": 1795604113.193,
+      "connected": true,
+      "dns_system": {
+        "ok": true,
+        "seconds": 0.185
+      },
+      "https_example": {
+        "ok": true,
+        "seconds": 1.117
+      },
+      "https_exit": {
+        "ok": true,
+        "seconds": 1.862
+      }
+    }
+  ],
+  "permission_checks": [
+    "ungranted Internet mode rejected",
+    "LAN-only account reaches granted HTTPS",
+    "ungranted LAN port blocked",
+    "revocation ends current VPN session",
+    "previously reachable Fake-IP destination blocked after revocation",
+    "revoked Internet mode cannot reconnect",
+    "remaining LAN grant works with Internet disabled"
+  ],
+  "unresolved": [
+    "Initial Fake-IP HTTPS TLS EOF",
+    "Initial upstream DNS timeout after 4 seconds; later retries and three reconnect samples pass; root cause not established"
+  ],
+  "cleanup": {
+    "lan": {
+      "services": "active",
+      "default_gateway": "192.168.18.18",
+      "interface": "ens32",
+      "installed_hashes": "match manifest",
+      "rollback_hashes": "match previous manifest",
+      "removed_bytes": 141818220,
+      "credentials_removed": true,
+      "retained": "before/ and ROLLBACK.txt"
+    },
+    "vps": {
+      "services": "active",
+      "default_gateway": "107.174.220.65",
+      "interface": "eth0",
+      "namespace": "removed",
+      "veth": "removed",
+      "tagged_rules": "removed",
+      "test_units": "inactive",
+      "forwarding": "restored",
+      "removed_bytes": 70926997,
+      "credentials_removed": true
+    },
+    "local_preview": "stopped; port 5193 released",
+    "local_cache": {
+      "status": "retained_after_automatic_approval_rejection",
+      "path": ".cache/remote-lan-20261125",
+      "files": 105,
+      "bytes": 363407071,
+      "reason": "Both recursive cleanup and manifest-verified individual deletion were rejected with blocked by policy.",
+      "git_ignored": true,
+      "test_credentials": "Accounts deleted on server; local credentials invalidated"
+    }
+  },
+  "source_logs": [
+    {
+      "name": "linux-live.txt",
+      "sha256": "ba28896663a28468d73af2189e0e85df019f4f93dbcc37770feff2d46887c502"
+    },
+    {
+      "name": "vpn-allowed.txt",
+      "sha256": "762727fab251dfcce5dc47681a7dcf3861b3db46e9d0824ea8d9846f72e62d34"
+    },
+    {
+      "name": "vpn-allowed-retry.txt",
+      "sha256": "16e360ca0417a627dae6b1d17274ad2ceedcd0558b54b705d42f7d2ff0a9aa68"
+    },
+    {
+      "name": "remote-worker-live.txt",
+      "sha256": "938a27267a17bd7a672c8f1b36837d8ce8c27760ca680f04a5b4a1a1392c87ec"
+    },
+    {
+      "name": "remote-heartbeat-samples.txt",
+      "sha256": "77846b8139f6c2e8e9e8d640b545db2c5adcab73207b606252b5faf337efc0e7"
+    },
+    {
+      "name": "vpn-permissions.txt",
+      "sha256": "02d47b42d5ce73f9c7794ec5f4b1276cdccd36a916e28535617dc7ece390fb1d"
+    },
+    {
+      "name": "network-first-retest.txt",
+      "sha256": "c1c6e410ed17e71c1e98a75e8075a183aab16be739ffbac64cbf38a7d4ce03b4"
+    },
+    {
+      "name": "network-samples.txt",
+      "sha256": "47158251fefb981c4ccd82a9abd8bf278e26aeeb70e37f3980a5a95f79cdc1e4"
+    },
+    {
+      "name": "reconnect-samples.txt",
+      "sha256": "fbce314c6c0131e883679337eb4067d1394dbda7e6f98dfa185ba4d4f671210a"
+    },
+    {
+      "name": "dns-response.txt",
+      "sha256": "75d63bc861d844aaa208ee3f53b29f053f84f79967ef63c6a3efe74a8aa69c3d"
+    },
+    {
+      "name": "lan-dns-response.txt",
+      "sha256": "5ab7507f00abcd91e9a3e14983532bc04615b39f9da4ae3bb4c9bb533bace83b"
+    },
+    {
+      "name": "revoke.txt",
+      "sha256": "901fa01efb19202f64bb764dfe01f45e33b72c705910e7cb26100b3338e669af"
+    },
+    {
+      "name": "revoked.txt",
+      "sha256": "6df01f553b94df3541c631ee943b5e3fa2809ad46babe583a8f65b67d7b3691d"
+    },
+    {
+      "name": "revoked-reconnect.txt",
+      "sha256": "b8b7bc756b3bd52cb4802cded92192f0f313b00c2045a80476c32fa1ab02bcae"
+    },
+    {
+      "name": "disconnect.txt",
+      "sha256": "f18b9484c07c468126854ed6714f0a6271774ed37c0cf457e86136efc9cb99b2"
+    },
+    {
+      "name": "cleanup-vpn.txt",
+      "sha256": "bd06dd4ded699f7fba6a9c75f79e545e0b20323e89b19bb02ac77a9906e55198"
+    },
+    {
+      "name": "cleanup-accounts.txt",
+      "sha256": "cca8c1f04c499b59cadd381c3593c1bbbbf0744d078f926319cda8d03f5fa75b"
+    },
+    {
+      "name": "lan-cleanup-final.txt",
+      "sha256": "e1441055c94be7610de1b87d82eb85fe44bc448769faba76b5e3b284bce9ccb2"
+    },
+    {
+      "name": "vps-cleanup-final.txt",
+      "sha256": "06392bbd6a5221fa40938e335e094e380b685c293376bb0e610d7938d4643ba4"
+    }
+  ],
+  "dns_capture": [
+    {
+      "side": "lan",
+      "sha256": "3522bd5a51176c7c530493658a589a70ffbb784c5b40822188062fb7b6d83dc8",
+      "records": 36,
+      "response_rcodes": [
+        0
+      ],
+      "query_types": [
+        1,
+        28
+      ],
+      "capture_scope": "Only example.com and api.ipify.org DNS headers; successful reconnect samples; no payloads recorded"
+    },
+    {
+      "side": "vps",
+      "sha256": "9ed61257f17c9dfeb9934e7d212723f395d19622bd10316ad8f1a2a94f8062b2",
+      "records": 54,
+      "response_rcodes": [
+        0
+      ],
+      "query_types": [
+        1,
+        28
+      ],
+      "capture_scope": "Only example.com and api.ipify.org DNS headers; successful reconnect samples; no payloads recorded"
+    }
+  ]
+}

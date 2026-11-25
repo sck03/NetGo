@@ -1,0 +1,134 @@
+=== Debian all packages, native and kernel tests ===
+go version go1.27.4 linux/amd64
+ok  	netgo/internal/api	1.670s
+ok  	netgo/internal/backup	5.849s
+ok  	netgo/internal/client	1.564s
+ok  	netgo/internal/controlpath	1.775s
+ok  	netgo/internal/ddns	1.023s
+?   	netgo/internal/deployment	[no test files]
+?   	netgo/internal/desktopinstall	[no test files]
+ok  	netgo/internal/diagnostics	1.268s
+ok  	netgo/internal/engine/netbird	1.232s
+ok  	netgo/internal/gateway	1.023s
+ok  	netgo/internal/identity	1.941s
+?   	netgo/internal/ipc	[no test files]
+ok  	netgo/internal/model	1.021s
+ok  	netgo/internal/node	1.583s
+ok  	netgo/internal/operations	1.579s
+ok  	netgo/internal/platform	1.016s
+?   	netgo/internal/privileged	[no test files]
+?   	netgo/internal/process	[no test files]
+ok  	netgo/internal/protocol	1.016s
+ok  	netgo/internal/remote	5.946s
+ok  	netgo/internal/remote/ticket	1.266s
+ok  	netgo/internal/securefile	1.021s
+ok  	netgo/internal/session	2.869s
+ok  	netgo/internal/site	1.067s
+ok  	netgo/internal/store	1.598s
+?   	netgo/internal/vault	[no test files]
+?   	netgo/internal/webui	[no test files]
+?   	netgo/cmd/netgo-client-service	[no test files]
+?   	netgo/cmd/netgo-ddns	[no test files]
+?   	netgo/cmd/netgo-helper	[no test files]
+?   	netgo/cmd/netgo-server	[no test files]
+?   	netgo/cmd/netgo-vpsctl	[no test files]
+?   	netgo/cmd/netgoctl	[no test files]
+=== RUN   TestKernelLeaseRenewalAndRevocation
+--- PASS: TestKernelLeaseRenewalAndRevocation (0.27s)
+PASS
+=== RUN   TestKernelBypassRoutingOwnershipAndRestoration
+--- PASS: TestKernelBypassRoutingOwnershipAndRestoration (0.45s)
+PASS
+局域网网卡：ens32；资源网段：192.168.18.0/23
+旁路由：192.168.19.254；DNS：192.168.19.254
+旁路由位于所选网卡直连网段，受管策略路由正常。
+DNS 192.168.19.254：查询成功（Fake-IP）
+客户端访问还需：账号获授局域网资源；使用旁路由时另授互联网资源，并在客户端打开互联网模式。
+本检查验证服务器配置与 DNS；实际外网、VPS 和客户端访问以连接实测为准。
+-- The C compiler identification is GNU 14.2.0
+-- The CXX compiler identification is GNU 14.2.0
+-- Detecting C compiler ABI info
+-- Detecting C compiler ABI info - done
+-- Check for working C compiler: /usr/bin/cc - skipped
+-- Detecting C compile features
+-- Detecting C compile features - done
+-- Detecting CXX compiler ABI info
+-- Detecting CXX compiler ABI info - done
+-- Check for working CXX compiler: /usr/bin/c++ - skipped
+-- Detecting CXX compile features
+-- Detecting CXX compile features - done
+-- NetGo project version: 0.3.0-dev
+-- Found PkgConfig: /usr/bin/pkg-config (found version "1.8.1")
+-- Checking for module 'gtk4'
+--   Found gtk4, version 4.18.6
+-- Checking for modules 'libavcodec;libavutil;libswscale'
+--   Found libavcodec, version 61.19.101
+--   Found libavutil, version 59.39.100
+--   Found libswscale, version 8.3.100
+-- Checking for module 'libcurl'
+--   Found libcurl, version 8.14.1
+-- Performing Test CMAKE_HAVE_LIBC_PTHREAD
+-- Performing Test CMAKE_HAVE_LIBC_PTHREAD - Success
+-- Found Threads: TRUE
+-- Found OpenSSL: /usr/lib/x86_64-linux-gnu/libcrypto.so (found version "3.5.9") found components: Crypto
+-- Found OpenSSL: /usr/lib/x86_64-linux-gnu/libcrypto.so (found version "3.5.9") found components: SSL Crypto
+-- Configuring done (3.6s)
+-- Generating done (0.3s)
+-- Build files have been written to: /root/netgo-installer-lab/continuation-20261125-remote-lan/.cache/linux-desktop
+[1/27] Building CXX object remote-core/CMakeFiles/netgo-remote-core.dir/src/session.cpp.o
+[2/27] Building CXX object remote-ticket/CMakeFiles/netgo-remote-ticket.dir/src/ticket.cpp.o
+[3/27] Linking CXX static library remote-core/libnetgo-remote-core.a
+[4/27] Linking CXX static library remote-ticket/libnetgo-remote-ticket.a
+[5/27] Building CXX object remote-transport/CMakeFiles/netgo-remote-transport.dir/src/transport.cpp.o
+[6/27] Linking CXX static library remote-transport/libnetgo-remote-transport.a
+[7/27] Building CXX object remote-client/CMakeFiles/netgo-remote-client.dir/src/input.cpp.o
+[8/27] Building CXX object remote-client/CMakeFiles/netgo-remote-client.dir/src/client.cpp.o
+[9/27] Building CXX object CMakeFiles/netgo-desktop.dir/src/decoder.cpp.o
+[10/27] Building CXX object CMakeFiles/netgo-desktop.dir/src/ipc.cpp.o
+[11/27] Building CXX object remote-core/CMakeFiles/remote-session-tests.dir/tests/session_tests.cpp.o
+[12/27] Building C object remote-core/CMakeFiles/remote-c-abi-test.dir/tests/c_abi_test.c.o
+[13/27] Building CXX object CMakeFiles/netgo-desktop.dir/src/main.cpp.o
+[14/27] Building C object remote-ticket/CMakeFiles/remote-ticket-c-abi.dir/tests/c_abi_test.c.o
+[15/27] Building CXX object remote-ticket/CMakeFiles/remote-ticket-tests.dir/tests/ticket_tests.cpp.o
+[16/27] Linking CXX static library remote-client/libnetgo-remote-client.a
+[17/27] Building CXX object remote-transport/CMakeFiles/netgo-remote-transport-test.dir/tests/transport_tests.cpp.o
+[18/27] Building CXX object remote-client/CMakeFiles/remote-input-tests.dir/tests/input_tests.cpp.o
+[19/27] Linking CXX executable netgo-desktop
+[20/27] Linking CXX executable remote-core/remote-session-tests
+[21/27] Linking CXX executable remote-core/remote-c-abi-test
+[22/27] Linking CXX executable remote-ticket/remote-ticket-tests
+[23/27] Linking CXX executable remote-ticket/remote-ticket-c-abi
+[24/27] Linking CXX executable remote-transport/netgo-remote-transport-test
+[25/27] Linking CXX executable remote-client/remote-input-tests
+[26/27] Building CXX object remote-client/CMakeFiles/remote-client-tests.dir/tests/client_tests.cpp.o
+[27/27] Linking CXX executable remote-client/remote-client-tests
+Internal ctest changing into directory: /root/netgo-installer-lab/continuation-20261125-remote-lan/.cache/linux-desktop
+Test project /root/netgo-installer-lab/continuation-20261125-remote-lan/.cache/linux-desktop
+    Start 1: remote-session
+1/7 Test #1: remote-session ...................   Passed    0.00 sec
+    Start 2: remote-c-abi
+2/7 Test #2: remote-c-abi .....................   Passed    0.00 sec
+    Start 3: remote-ticket
+3/7 Test #3: remote-ticket ....................   Passed    0.16 sec
+    Start 4: remote-ticket-c-abi
+4/7 Test #4: remote-ticket-c-abi ..............   Passed    0.01 sec
+    Start 5: remote-transport
+5/7 Test #5: remote-transport .................   Passed    3.47 sec
+    Start 6: remote-input
+6/7 Test #6: remote-input .....................   Passed    0.03 sec
+    Start 7: remote-client
+7/7 Test #7: remote-client ....................   Passed    4.25 sec
+
+100% tests passed, 0 tests failed out of 7
+
+Total Test time (real) =   7.94 sec
+5e4a45d5ffc333c7e983d82dc7cfcdf3294606bb56375a8f1071cf43cb1cc36e  bin/netgo-server
+fee850331aa6f0e90bebb3679f5b62b53c2fce8bb4221fd4aa160203190fa61e  bin/netgo-serverctl
+3f69f4420d1303d234ccf371129bf2f2162e0e38a82a8bfd54692129abe06138  bin/netgo-client-service
+
+=== Worker revision revalidation ===
+ok  	netgo/internal/client	1.493s
+ok  	netgo/internal/controlpath	1.741s
+ok  	netgo/internal/remote	5.989s
+ok  	netgo/internal/api	1.703s
+2ca3bdae01240f5e606a8d17a81a8041047168bd758cc98ea30c3caebd3a5e76  bin/netgo-client-service-worker
