@@ -1,16 +1,44 @@
 # Linux native client
 
-GTK 4.10+ interface with the existing per-user Go connection service and a
-shared C ABI remote viewer. H.264 decoding uses dynamically linked FFmpeg;
-control requests use only an owner-checked, mode 0600 Unix socket. Device
-private keys and bearer tokens remain in the connection service.
+GTK 4.10+ UI, the per-user Go connection service, shared C ABI host/viewer and
+bounded clipboard/file exchange. Device keys and login secrets remain in the
+connection service; user IPC uses an owner-checked mode 0600 Unix socket.
 
-From the repository root, run `scripts/build-linux-native.sh` with the pinned
-nlohmann/json headers in `.tools/native-json`. Build prerequisites are CMake,
-Ninja, a C++20 compiler, OpenSSL, GTK4, libcurl, libavcodec, libavutil and
-libswscale development packages. Place `netgo-client-service` next to the UI;
-the restricted NetBird daemon must already be installed for that user.
+Host capture uses X11/ximagesrc with XTest, or a combined Wayland RemoteDesktop /
+ScreenCast portal session and PipeWire. System selection happens before host
+registration. Input capability reflects the actual portal grant. Persistent
+restore tokens are used only for explicit unattended opt-in; compositor policy
+still controls restoration. No arbitrary Wayland input or permission bypass is
+attempted. Linux audio hosting is not advertised.
 
-`xvfb-run -a netgo-desktop --smoke` verifies window creation and teardown.
-It does not validate a physical desktop, VPN, Wayland portals, audio, or a
-remote target. The Linux host adapter and system installer are still pending.
+H.264 encoding tries GStreamer VA, NVIDIA and then x264. Distribution plugins,
+GPU drivers and actual negotiated buffer memory decide hardware availability;
+this implementation does not claim Linux end-to-end zero-copy. Decoding uses
+FFmpeg. All frame, encoded-packet and file-command queues are bounded.
+
+Build with scripts/build-linux-client.sh (or build-linux-native.sh for native
+code only). In addition to CMake/Ninja/C++20, GTK4, OpenSSL, curl and FFmpeg,
+install GStreamer core/base development headers, gio-unix, X11 and XTest.
+For Ubuntu 24.04 the runtime host dependencies include:
+
+    sudo apt install libgtk-4-1 libcurl4 libavcodec60 libavutil58 libswscale7 \
+      libx11-6 libxtst6 gstreamer1.0-plugins-good gstreamer1.0-plugins-bad \
+      gstreamer1.0-plugins-ugly gstreamer1.0-pipewire
+
+Install the desktop's matching xdg-desktop-portal backend for Wayland. Hardware
+codec availability can be inspected with gst-inspect-1.0 vah264enc / nvh264enc;
+x264enc is the software fallback. Package names vary by distribution.
+
+For unattended login recovery, opt in before a successful VPN login. The existing
+vault stores the authenticated credentials in mode 0600 files under the user
+configuration directory. XDG autostart restores the application at user login;
+a fresh authenticated VPN session then starts sharing. Disable the option to
+clear the stored login and remove autostart. Explicit stop/disconnect pauses
+automatic recovery until a later deliberate action or app restart.
+
+The file exchange root is the user NetGo/Exchange directory. Uploaded files do
+not overwrite existing files and are only published after integrity verification.
+
+xvfb-run -a netgo-desktop --smoke verifies window construction and teardown only.
+It does not validate a physical desktop, portal, hardware codec or remote VPN.
+See docs/REMOTE_HOST_FEATURES.zh-CN.md for exact feature and device-test scope.

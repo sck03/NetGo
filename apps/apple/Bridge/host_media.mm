@@ -24,6 +24,7 @@ struct HostMedia {
     std::deque<std::vector<uint8_t>> packets;
     size_t queued = 0;
     std::atomic_bool failed = false, active = false;
+    std::atomic_uint pending = 0;
     uint32_t width = 0, height = 0, caps = 0;
     CGRect bounds{};
     std::set<CGKeyCode> keys;
@@ -64,7 +65,9 @@ struct HostMedia {
             stream = nil;
         }
         dispatch_sync(queue, ^{
-          sink.owner = nullptr;
+          @synchronized(sink) {
+              sink.owner = nullptr;
+          }
         });
         if (encoder) {
             VTCompressionSessionCompleteFrames(encoder, kCMTimeInvalid);
@@ -81,6 +84,7 @@ struct HostMedia {
     ~HostMedia() { close(); }
     static void encoded(void *ctx, void *, OSStatus status, VTEncodeInfoFlags, CMSampleBufferRef sample) {
         auto &h = *static_cast<HostMedia *>(ctx);
+        --h.pending;
         if (!h.active)
             return;
         if (status || !sample || !CMSampleBufferDataIsReady(sample)) {
@@ -164,26 +168,35 @@ struct HostMedia {
         auto image = CMSampleBufferGetImageBuffer(sample);
         if (!image)
             return;
+        if (pending >= 4)
+            return;
+        ++pending;
         auto status =
             VTCompressionSessionEncodeFrame(encoder, image, CMSampleBufferGetPresentationTimeStamp(sample),
                                             CMTimeMake(1, 20), nullptr, nullptr, nullptr);
-        if (status)
+        if (status) {
+            --pending;
             failed = true;
+        }
     }
 };
 @implementation NetGoScreenSink
 - (void)stream:(SCStream *)stream didStopWithError:(NSError *)error {
     (void)stream;
     (void)error;
-    if (self.owner)
-        self.owner->failed = true;
+    @synchronized(self) {
+        if (self.owner)
+            self.owner->failed = true;
+    }
 }
 - (void)stream:(SCStream *)stream
     didOutputSampleBuffer:(CMSampleBufferRef)sample
                    ofType:(SCStreamOutputType)type {
     (void)stream;
-    if (type == SCStreamOutputTypeScreen && self.owner)
-        self.owner->frame(sample);
+    @synchronized(self) {
+        if (type == SCStreamOutputTypeScreen && self.owner)
+            self.owner->frame(sample);
+    }
 }
 @end
 namespace {

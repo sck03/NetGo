@@ -27,10 +27,11 @@ CGO_ENABLED=0 go build -trimpath -ldflags "-s -w -X netgo/internal/model.Version
 upstream=$(python3 -B scripts/prepare-upstream.py --path-only)
 (cd "$upstream" && CGO_ENABLED=0 go build -trimpath -ldflags '-s -w' -o "$root/dist/linux-desktop-amd64/netbird" ./client)
 cp apps/linux/netgo.desktop THIRD_PARTY_NOTICES.md dist/linux-desktop-amd64/
+cp apps/linux/README.md dist/linux-desktop-amd64/README.md
 mkdir -p dist/linux-desktop-amd64/licenses
 cp "$upstream/LICENSE" dist/linux-desktop-amd64/licenses/netbird.txt
 cp "$(go env GOROOT)/LICENSE" dist/linux-desktop-amd64/licenses/go.txt
-(cd dist/linux-desktop-amd64 && sha256sum netgo-desktop netgo-client-service netbird netgo.desktop THIRD_PARTY_NOTICES.md licenses/netbird.txt licenses/go.txt > SHA256SUMS)
+(cd dist/linux-desktop-amd64 && sha256sum netgo-desktop netgo-client-service netbird netgo.desktop README.md THIRD_PARTY_NOTICES.md licenses/netbird.txt licenses/go.txt > SHA256SUMS)
 python3 -B scripts/build_config.py --target linux-client --buildinfo dist/linux-desktop-amd64
-tar -czf "dist/NetGo-${version}-linux-client-${arch}.tar.gz" -C dist linux-desktop-amd64/netgo-desktop linux-desktop-amd64/netgo-client-service linux-desktop-amd64/netbird linux-desktop-amd64/netgo.desktop linux-desktop-amd64/THIRD_PARTY_NOTICES.md linux-desktop-amd64/SHA256SUMS linux-desktop-amd64/licenses/netbird.txt linux-desktop-amd64/licenses/go.txt
+tar -czf "dist/NetGo-${version}-linux-client-${arch}.tar.gz" -C dist linux-desktop-amd64/netgo-desktop linux-desktop-amd64/netgo-client-service linux-desktop-amd64/netbird linux-desktop-amd64/netgo.desktop linux-desktop-amd64/README.md linux-desktop-amd64/THIRD_PARTY_NOTICES.md linux-desktop-amd64/SHA256SUMS linux-desktop-amd64/licenses/netbird.txt linux-desktop-amd64/licenses/go.txt
 printf 'Linux desktop client: dist/NetGo-%s-linux-client-%s.tar.gz\n' "$version" "$arch"

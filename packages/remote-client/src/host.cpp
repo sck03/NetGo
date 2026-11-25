@@ -224,6 +224,7 @@ Json command(ng_remote_host &h, Gate &gate, Files *files, const Json &req) {
 }
 void run(ng_remote_host &h) {
     auto ctx = h.call("CONTEXT", "");
+    require(ctx.at("site_id") == h.site, "remote_site_mismatch");
     std::string device = ctx.at("device_id"), ip = ctx.at("lease").at("ip");
     Key seed{}, publicKey{};
     require(RAND_bytes(seed.data(), int(seed.size())) == 1, "remote_random_failed");
@@ -345,6 +346,9 @@ void run(ng_remote_host &h) {
                         if (m.kind == Kind::close)
                             break;
                         if (m.kind == Kind::renew) {
+                            bool hadInput = gate.check(NG_REMOTE_INPUT),
+                                 hadUpload = gate.check(NG_REMOTE_UPLOAD),
+                                 hadDownload = gate.check(NG_REMOTE_DOWNLOAD);
                             auto update = json(m);
                             auto bytes = decode(update.at("ticket"), NG_REMOTE_TICKET_SIZE);
                             auto now = monotonic_time_ms();
@@ -354,6 +358,14 @@ void run(ng_remote_host &h) {
                                         ng_remote_gate_renew(gate.value, bytes.data(), bytes.size()) ==
                                             NG_REMOTE_OK,
                                     "remote_renewal_invalid");
+                            if (hadInput && !gate.check(NG_REMOTE_INPUT) && h.o.input) {
+                                constexpr char release[] = R"({"type":"release"})";
+                                require(h.o.input(h.o.context, release, sizeof(release) - 1) == 0,
+                                        "remote_input_unavailable");
+                            }
+                            if (files && ((hadUpload && !gate.check(NG_REMOTE_UPLOAD)) ||
+                                          (hadDownload && !gate.check(NG_REMOTE_DOWNLOAD))))
+                                files->cancel();
                         } else if (m.kind == Kind::input) {
                             auto events = json(m);
                             require(valid_input_batch(events), "remote_invalid_input");

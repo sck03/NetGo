@@ -246,6 +246,9 @@ struct HostPlatform::Impl {
         g_variant_builder_add(&b, "{sv}", "handle_token", g_variant_new_string(token.c_str()));
         Variant started(request(
             "Start", g_variant_new("(os@a{sv})", session.c_str(), "", g_variant_builder_end(&b)), token));
+        uint32_t devices = 0;
+        if (!g_variant_lookup(started.value, "devices", "u", &devices) || (devices & 3) != 3)
+            caps &= ~2u;
         Variant streams(g_variant_lookup_value(started.value, "streams", G_VARIANT_TYPE("a(ua{sv})")));
         require(streams.value && g_variant_n_children(streams.value) > 0, "remote_portal_no_screen");
         Variant first(g_variant_get_child_value(streams.value, 0));
@@ -407,8 +410,8 @@ struct HostPlatform::Impl {
 };
 HostPlatform::HostPlatform() : impl_(std::make_unique<Impl>()) {}
 HostPlatform::~HostPlatform() = default;
-void HostPlatform::prepare(uint32_t caps, const std::filesystem::path &path, bool persistent,
-                           std::function<bool()> active) {
+uint32_t HostPlatform::prepare(uint32_t caps, const std::filesystem::path &path, bool persistent,
+                               std::function<bool()> active) {
     impl_->caps = caps;
     impl_->restorePath = path;
     impl_->persistent = persistent;
@@ -419,6 +422,7 @@ void HostPlatform::prepare(uint32_t caps, const std::filesystem::path &path, boo
     }
     if (impl_->wayland)
         impl_->portal();
+    return impl_->caps;
 }
 void HostPlatform::open(uint32_t caps, uint32_t &w, uint32_t &h, uint32_t &fps) {
     impl_->open(caps);

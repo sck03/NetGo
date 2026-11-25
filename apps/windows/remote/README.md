@@ -1,54 +1,39 @@
 # Windows remote desktop modules
 
 The single NetGo.exe links the interactive host and viewer, shared authorization
-and TLS transport, DXGI capture, Media Foundation H.264 and WASAPI audio. Users
-open NetGo.exe; these modules are libraries, not separate daily programs.
+and TLS transport, DXGI capture, Media Foundation H.264 and WASAPI audio.
+The platform adapter only owns capture, encoding, input, clipboard and UI.
+The shared host in packages/remote-client owns authorization, consent, revocation,
+file exchange and the listener bound to the authenticated overlay address.
 
-The capture adapter remains independent of authentication and networking. It
-borrows a GPU BGRA surface only during its synchronous callback. The host checks
-VIEW authorization before capture and before encoding/sending, keeps one CPU
-staging texture, and releases pressed keys/buttons when a session ends. Only the
-authenticated overlay address is listened on. Each connection requires local
-consent; a 15-second unanswered prompt rejects the connection.
+The primary pipeline is a borrowed Desktop Duplication BGRA surface, D3D11 video
+processor conversion to a fresh NV12 GPU surface, then a D3D11-aware hardware MFT.
+At most four submitted frames remain pending. Each sample owns its texture until
+the asynchronous encoder releases it. Hardware initialization failure selects an
+explicit software fallback with a reused CPU staging texture. Runtime codec or
+capture failure closes the session; it never silently drops reference frames.
+The current profile preserves aspect ratio up to 1280x720 at 20 fps.
 
-Video keeps the desktop's aspect ratio, rounds to even NV12 dimensions and never
-upscales. The software profile is at most 1280×720, 20 fps, with a 3 Mbps target
-bitrate. Capture and codec initialization must succeed before the host sends the
-accepted format. The viewer uses letterboxing and maps input only to that image.
-Black bars and toolbar wheel events are excluded. Stop ends sharing/viewing
-without closing the window; only-view permissions preserve local shortcuts.
+Per-session local consent is the default. Explicit unattended mode uses saved
+Credential Manager credentials and a Windows login startup entry, performs a fresh
+VPN login, then reopens sharing. It requires a logged-in interactive desktop.
+Stop or closing the remote window disables automatic sharing; minimizing keeps
+it active. Pre-login/UAC/secure-desktop control is not implemented.
 
-The viewer keeps unavailable authorized hosts visible with their server status.
-Before connecting, users can request view-only mode and opt out of audio. The
-shared client intersects requested permissions with the host/grant inventory and
-rejects an authorization response that changes that set before opening media.
-F11 and the toolbar toggle windowed fullscreen; input is released on transitions.
-The toolbar stays available, and ending a session restores the saved placement.
-These controls are built and protocol-tested; GUI and full device acceptance
-remain separate from the synthetic codec/TLS tests.
+Clipboard is explicit UTF-8 text, at most 8192 bytes. File exchange uses the local
+Exchange directory, a basename-only protocol, 32 KiB acknowledged chunks, checked
+temporary-file publication and no overwrite. The same files/exchange modules serve
+all native clients. View-only never grants clipboard or files implicitly; each
+capability must be independently granted by the administrator.
 
-The authenticated response supplies server_unix_ms. Ticket deadlines use that
-time plus a suspend-aware monotonic timer; media peers and the local wall clock
-cannot supply or extend the time. Server next_generation fences each new
-controller session, including reconnects after old sessions close. Update the
-LAN server and clients together for these added control-response fields.
+The viewer preserves server host status, supports view-only/audio selection,
+F11 fullscreen and letterboxed input mapping. File/clipboard operations are in
+the toolbar menu. An inactive viewer's file menu opens the local exchange folder.
 
-From the repository root after a native build:
+Run ctest --test-dir .cache/native-build --output-on-failure after a native build.
+The synthetic codec test and remote-host TLS integration do not capture a real
+desktop. netgo-video-probe --run explicitly captures the current desktop and must
+be run deliberately for device acceptance. No real-GPU throughput claim follows
+from compilation or the software codec probe.
 
-```powershell
-ctest --test-dir .cache/native-build --output-on-failure
-& .cache/native-build/remote/netgo-video-probe.exe --check
-& .cache/native-build/remote/netgo-video-probe.exe --run
-```
-
---check verifies synthetic 720p input through the actual system H.264 codec.
---run explicitly captures the current desktop and verifies its encode/decode
-path. Neither saves a screen image. These tests do not prove cross-device VPN
-media, audio, input, UAC, lock screen or hardware performance.
-
-Access loss, protected/rotated displays and changed stream dimensions stop the
-session. No automatic switch to another monitor, secure-desktop bypass, file
-transfer or clipboard capability is advertised. Cursor composition, hardware
-encoding, multi-monitor/rotation, sleep, Win11 and full device tests remain in
-the remote desktop plan. Public DXGI/MF/WASAPI system APIs are used; no new
-third-party media engine is bundled.
+See docs/REMOTE_HOST_FEATURES.zh-CN.md for scope and acceptance limits.

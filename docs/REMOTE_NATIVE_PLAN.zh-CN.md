@@ -96,7 +96,7 @@ RD0 已定位并修复现有 VPS 失败机制：原 `WorkerRelay.preferredRelayS
 
 ### 4.3 主机侧门禁
 
-固定二进制授权格式见 [REMOTE_TICKET](REMOTE_TICKET.zh-CN.md)：168 字节、Ed25519、六项独立能力、最长 30 秒租约。`internal/remote/ticket` 用 Go 标准库签发，`packages/remote-ticket` 验签并衔接门禁；核心不依赖 OpenSSL。主机登记、TLS exporter 持钥证明、数据库原子消费/重启防重放、v2 API 与新存储已实现并有正反/并发测试。各主机只发布其实际适配的能力；Windows 当前不开放剪贴板/文件能力。
+固定二进制授权格式见 [REMOTE_TICKET](REMOTE_TICKET.zh-CN.md)：168 字节、Ed25519、六项独立能力、最长 30 秒租约。`internal/remote/ticket` 用 Go 标准库签发，`packages/remote-ticket` 验签并衔接门禁；核心不依赖 OpenSSL。主机登记、TLS exporter 持钥证明、数据库原子消费/重启防重放、v2 API 与新存储已实现并有正反/并发测试。各主机只发布其实际适配的能力；2026-11-26 已增加 Windows/macOS/Linux 主机、文本剪贴板、文件传输和登录会话无人值守，具体范围以 [功能说明](REMOTE_HOST_FEATURES.zh-CN.md) 为准。
 
 服务端授权包含 site/user/controller-device/host-device/host-instance 的绑定摘要、随机 session ID、generation、policy revision、sequence、权限集合与过期。128 位 session ID 同时承担初次授权 nonce，续租由 sequence 区分；不得重复使用。客户端证明拥有指定设备私钥；主机校验签名、目标绑定、一次消费及期限。端到端加密也覆盖网关后的 LAN 一段，不能仅因穿过 WireGuard 就使用明文桌面连接。
 

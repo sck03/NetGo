@@ -106,6 +106,7 @@ class MainActivity : ComponentActivity() {
     val scope=rememberCoroutineScope()
     var pendingTransfer by remember { mutableStateOf<JSONObject?>(null) }
     var uploadPath by remember { mutableStateOf<java.io.File?>(null) }
+    var uploadOwner by remember { mutableStateOf<NativeRemote?>(null) }
     var downloaded by remember { mutableStateOf<java.io.File?>(null) }
     var files by remember { mutableStateOf<List<String>>(emptyList()) }
     var showFiles by remember { mutableStateOf(false) }
@@ -126,14 +127,14 @@ class MainActivity : ComponentActivity() {
     }
     LaunchedEffect(remote,pendingTransfer) {
         val value=pendingTransfer;val session=remote
-        if(value!=null && session!=null) { repeat(200) { if(session.capabilities!=0){if(session.command(value))pendingTransfer=null;return@LaunchedEffect};kotlinx.coroutines.delay(50) } }
+        if(value!=null && session!=null) { repeat(200) { if(session.capabilities!=0){if(session.command(value)){if(value.optString("action")=="upload")uploadOwner=session;pendingTransfer=null};return@LaunchedEffect};kotlinx.coroutines.delay(50) } }
     }
-    LaunchedEffect(remote) { val session=remote;session?.finished={ if(pendingTransfer==null){uploadPath?.delete();uploadPath=null} };session?.event={ value ->
+    LaunchedEffect(remote) { val session=remote;session?.finished={ if(uploadOwner===session){uploadPath?.delete();uploadPath=null;uploadOwner=null} };session?.event={ value ->
         if(value.has("error"))NetGoRuntime.message.value="操作失败："+value.optString("error")
         else if(value.optString("action")=="clipboard.get") { val manager=context.getSystemService(android.content.ClipboardManager::class.java);manager.setPrimaryClip(android.content.ClipData.newPlainText("NetGo",value.optString("text")));NetGoRuntime.message.value="已复制远端剪贴板" }
         else if(value.has("files")){val list=value.getJSONArray("files");files=(0 until list.length()).map { list.getJSONObject(it).getString("name") }}
         else if(value.has("bytes"))NetGoRuntime.message.value="传输："+value.optLong("bytes")+" / "+value.optLong("size")+" 字节"
-        if(value.optBoolean("done")){if(value.optString("action")=="upload"){uploadPath?.delete();uploadPath=null};if(value.optString("action")=="download" && !value.has("error"))downloaded=java.io.File(value.getString("path"))}
+        if(value.optBoolean("done")){if(value.optString("action")=="upload" && uploadOwner===session){uploadPath?.delete();uploadPath=null;uploadOwner=null};if(value.optString("action")=="download" && !value.has("error"))downloaded=java.io.File(value.getString("path"))}
     } }
 
     DisposableEffect(site, host) { onDispose { pendingTransfer=null;remote?.stop();uploadPath?.delete();uploadPath=null } }

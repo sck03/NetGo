@@ -540,8 +540,9 @@ void shareDesktop() {
                 netgo::desktop_linux::HostPlatform media;
             };
             HostContext bridge{site, {}};
-            bridge.media.prepare(59, std::filesystem::path(state->root) / "portal-restore", unattended,
-                                 [] { return state->alive && state->remoteActive; });
+            auto capabilities =
+                bridge.media.prepare(59, std::filesystem::path(state->root) / "portal-restore", unattended,
+                                     [] { return state->alive && state->remoteActive; });
             auto folder = std::filesystem::path(state->root) / "Exchange";
             std::filesystem::create_directories(folder);
             chmod(folder.c_str(), 0700);
@@ -553,7 +554,7 @@ void shareDesktop() {
             o.platform = "linux";
             o.name = name;
             o.exchange_directory = folder.c_str();
-            o.capabilities = 59;
+            o.capabilities = capabilities;
             o.unattended = unattended;
             o.context = &bridge;
             o.active = [](void *) -> int32_t { return state->alive && state->remoteActive; };
@@ -686,6 +687,8 @@ void shareDesktop() {
             ng_remote_host_destroy(host);
         } catch (const std::exception &e) {
             status(e.what());
+            if (std::string(e.what()).find("remote_portal_") == 0)
+                mainThread([] { state->suspended = true; });
         }
         state->remoteActive = false;
     });

@@ -33,8 +33,7 @@ struct HostItem: Identifiable { let id: String; let name: String; let status: St
     private func invalidate() { epoch &+= 1; hostEpoch &+= 1; hosts=[]; resources=[]; stopRemote() }
     private var remoteSuspended=false
     private var nextRemoteAttempt=Date.distantPast
-    private var restoredLogin=false
-    func stopRemote(suspend:Bool=true) { if suspend {remoteSuspended=true};viewer.stop()
+        func stopRemote(suspend:Bool=true) { if suspend {remoteSuspended=true};viewer.stop()
 #if os(macOS)
         host.stop()
 #endif
@@ -77,7 +76,7 @@ struct HostItem: Identifiable { let id: String; let name: String; let status: St
         viewer.changed = { [weak self] text in Task { @MainActor in self?.message = text } }
         viewer.event = { [weak self] value in Task { @MainActor in self?.exchangeEvent(value) } }
 #if os(macOS)
-        host.changed = { [weak self] text in Task { @MainActor in self?.message=text } }
+        host.changed = { [weak self] text in Task { @MainActor in self?.message=text;if text.contains("系统设置") {self?.remoteSuspended=true} } }
 #endif
         timer = Timer.scheduledTimer(withTimeInterval: 2,repeats: true) { [weak self] _ in Task { @MainActor in self?.refresh() } }
     }

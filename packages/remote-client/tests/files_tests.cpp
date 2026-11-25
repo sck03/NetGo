@@ -156,6 +156,27 @@ int main() {
             exchange.receive({{"id", pending.at("id")}, {"result", {{"token", token}}}});
             pump();
             check(!fs::exists(root / "remote/cancel-test.bin"), "cancel published partial file");
+            exchange.push({{"action", "upload"},
+                           {"name", "revoked.bin"},
+                           {"path", path_text(root / "local/source.bin")}});
+            pending = exchange.next(63);
+            token = remote.begin(pending.at("name"), pending.at("size"));
+            check(exchange.next(1).is_null(), "revocation overtook pending request");
+            exchange.receive({{"id", pending.at("id")}, {"result", {{"token", token}}}});
+            pump();
+            check(!fs::exists(root / "remote/revoked.bin"), "revoked upload published");
+            exchange.push({{"action", "download"},
+                           {"name", "empty.bin"},
+                           {"path", path_text(root / "local/cancel-download.bin")}});
+            pending = exchange.next(63);
+            auto opened = remote.open("empty.bin");
+            exchange.receive({{"id", pending.at("id")}, {"result", opened}});
+            pending = exchange.next(63);
+            auto last = remote.read(pending.at("token"), 0);
+            exchange.push({{"action", "cancel"}});
+            exchange.receive({{"id", pending.at("id")}, {"result", last}});
+            pump();
+            check(!fs::exists(root / "local/cancel-download.bin"), "cancelled final chunk published");
             for (auto &e : fs::directory_iterator(root / "remote"))
                 check(e.path().filename().string().rfind(".netgo-", 0) != 0, "temporary upload leaked");
         }

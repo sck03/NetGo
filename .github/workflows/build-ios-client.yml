@@ -70,7 +70,9 @@ jobs:
       NETGO_IOS_SDK: ${{ needs.prepare.outputs.sdk }}
       NETGO_VERSION_CODE: ${{ needs.prepare.outputs.version_code }}
       NETGO_BUILD_NUMBER: ${{ needs.prepare.outputs.build_number }}
-    runs-on: macos-latest
+    # Both targets are cross-built as arm64; no simulator is executed here.
+    # Intel runners avoid the arm64 hosted-runner capacity bottleneck.
+    runs-on: macos-26-intel
     timeout-minutes: 90
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
