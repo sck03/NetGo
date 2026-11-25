@@ -58,7 +58,7 @@ def create(platform,output,native,framework=None,resources=(),selected_version=N
             app_info=output/(name+'-Info.plist')
             app_info.write_bytes(plistlib.dumps({'NetGoBuildVersion':app_version}))
             settings['INFOPLIST_FILE']=str(app_info)
-        if platform=='macOS':settings.update(SDKROOT='macosx',MACOSX_DEPLOYMENT_TARGET='14.0',OTHER_LDFLAGS=['-lc++','-lcurl','-framework','Security','-framework','CoreFoundation','-framework','ScreenCaptureKit','-framework','VideoToolbox','-framework','ApplicationServices','-framework','AppKit','-framework','CoreMedia','-framework','CoreVideo'],INFOPLIST_KEY_NSPrincipalClass='NSApplication')
+        if platform=='macOS':settings.update(SDKROOT='macosx',MACOSX_DEPLOYMENT_TARGET='14.0',OTHER_LDFLAGS=['-lc++','-lcurl','-framework','Security','-framework','CoreFoundation','-framework','ServiceManagement','-framework','ScreenCaptureKit','-framework','VideoToolbox','-framework','ApplicationServices','-framework','AppKit','-framework','CoreMedia','-framework','CoreVideo'],INFOPLIST_KEY_NSPrincipalClass='NSApplication')
         else:
             settings.update(SDKROOT='iphoneos',IPHONEOS_DEPLOYMENT_TARGET='17.0',TARGETED_DEVICE_FAMILY='1,2',CODE_SIGN_ENTITLEMENTS=str(ROOT/'apps/apple/iOS/NetGo.entitlements'))
             if extension=='appex':

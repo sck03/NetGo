@@ -121,14 +121,14 @@ class MainActivity : ComponentActivity() {
                 val folder=java.io.File(context.cacheDir,"remote-upload").apply { mkdirs() };val file=java.io.File(folder,java.util.UUID.randomUUID().toString()+".bin")
                 try { context.contentResolver.openInputStream(uri)!!.use { source -> file.outputStream().use { out -> val buffer=ByteArray(32768);var total=0L;while(true){val n=source.read(buffer);if(n<0)break;total+=n;require(total<=1024L*1024*1024);out.write(buffer,0,n)} } };Pair(file,name) } catch(e:Exception){file.delete();throw e}
             }
-            uploadPath?.delete();uploadPath=result.first;pendingTransfer=JSONObject().put("action","upload").put("path",result.first.absolutePath).put("name",result.second)
+            uploadPath=result.first;pendingTransfer=JSONObject().put("action","upload").put("path",result.first.absolutePath).put("name",result.second)
         } catch(_:Exception) { NetGoRuntime.message.value="无法读取文件，单文件上限 1 GiB" } }
     }
     LaunchedEffect(remote,pendingTransfer) {
         val value=pendingTransfer;val session=remote
         if(value!=null && session!=null) { repeat(200) { if(session.capabilities!=0){if(session.command(value))pendingTransfer=null;return@LaunchedEffect};kotlinx.coroutines.delay(50) } }
     }
-    LaunchedEffect(remote) { remote?.event={ value ->
+    LaunchedEffect(remote) { val session=remote;session?.finished={ if(pendingTransfer==null){uploadPath?.delete();uploadPath=null} };session?.event={ value ->
         if(value.has("error"))NetGoRuntime.message.value="操作失败："+value.optString("error")
         else if(value.optString("action")=="clipboard.get") { val manager=context.getSystemService(android.content.ClipboardManager::class.java);manager.setPrimaryClip(android.content.ClipData.newPlainText("NetGo",value.optString("text")));NetGoRuntime.message.value="已复制远端剪贴板" }
         else if(value.has("files")){val list=value.getJSONArray("files");files=(0 until list.length()).map { list.getJSONObject(it).getString("name") }}
@@ -136,7 +136,7 @@ class MainActivity : ComponentActivity() {
         if(value.optBoolean("done")){if(value.optString("action")=="upload"){uploadPath?.delete();uploadPath=null};if(value.optString("action")=="download" && !value.has("error"))downloaded=java.io.File(value.getString("path"))}
     } }
 
-    DisposableEffect(site, host) { onDispose { remote?.stop() } }
+    DisposableEffect(site, host) { onDispose { pendingTransfer=null;remote?.stop();uploadPath?.delete();uploadPath=null } }
     AndroidView(modifier = Modifier.fillMaxWidth().aspectRatio(16f / 9f), factory = { context ->
         SurfaceView(context).apply {
             holder.addCallback(object : SurfaceHolder.Callback {
@@ -165,9 +165,9 @@ class MainActivity : ComponentActivity() {
         OutlinedButton(onClick={remote?.command(JSONObject().put("action","clipboard.get"))}) { Text("获取剪贴板") }
     }
     Row(horizontalArrangement=Arrangement.spacedBy(8.dp)) {
-        OutlinedButton(onClick={upload.launch(arrayOf("*/*"))}) { Text("上传文件") }
+        OutlinedButton(enabled=uploadPath==null && pendingTransfer==null,onClick={upload.launch(arrayOf("*/*"))}) { Text("上传文件") }
         Box { OutlinedButton(onClick={remote?.command(JSONObject().put("action","file.list"));showFiles=true}) { Text("下载文件") };DropdownMenu(showFiles,onDismissRequest={showFiles=false}) { files.forEach { name -> DropdownMenuItem(text={Text(name)},onClick={showFiles=false;val folder=java.io.File(context.filesDir,"remote-download").apply{mkdirs()};if(name.isNotEmpty()&&!name.contains('/')&&!name.contains('\\'))remote?.command(JSONObject().put("action","download").put("name",name).put("path",java.io.File(folder,name).absolutePath))}) } } }
-        OutlinedButton(onClick={remote?.command(JSONObject().put("action","cancel"));pendingTransfer=null}) { Text("取消传输") }
+        OutlinedButton(onClick={remote?.command(JSONObject().put("action","cancel"));if(pendingTransfer!=null){uploadPath?.delete();uploadPath=null};pendingTransfer=null}) { Text("取消传输") }
     }
     downloaded?.let { file -> OutlinedButton(onClick={export.launch(file.name)}) { Text("导出已下载文件") } }
     OutlinedButton(onClick = { remote?.stop(); close() }) { Text("结束远程桌面") }

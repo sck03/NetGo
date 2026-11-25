@@ -46,17 +46,23 @@ func (c *Controller) Handler() http.Handler {
 			Site, Alias, Password string
 			Replace               bool
 			Internet              bool
+			Remember              bool
 		}
 		r.Body = http.MaxBytesReader(w, r.Body, 8192)
 		if e := site.Decode(r.Body, &b); e != nil {
 			write(w, nil, e)
 			return
 		}
-		e := c.ConnectMode(b.Site, b.Alias, b.Password, b.Replace, b.Internet)
+		e := c.connectMode(b.Site, b.Alias, b.Password, b.Replace, b.Internet, b.Remember)
 		b.Password = ""
 		write(w, c.Status(), e)
 	})
 	m.HandleFunc("POST /desktop/disconnect", func(w http.ResponseWriter, r *http.Request) { e := c.Disconnect(); write(w, c.Status(), e) })
+	m.HandleFunc("GET /desktop/unattended", func(w http.ResponseWriter, r *http.Request) {
+		write(w, map[string]string{"site": c.UnattendedSite()}, nil)
+	})
+	m.HandleFunc("POST /desktop/unattended/restore", func(w http.ResponseWriter, r *http.Request) { write(w, nil, c.RestoreUnattended()) })
+	m.HandleFunc("DELETE /desktop/unattended", func(w http.ResponseWriter, r *http.Request) { write(w, nil, c.DisableUnattended()) })
 	m.HandleFunc("GET /desktop/remote/context", func(w http.ResponseWriter, r *http.Request) {
 		v, e := c.RemoteContext(r.URL.Query().Get("site"))
 		write(w, v, e)

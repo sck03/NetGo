@@ -20,7 +20,7 @@ HWND window = nullptr, list = nullptr, connectButton = nullptr, hostButton = nul
      notice = nullptr;
 HWND refreshButton = nullptr, viewOnly = nullptr, audioOption = nullptr, fullButton = nullptr;
 HWND unattendedOption = nullptr, exchangeButton = nullptr;
-bool unattendedMode = false;
+bool unattendedMode = false, autoHosting = false;
 std::deque<Json> commands;
 Json remoteFiles = Json::array();
 bool fullscreen = false;
@@ -174,7 +174,35 @@ void toggleFullscreen() {
     }
     SetWindowTextW(fullButton, fullscreen ? L"退出全屏 (F11)" : L"全屏 (F11)");
 }
+void saveUnattended(bool enabled) {
+    if (enabled) {
+        auto saved = pipeCall({{"action", "credential-info"}, {"site", site}});
+        if (!saved.value("remembered", false))
+            throw Error("请先在主界面勾选记住密码并成功连接，再开启登录恢复");
+        HKEY key = nullptr;
+        if (RegCreateKeyExW(HKEY_CURRENT_USER, L"Software\\Microsoft\\Windows\\CurrentVersion\\Run", 0,
+                            nullptr, 0, KEY_SET_VALUE, nullptr, &key, nullptr) != ERROR_SUCCESS)
+            throw Error("startup_setting_failed");
+        auto command = L"\"" + (executableDir() / L"NetGo.exe").wstring() + L"\" --tray";
+        auto result =
+            RegSetValueExW(key, L"NetGoNative", 0, REG_SZ, reinterpret_cast<const BYTE *>(command.c_str()),
+                           DWORD((command.size() + 1) * sizeof(wchar_t)));
+        RegCloseKey(key);
+        if (result != ERROR_SUCCESS)
+            throw Error("startup_setting_failed");
+    }
+    secureDirectory(dataRoot());
+    atomicFile(dataRoot() / L".remote-unattended", Json({{"site", enabled ? site : ""}}).dump());
+    autoHosting = enabled;
+}
 void stop() {
+    if (autoHosting) {
+        try {
+            saveUnattended(false);
+        } catch (const std::exception &e) {
+            postStatus(e.what());
+        }
+    }
     receiving = false;
     running = false;
     activeCaps = 0;
@@ -242,6 +270,15 @@ desktop::Callbacks callbacks() {
 void start(bool host, const std::string &id = {}) {
     if (busy.exchange(true))
         return;
+    if (host) {
+        try {
+            saveUnattended(SendMessageW(unattendedOption, BM_GETCHECK, 0, 0) == BST_CHECKED);
+        } catch (const std::exception &e) {
+            busy = false;
+            postStatus(e.what());
+            return;
+        }
+    }
     if (worker.joinable())
         worker.join();
     auto caps = uint32_t(NG_REMOTE_VIEW | NG_REMOTE_CLIPBOARD | NG_REMOTE_UPLOAD | NG_REMOTE_DOWNLOAD);
@@ -260,7 +297,8 @@ void start(bool host, const std::string &id = {}) {
     activeCaps = 0;
     composing = false;
     viewing = !host;
-    for (auto control : {connectButton, hostButton, list, refreshButton, viewOnly, audioOption})
+    for (auto control :
+         {connectButton, hostButton, list, refreshButton, viewOnly, audioOption, unattendedOption})
         EnableWindow(control, FALSE);
     EnableWindow(stopButton, TRUE);
     postStatus(host ? "正在开启本机共享…" : "正在连接远程主机…");
@@ -408,7 +446,7 @@ LRESULT CALLBACK proc(HWND h, UINT m, WPARAM w, LPARAM l) {
                                    28, h, reinterpret_cast<HMENU>(8), nullptr, nullptr);
         SendMessageW(audioOption, BM_SETCHECK, BST_CHECKED, 0);
         EnableWindow(fullButton, FALSE);
-        unattendedOption = CreateWindowW(L"BUTTON", L"无人值守（仅站点授权账号）",
+        unattendedOption = CreateWindowW(L"BUTTON", L"无人值守并在登录后恢复",
                                          WS_CHILD | WS_VISIBLE | WS_TABSTOP | BS_AUTOCHECKBOX, 12, 80, 270,
                                          28, h, reinterpret_cast<HMENU>(9), nullptr, nullptr);
         exchangeButton = CreateWindowW(L"BUTTON", L"剪贴板与文件…", WS_CHILD | WS_VISIBLE | WS_TABSTOP, 300,
@@ -546,7 +584,7 @@ LRESULT CALLBACK proc(HWND h, UINT m, WPARAM w, LPARAM l) {
         }
         viewing = false;
         EnableWindow(fullButton, FALSE);
-        for (auto control : {hostButton, list, refreshButton})
+        for (auto control : {hostButton, list, refreshButton, unattendedOption})
             EnableWindow(control, TRUE);
         selectionChanged(false);
         InvalidateRect(h, nullptr, TRUE);
@@ -704,6 +742,12 @@ LRESULT CALLBACK proc(HWND h, UINT m, WPARAM w, LPARAM l) {
             queue({{"type", "release"}});
         break;
     case WM_CLOSE:
+        if (autoHosting) {
+            try {
+                saveUnattended(false);
+            } catch (...) {
+            }
+        }
         closing = true;
         if (busy) {
             stop();
@@ -712,7 +756,12 @@ LRESULT CALLBACK proc(HWND h, UINT m, WPARAM w, LPARAM l) {
         } else
             DestroyWindow(h);
         return 0;
+    case WM_TIMER:
+        if (autoHosting && !busy && !closing)
+            start(true);
+        return 0;
     case WM_DESTROY:
+        KillTimer(h, 1);
         if (font) {
             DeleteObject(font);
             font = nullptr;
@@ -723,7 +772,7 @@ LRESULT CALLBACK proc(HWND h, UINT m, WPARAM w, LPARAM l) {
     return DefWindowProcW(h, m, w, l);
 }
 } // namespace
-int remoteMain(HINSTANCE instance, int show, const std::wstring &siteValue) {
+int remoteMain(HINSTANCE instance, int show, const std::wstring &siteValue, bool autoHost) {
     try {
         site = utf8(siteValue);
         if (site.empty() || site.size() > 63 ||
@@ -757,7 +806,19 @@ int remoteMain(HINSTANCE instance, int show, const std::wstring &siteValue) {
         if (!window)
             throw Error("remote_window_failed");
         ShowWindow(window, show);
-        refresh();
+        SetTimer(window, 1, 30000, nullptr);
+        bool enabled = false;
+        try {
+            enabled =
+                Json::parse(readFile(dataRoot() / L".remote-unattended", 4096)).value("site", "") == site;
+        } catch (...) {
+        }
+        if (enabled)
+            SendMessageW(unattendedOption, BM_SETCHECK, BST_CHECKED, 0);
+        if (autoHost && enabled)
+            start(true);
+        else
+            refresh();
         MSG msg{};
         while (GetMessageW(&msg, nullptr, 0, 0) > 0) {
             if ((msg.message == WM_KEYDOWN || msg.message == WM_KEYUP) && msg.wParam == VK_F11) {

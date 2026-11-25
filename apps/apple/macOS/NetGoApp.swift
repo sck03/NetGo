@@ -9,7 +9,7 @@ import NetGoApple
         WindowGroup {
             ClientView(model:model).frame(minWidth:560,minHeight:560)
                 .onAppear { runtime.attach(model) }
-                .onDisappear { model.stopRemote() }
+                .onDisappear { if !model.unattended {model.stopRemote()} }
         }.defaultSize(width:640,height:700)
     }
 }
@@ -52,13 +52,13 @@ final class DesktopRuntime {
                 DispatchQueue.global().async { self.requestLock.lock();defer{self.requestLock.unlock()};if self.current(version) { _ = try? request?("POST","/desktop/disconnect","{}") } }
             }
             model.connectAction = { [weak self,weak model] site, alias, password, internet, replace in
-                guard let self=self else{return};let version=self.advance()
+                guard let self=self else{return};let version=self.advance();let remember=model?.unattended ?? false
                 DispatchQueue.global().async {
                     do {
                         try DesktopRuntime.prepareNetwork()
                         self.requestLock.lock();defer{self.requestLock.unlock()}
                         guard self.current(version), let request = request else { return }
-                        let body = String(decoding:try JSONSerialization.data(withJSONObject:["Site":site.id,"Alias":alias,"Password":password,"Replace":replace,"Internet":internet]),as:UTF8.self)
+                        let body = String(decoding:try JSONSerialization.data(withJSONObject:["Site":site.id,"Alias":alias,"Password":password,"Replace":replace,"Internet":internet,"Remember":remember]),as:UTF8.self)
                         _ = try request("POST","/desktop/connect",body)
                         if !self.current(version) { _ = try? request("POST","/desktop/disconnect","{}"); return }
                         Task { @MainActor in model?.refresh() }

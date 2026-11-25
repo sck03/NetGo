@@ -25,7 +25,7 @@ struct ClientView: View {
             HStack { Text("远程桌面"); Spacer(); Button("刷新主机") { model.loadHosts() }.disabled(!model.connected) }
             ScrollView(.horizontal) { HStack { ForEach(model.hosts) { host in Button(host.label) { model.view(host) }.disabled(!host.ready || !model.connected) } } }
 #if os(macOS)
-            HStack { Toggle("无人值守（仅站点授权账号）",isOn:$model.unattended);Button("共享此 Mac") { model.shareDesktop() }.disabled(!model.connected) }
+            HStack { Toggle("无人值守：保存凭据并在登录后恢复（连接前开启）",isOn:$model.unattended);Button("共享此 Mac") { model.shareDesktop() }.disabled(!model.connected) }
 #endif
             ScrollView(.horizontal) { HStack { Button("发送剪贴板") { model.sendClipboard() };Button("获取剪贴板") { model.viewer.command(["action":"clipboard.get"]) };Button("上传文件") { uploading=true };Menu("下载文件") { Button("刷新列表") { model.viewer.command(["action":"file.list"]) };ForEach(model.transferFiles,id: \.self) { name in Button(name) { model.download(name) } } };Button("取消传输") { model.viewer.command(["action":"cancel"]) };if let url=model.lastDownload { ShareLink("导出已下载文件",item:url) } } }
             ScreenView(viewer:model.viewer).frame(minHeight:180).background(.black)

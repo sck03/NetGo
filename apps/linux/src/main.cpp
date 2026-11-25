@@ -50,6 +50,8 @@ struct State {
     GtkWidget *unattended = nullptr, *files = nullptr;
     Json remoteFiles = Json::array();
     bool smoke = false, loadingProfiles = false;
+    bool restoreChecked = false, autoResume = false, suspended = false;
+    int64_t nextRestore = 0, nextShare = 0;
     unsigned timer = 0;
     ~State() {
         alive = false;
@@ -214,6 +216,7 @@ void task(std::function<void()> action) {
     });
 }
 void disconnectNetwork() {
+    state->suspended = true;
     state->epoch.advance();
     state->hostList = Json::array();
     names(state->hosts, state->hostList, "name");
@@ -486,9 +489,44 @@ std::string clipboard(bool set, const std::string &text) {
 }
 struct ConsentReply {
     std::atomic_bool done = false, allowed = false, expired = false;
-    GtkWindow *dialog = nullptr;
+    GCancellable *cancel = g_cancellable_new();
+    ~ConsentReply() { g_object_unref(cancel); }
 };
+void configureStartup(bool enabled) {
+    auto directory = std::filesystem::path(g_get_user_config_dir()) / "autostart";
+    auto target = directory / "org.netgo.desktop.desktop";
+    if (!enabled) {
+        std::error_code error;
+        std::filesystem::remove(target, error);
+        if (error)
+            throw std::runtime_error("无法移除登录启动项");
+        return;
+    }
+    std::filesystem::create_directories(directory);
+    auto executable = std::filesystem::canonical("/proc/self/exe").string();
+    std::string quoted = "\"";
+    for (char c : executable) {
+        if (c == '\n' || c == '\r')
+            throw std::runtime_error("invalid_startup_path");
+        if (c == '%')
+            quoted += '%';
+        if (c == '\\' || c == '"' || c == '$' || c == 96)
+            quoted += '\\';
+        quoted += c;
+    }
+    quoted += '"';
+    auto content = "[Desktop Entry]\nType=Application\nName=NetGo Unattended\nExec=" + quoted +
+                   "\nTerminal=false\nX-GNOME-Autostart-enabled=true\n";
+    GError *error = nullptr;
+    auto saved = g_file_set_contents_full(target.c_str(), content.c_str(), gssize(content.size()),
+                                          G_FILE_SET_CONTENTS_CONSISTENT, 0600, &error);
+    if (error)
+        g_error_free(error);
+    if (!saved)
+        throw std::runtime_error("无法保存登录启动项");
+}
 void shareDesktop() {
+    state->suspended = false;
     if (state->site.empty() || state->remoteActive.exchange(true))
         return;
     if (state->remote.joinable())
@@ -549,32 +587,32 @@ void shareDesktop() {
                         result->done = true;
                         return;
                     }
-                    auto d = gtk_dialog_new();
-                    result->dialog = GTK_WINDOW(d);
-                    gtk_window_set_transient_for(GTK_WINDOW(d), GTK_WINDOW(state->window));
-                    gtk_window_set_modal(GTK_WINDOW(d), TRUE);
-                    gtk_window_set_title(GTK_WINDOW(d), "远程访问请求");
                     auto text = "站点账号 " + account + " 请求查看屏幕" +
                                 std::string((caps & 2) ? "、控制键鼠" : "") +
                                 ((caps & 8) ? "、读写剪贴板" : "") +
                                 ((caps & 48) ? "、收发交换目录文件" : "");
-                    gtk_box_append(GTK_BOX(gtk_dialog_get_content_area(GTK_DIALOG(d))),
-                                   gtk_label_new(text.c_str()));
-                    gtk_dialog_add_button(GTK_DIALOG(d), "拒绝", GTK_RESPONSE_CANCEL);
-                    gtk_dialog_add_button(GTK_DIALOG(d), "允许", GTK_RESPONSE_ACCEPT);
+                    auto dialog = gtk_alert_dialog_new("%s", text.c_str());
+                    const char *buttons[] = {"拒绝", "允许", nullptr};
+                    gtk_alert_dialog_set_buttons(dialog, buttons);
+                    gtk_alert_dialog_set_cancel_button(dialog, 0);
+                    gtk_alert_dialog_set_default_button(dialog, 0);
+                    gtk_alert_dialog_set_modal(dialog, TRUE);
                     auto data = new std::shared_ptr<ConsentReply>(result);
-                    g_signal_connect_data(
-                        d, "response", callback(+[](GtkDialog *d, int response, void *user) {
-                            auto &r = **static_cast<std::shared_ptr<ConsentReply> *>(user);
-                            r.allowed = response == GTK_RESPONSE_ACCEPT && !r.expired;
-                            r.done = true;
-                            r.dialog = nullptr;
-                            gtk_window_destroy(GTK_WINDOW(d));
-                        }),
-                        data,
-                        [](void *p, GClosure *) { delete static_cast<std::shared_ptr<ConsentReply> *>(p); },
-                        GConnectFlags(0));
-                    gtk_window_present(GTK_WINDOW(d));
+                    gtk_alert_dialog_choose(
+                        dialog, GTK_WINDOW(state->window), result->cancel,
+                        [](GObject *object, GAsyncResult *reply, void *user) {
+                            std::unique_ptr<std::shared_ptr<ConsentReply>> p(
+                                static_cast<std::shared_ptr<ConsentReply> *>(user));
+                            GError *error = nullptr;
+                            auto choice =
+                                gtk_alert_dialog_choose_finish(GTK_ALERT_DIALOG(object), reply, &error);
+                            (*p)->allowed = !error && choice == 1 && !(*p)->expired;
+                            (*p)->done = true;
+                            if (error)
+                                g_error_free(error);
+                        },
+                        data);
+                    g_object_unref(dialog);
                 });
                 auto until = std::chrono::steady_clock::now() + std::chrono::seconds(15);
                 while (!result->done && state->alive && state->remoteActive &&
@@ -583,10 +621,7 @@ void shareDesktop() {
                 if (result->done)
                     return result->allowed ? 1 : 0;
                 result->expired = true;
-                mainThread([result] {
-                    if (result->dialog)
-                        gtk_dialog_response(GTK_DIALOG(result->dialog), GTK_RESPONSE_CANCEL);
-                });
+                g_cancellable_cancel(result->cancel);
                 return 0;
             };
             o.open = [](void *p, uint32_t caps, uint32_t *w, uint32_t *h, uint32_t *fps) -> int32_t {
@@ -858,7 +893,10 @@ void activate(GtkApplication *app, void *) {
                 {"Alias", gtk_editable_get_text(GTK_EDITABLE(state->alias))},
                 {"Password", gtk_editable_get_text(GTK_EDITABLE(state->password))},
                 {"Replace", bool(gtk_check_button_get_active(GTK_CHECK_BUTTON(state->replace)))},
-                {"Internet", bool(gtk_check_button_get_active(GTK_CHECK_BUTTON(state->internet)))}};
+                {"Internet", bool(gtk_check_button_get_active(GTK_CHECK_BUTTON(state->internet)))},
+                {"Remember", bool(gtk_check_button_get_active(GTK_CHECK_BUTTON(state->unattended)))}};
+            state->autoResume = request.at("Remember");
+            state->suspended = false;
             gtk_editable_set_text(GTK_EDITABLE(state->password), "");
             auto version = state->epoch.advance();
             task([request = std::move(request), version] {
@@ -934,8 +972,24 @@ void activate(GtkApplication *app, void *) {
                      nullptr);
     row = gtk_box_new(GTK_ORIENTATION_HORIZONTAL, 8);
     gtk_box_append(GTK_BOX(box), row);
-    state->unattended = gtk_check_button_new_with_label("无人值守（仅站点授权账号）");
+    state->unattended =
+        gtk_check_button_new_with_label("无人值守：保存登录凭据并在系统登录后恢复（连接前勾选）");
     gtk_box_append(GTK_BOX(row), state->unattended);
+    g_signal_connect(state->unattended, "toggled", callback(+[](GtkCheckButton *button, void *) {
+                         bool enabled = gtk_check_button_get_active(button);
+                         state->autoResume = enabled;
+                         state->suspended = !enabled;
+                         try {
+                             configureStartup(enabled);
+                         } catch (const std::exception &e) {
+                             status(e.what());
+                         }
+                         if (!enabled) {
+                             stopRemote();
+                             task([] { call("DELETE", "/desktop/unattended"); });
+                         }
+                     }),
+                     nullptr);
     auto share = gtk_button_new_with_label("共享此电脑");
     gtk_box_append(GTK_BOX(row), share);
     g_signal_connect(share, "clicked", callback(+[](GtkButton *, void *) { shareDesktop(); }), nullptr);
@@ -985,7 +1039,11 @@ void activate(GtkApplication *app, void *) {
                      callback(+[](GtkButton *, void *) { submit({{"action", "cancel"}}); }), nullptr);
     auto stop = gtk_button_new_with_label("结束远程桌面");
     gtk_box_append(GTK_BOX(row), stop);
-    g_signal_connect(stop, "clicked", callback(+[](GtkButton *, void *) { stopRemote(); }), nullptr);
+    g_signal_connect(stop, "clicked", callback(+[](GtkButton *, void *) {
+                         state->suspended = true;
+                         stopRemote();
+                     }),
+                     nullptr);
     state->picture = gtk_picture_new();
     gtk_widget_set_vexpand(state->picture, TRUE);
     gtk_picture_set_content_fit(GTK_PICTURE(state->picture), GTK_CONTENT_FIT_CONTAIN);
@@ -1127,24 +1185,63 @@ void activate(GtkApplication *app, void *) {
         [](void *) -> gboolean {
             if (!state->alive)
                 return G_SOURCE_REMOVE;
-            if (!state->jobBusy)
-                task([] {
-                    auto value = call("GET", "/desktop/status");
-                    status(value.value("state", "") + "  " + value.value("error", ""));
-                    mainThread([value = std::move(value)] {
-                        if (!state->alive)
-                            return;
-                        std::string resources;
-                        for (const auto &r :
-                             value.value("lease", Json::object()).value("resources", Json::array()))
-                            resources += r.value("name", "") + " · " + r.value("cidr", "") + "  ";
-                        gtk_label_set_text(GTK_LABEL(state->resources), resources.c_str());
-                        if (value.value("state", "") != "connected") {
-                            state->hostList = Json::array();
-                            names(state->hosts, state->hostList, "name");
+            if (state->jobBusy || state->cancelling)
+                return G_SOURCE_CONTINUE;
+            bool initial = !state->restoreChecked;
+            bool resume = state->autoResume && !state->suspended;
+            bool retry = g_get_monotonic_time() >= state->nextRestore;
+            if (retry)
+                state->nextRestore = g_get_monotonic_time() + 30000000;
+            auto version = state->epoch.current();
+            task([initial, resume, retry, version] {
+                auto settings = initial ? call("GET", "/desktop/unattended") : Json();
+                auto value = call("GET", "/desktop/status");
+                auto phase = value.value("state", "");
+                bool configured = initial && !settings.value("site", "").empty();
+                if ((configured || (resume && retry)) && (phase == "failed" || phase == "disconnected") &&
+                    state->epoch.matches(version)) {
+                    try {
+                        call("POST", "/desktop/unattended/restore");
+                        value = call("GET", "/desktop/status");
+                    } catch (const std::exception &e) {
+                        status(e.what());
+                    }
+                }
+                mainThread([value = std::move(value), settings = std::move(settings), initial, version] {
+                    if (!state->alive || !state->epoch.matches(version))
+                        return;
+                    if (initial) {
+                        state->restoreChecked = true;
+                        auto saved = settings.value("site", "");
+                        if (!saved.empty()) {
+                            state->site = saved;
+                            state->autoResume = true;
+                            state->loadingProfiles = true;
+                            for (size_t i = 0; i < state->profileList.size(); ++i)
+                                if (state->profileList[i].value("ID", "") == saved)
+                                    gtk_drop_down_set_selected(GTK_DROP_DOWN(state->profiles), unsigned(i));
+                            state->loadingProfiles = false;
+                            gtk_check_button_set_active(GTK_CHECK_BUTTON(state->unattended), TRUE);
                         }
-                    });
+                    }
+                    std::string resources;
+                    for (const auto &r :
+                         value.value("lease", Json::object()).value("resources", Json::array()))
+                        resources += r.value("name", "") + " · " + r.value("cidr", "") + "  ";
+                    gtk_label_set_text(GTK_LABEL(state->resources), resources.c_str());
+                    if (!state->remoteActive)
+                        status(value.value("state", "") + "  " + value.value("error", ""));
+                    if (value.value("state", "") != "connected") {
+                        state->hostList = Json::array();
+                        names(state->hosts, state->hostList, "name");
+                    } else if (state->autoResume && !state->suspended && !state->remoteActive &&
+                               value.value("site_id", "") == state->site &&
+                               g_get_monotonic_time() >= state->nextShare) {
+                        state->nextShare = g_get_monotonic_time() + 30000000;
+                        shareDesktop();
+                    }
                 });
+            });
             return G_SOURCE_CONTINUE;
         },
         nullptr);

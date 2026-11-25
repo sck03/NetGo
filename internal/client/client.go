@@ -63,6 +63,7 @@ type Controller struct {
 	done          chan struct{}
 	cleanupFailed bool
 	remote        *remoteConnection
+	remember      bool
 }
 type Remote struct {
 	auth          sync.RWMutex
@@ -265,8 +266,14 @@ func (c *Controller) Connect(id, alias, password string, replace bool) error {
 	return c.ConnectMode(id, alias, password, replace, false)
 }
 func (c *Controller) ConnectMode(id, alias, password string, replace, internet bool) error {
+	return c.connectMode(id, alias, password, replace, internet, false)
+}
+func (c *Controller) connectMode(id, alias, password string, replace, internet, remember bool) error {
 	c.op.Lock()
 	defer c.op.Unlock()
+	return c.connectLocked(id, alias, password, replace, internet, remember)
+}
+func (c *Controller) connectLocked(id, alias, password string, replace, internet, remember bool) error {
 	if !site.ValidID(id) {
 		return errors.New("invalid site")
 	}
@@ -295,6 +302,7 @@ func (c *Controller) ConnectMode(id, alias, password string, replace, internet b
 	}
 	c.status = Status{Generation: gen, State: "probing", SiteID: id, Internet: internet}
 	c.cancel = cancel
+	c.remember = remember
 	c.done = done
 	c.mu.Unlock()
 	go func() {
@@ -372,7 +380,6 @@ func (c *Controller) run(ctx context.Context, gen uint64, p site.Profile, alias 
 	if e = remote.Call(loginCtx, "POST", "/netgo/v2/auth/transactions/"+transaction.ID+"/complete", map[string]string{"Alias": alias, "Password": *password, "Signature": sign(proof)}, nil, ""); e != nil {
 		return e
 	}
-	*password = ""
 	var auth identity.Result
 	if e = remote.Call(loginCtx, "POST", "/netgo/v2/auth/transactions/"+transaction.ID+"/exchange", map[string]string{"Verifier": verifier, "Signature": sign(proof + "\nexchange\n" + verifier)}, &auth, ""); e != nil {
 		return e
@@ -384,6 +391,10 @@ func (c *Controller) run(ctx context.Context, gen uint64, p site.Profile, alias 
 	if e != nil {
 		return e
 	}
+	if e = c.saveVerifiedLogin(gen, p, alias, *password, internet); e != nil {
+		return e
+	}
+	*password = ""
 	remote.HTTP = selector.Client()
 	remote.Now = selector.Now
 	if engine, ok := c.Engine.(InternetEngine); ok {

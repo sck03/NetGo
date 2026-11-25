@@ -55,6 +55,7 @@ final class RemoteHost {
         }
     }
     private func report(_ text:String) { DispatchQueue.main.async { [weak self] in self?.changed?(text) } }
+    var isRunning:Bool {lock.lock();defer {lock.unlock()};return running}
     func stop() { lock.lock();generation &+= 1;running=false;if let handle { ng_remote_host_cancel(handle) };lock.unlock() }
 }
 private final class HostConsent {

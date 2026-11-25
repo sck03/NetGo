@@ -1,6 +1,7 @@
 import Foundation
 #if os(macOS)
 import AppKit
+import ServiceManagement
 #else
 import UIKit
 #endif
@@ -30,7 +31,10 @@ struct HostItem: Identifiable { let id: String; let name: String; let status: St
     private var hostEpoch: UInt64 = 0
     private var refreshing = false
     private func invalidate() { epoch &+= 1; hostEpoch &+= 1; hosts=[]; resources=[]; stopRemote() }
-    func stopRemote() { viewer.stop()
+    private var remoteSuspended=false
+    private var nextRemoteAttempt=Date.distantPast
+    private var restoredLogin=false
+    func stopRemote(suspend:Bool=true) { if suspend {remoteSuspended=true};viewer.stop()
 #if os(macOS)
         host.stop()
 #endif
@@ -48,9 +52,13 @@ struct HostItem: Identifiable { let id: String; let name: String; let status: St
     private var selectedUpload:URL?
 #if os(macOS)
     let host = RemoteHost()
-    @Published var unattended=false
+    @Published var unattended=UserDefaults.standard.bool(forKey:"remoteUnattended") { didSet {
+        UserDefaults.standard.set(unattended,forKey:"remoteUnattended")
+        do {if unattended {try SMAppService.mainApp.register()} else {try SMAppService.mainApp.unregister()}} catch {message="登录启动设置："+error.localizedDescription}
+        if !unattended {stopRemote();if let request {DispatchQueue.global().async {_ = try? request("DELETE","/desktop/unattended","")}}}
+    }}
     func shareDesktop() {
-        guard connected,let request else { return };viewer.stop();let site=selected
+        guard connected,let request else { return };remoteSuspended=false;viewer.stop();let site=selected
         host.start(site:site,unattended:unattended) { method,_,body,_ in
             if method=="LOCAL_CONTEXT" { return try request("GET","/desktop/remote/context?site="+site,"") }
             return try request("POST","/desktop/remote/call",body)
@@ -65,7 +73,7 @@ struct HostItem: Identifiable { let id: String; let name: String; let status: St
 
     init() {
         sites = (UserDefaults.standard.stringArray(forKey:"sites") ?? []).compactMap { raw in guard let object = try? JSONSerialization.jsonObject(with:Data(raw.utf8)) as? [String:Any], let id = object["ID"] as? String else { return nil }; return SiteItem(id:id,name:object["Name"] as? String ?? id,raw:raw,importID:(UserDefaults.standard.dictionary(forKey:"siteImportIDs")?[id] as? String) ?? "",needsImport:UserDefaults.standard.stringArray(forKey:"pendingSites")?.contains(id) ?? false,trusted:UserDefaults.standard.stringArray(forKey:"trustedSites")?.contains(id) ?? false) }
-        selected = sites.first?.id ?? ""
+        selected = UserDefaults.standard.string(forKey:"remoteSite") ?? sites.first?.id ?? ""
         viewer.changed = { [weak self] text in Task { @MainActor in self?.message = text } }
         viewer.event = { [weak self] value in Task { @MainActor in self?.exchangeEvent(value) } }
 #if os(macOS)
@@ -123,7 +131,11 @@ struct HostItem: Identifiable { let id: String; let name: String; let status: St
     func cancelImport() { pendingImport = nil }
     func connect() {
         guard let site = sites.first(where:{$0.id == selected}), !alias.isEmpty, !password.isEmpty else { message = "请选择站点并填写账号密码"; return }
-        invalidate(); let secret = password; password = ""; message = "连接中…"
+        invalidate();remoteSuspended=false
+#if os(macOS)
+        if unattended {UserDefaults.standard.set(selected,forKey:"remoteSite")}
+#endif
+        let secret = password; password = ""; message = "连接中…"
         if let connectAction = connectAction { connectAction(site,alias,secret,internet,replaceSessions); return }
         let body = encode(["Site":site.id,"Alias":alias,"Password":secret,"Replace":replaceSessions,"Internet":internet])
         operation("POST","/desktop/connect",body)
@@ -142,7 +154,17 @@ struct HostItem: Identifiable { let id: String; let name: String; let status: St
                     self.connected=object["state"] as? String == "connected"
                     self.message=self.connected ? "已连接" : ((object["error"] as? String).flatMap{$0.isEmpty ? nil : $0} ?? "未连接")
                     self.resources=((object["lease"] as? [String:Any])?["resources"] as? [[String:Any]] ?? []).map{($0["name"] as? String ?? "") + " · " + ($0["cidr"] as? String ?? "")}
-                    if !self.connected { self.hostEpoch &+= 1; self.hosts=[]; self.resources=[]; self.stopRemote() }
+                    if !self.connected { self.hostEpoch &+= 1; self.hosts=[]; self.resources=[]; self.stopRemote(suspend:false) }
+#if os(macOS)
+                    if self.unattended && !self.remoteSuspended && Date()>=self.nextRemoteAttempt {
+                        if self.connected,object["site_id"] as? String == self.selected,!self.host.isRunning {
+                            self.nextRemoteAttempt=Date().addingTimeInterval(30);self.shareDesktop()
+                        } else if !self.connected,["failed","disconnected"].contains(object["state"] as? String ?? "") {
+                            self.nextRemoteAttempt=Date().addingTimeInterval(30)
+                            DispatchQueue.global().async {do {_ = try request("POST","/desktop/unattended/restore","")} catch {Task { @MainActor in self.message="自动恢复："+error.localizedDescription}}}
+                        }
+                    }
+#endif
                     if let profiles=profiles {self.synchronizeProfiles(Data(profiles.utf8))}
                 }
             } catch { Task { @MainActor in guard let self=self else{return};self.refreshing=false;if version==self.epoch {self.connected=false;self.hosts=[];self.resources=[]} } }
@@ -166,6 +188,10 @@ struct HostItem: Identifiable { let id: String; let name: String; let status: St
     }
     func view(_ host: HostItem) {
         guard host.ready, connected, let request = request else { return }
+        remoteSuspended=true
+#if os(macOS)
+        self.host.stop()
+#endif
         viewer.control = { [site=selected] method,_,body,_ in
             switch method {
             case "LOCAL_CONTEXT": return try request("GET","/desktop/remote/context?site=" + site,"")
