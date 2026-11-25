@@ -5,6 +5,7 @@
 #include "netgo_remote_ticket.h"
 #include "netgo_remote_client.h"
 #include "netgo_remote_clock.hpp"
+#include "netgo_remote_watchdog.hpp"
 #include "desktop_capture.hpp"
 #include "video_codec.hpp"
 #include "audio.hpp"
@@ -68,28 +69,27 @@ struct Gate {
  bool check(unsigned cap=NG_REMOTE_VIEW){return ng_remote_gate_check(value,cap)==NG_REMOTE_OK;}
  void begin(const Bytes& wire){auto r=ng_remote_gate_begin(value,wire.data(),wire.size());if(r!=NG_REMOTE_OK&&r!=NG_REMOTE_CONSENT_REQUIRED)throw Error("remote_ticket_invalid");}
 };
-std::int64_t ticks(){return std::chrono::duration_cast<std::chrono::milliseconds>(Clock::now().time_since_epoch()).count();}
 // A slow/unreachable control plane cannot leave an unlimited live capture worker.
 struct Monitor {
- std::atomic_bool stop=false;std::atomic<std::int64_t> validUntil{0};std::mutex mutex;std::string session;std::string site,boot;Callbacks* callbacks;std::thread worker;
+ std::atomic_bool stop=false;remote::Watchdog watchdog;std::mutex mutex;std::string session;std::string site,boot;Callbacks* callbacks;std::thread worker;
  Monitor(std::string s,std::string b,Callbacks& cb):site(std::move(s)),boot(std::move(b)),callbacks(&cb){
-  validUntil=ticks()+6000;worker=std::thread([this]{try{
-   while(!stop&&callbacks->running()){
-    const auto nextPoll=ticks()+3000;
-    call(site,"POST",std::string(base)+"/host/heartbeat",{{"boot",boot}},{},[this]{return !stop&&callbacks->running();});
-    if(stop||!callbacks->running())break;
+  worker=std::thread([this]{try{
+   while(live()){
+    const auto nextPoll=remote::monotonic_time_ms()+3000;
+    call(site,"POST",std::string(base)+"/host/heartbeat",{{"boot",boot}},{},[this]{return live();});
+    if(!live())break;
     std::string id;{std::lock_guard lock(mutex);id=session;}
     if(!id.empty()){
-     auto a=call(site,"GET",std::string(base)+"/sessions/"+id,nullptr,{},[this]{return !stop&&callbacks->running();});
+     auto a=call(site,"GET",std::string(base)+"/sessions/"+id,nullptr,{},[this]{return live();});
      if(a.at("session").value("state","")=="closed")break;
-    }else context(site,[this]{return !stop&&callbacks->running();});
-    validUntil=ticks()+6000;
-    while(!stop&&callbacks->running()&&ticks()<nextPoll)Sleep(100);
+    }else context(site,[this]{return live();});
+    if(!watchdog.refresh())break;
+    while(live()&&remote::monotonic_time_ms()<nextPoll)Sleep(100);
    }
-  }catch(...){ }validUntil=0;});
+  }catch(...){ }watchdog.close();});
  }
- ~Monitor(){stop=true;if(worker.joinable())worker.join();}
- bool live(){return !stop&&callbacks->running()&&ticks()<validUntil.load();}
+ ~Monitor(){stop=true;watchdog.close();if(worker.joinable())worker.join();}
+ bool live(){return !stop&&callbacks->running()&&watchdog.live();}
  void bind(std::string id){std::lock_guard lock(mutex);session=std::move(id);}
 };
 struct Input {

@@ -79,7 +79,7 @@ onUnmounted(() => { if (timer) clearInterval(timer); stateQuery.invalidate(); ad
     <aside>
       <div class="brand"><span class="mark">N</span><div>NetGo<small>局域网接入管理</small></div></div>
       <div class="workspace">站点管理</div>
-      <nav>
+      <nav aria-label="站点管理导航">
         <button :class="{ active: page === 'overview' }" @click="page = 'overview'">◉　站点概览</button>
         <template v-if="logged">
           <button :class="{ active: page === 'users' }" @click="page = 'users'">♙　账号与权限</button>
@@ -100,7 +100,7 @@ onUnmounted(() => { if (timer) clearInterval(timer); stateQuery.invalidate(); ad
         <p class="muted">本次认证信息保存在浏览器内存，退出管理或关闭页面后清除。</p>
       </section>
       <template v-else-if="page === 'overview'">
-        <div class="stats"><section class="card"><span>账号</span><strong>{{ users.length }}</strong></section><section class="card"><span>局域网资源</span><strong>{{ resources.length }}</strong></section><section class="card"><span>有效租约</span><strong>{{ leases.length }}</strong></section></div>
+        <div class="stats"><section class="card"><span>账号</span><strong>{{ users.length }}</strong></section><section class="card"><span>局域网资源</span><strong>{{ resources.filter(r => r.protocol !== 'internet').length }}</strong></section><section class="card"><span>有效租约</span><strong>{{ leases.length }}</strong></section></div>
         <section class="card"><h3>从这里开始</h3><div class="quick-start">
           <button class="secondary" @click="page = 'resources'"><strong>1 · 添加资源</strong><small>选择网页、文件共享或终端等常用服务</small></button>
           <button class="secondary" @click="page = 'users'"><strong>2 · 创建账号并授权</strong><small>勾选每个用户可以访问的资源</small></button>
@@ -119,7 +119,7 @@ onUnmounted(() => { if (timer) clearInterval(timer); stateQuery.invalidate(); ad
         </section>
       </template>
       <UserPanel v-else-if="page === 'users'" :users="users" :resources="resources" :busy="busy" :create="createUser" :save="saveUser" :remove="deleteUser" />
-      <ResourcePanel v-else-if="page === 'resources'" :resources="resources" :busy="busy" :save="saveResource" :remove="deleteResource" />
+      <ResourcePanel v-else-if="page === 'resources' && state.network" :resources="resources" :network="state.network" :busy="busy" :save="saveResource" :remove="deleteResource" />
       <template v-else-if="page === 'sessions'">
         <section class="card"><h3>正在授权的会话</h3><div v-for="l in leases" :key="l.id" class="resource"><strong>{{ state.users[l.user_id]?.alias }}</strong><code>{{ l.ip }}</code><span>{{ new Date(l.expires_at).toLocaleString() }}</span><button class="secondary" :disabled="busy" @click="action(async () => { await admin.request('/netgo/v2/admin/sessions/' + l.id, 'DELETE'); await refresh() })">立即撤销</button></div><div v-if="!leases.length" class="empty">当前没有有效会话。</div></section>
         <section class="card"><h3>已登记设备</h3><div v-for="d in devices" :key="d.id" class="resource"><strong>{{ state.users[d.user_id]?.alias }}</strong><code>{{ d.id.slice(0, 12) }}</code><span>{{ d.ip || '待连接' }}</span><small>{{ new Date(d.created_at).toLocaleString() }}</small><button class="secondary" :disabled="busy" @click="action(async () => { await admin.request('/netgo/v2/admin/devices/' + encodeURIComponent(d.id), 'DELETE'); await refresh(); notice = '设备登记及其会话已撤销。' })">撤销设备</button></div></section>

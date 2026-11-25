@@ -1,5 +1,23 @@
 export type Resource = { id: string; name: string; cidr: string; protocol: string; ports: number[]; enabled: boolean }
 export type ResourceForm = Omit<Resource, 'ports'> & { ports: string }
+export type NetworkAccess = { lan_interface: string; local_cidrs: string[]; internet_enabled: boolean; gateway?: string; dns: string[]; fake_ip_cidr?: string }
+
+export function validateResourceNetwork(resource: Resource, network: NetworkAccess): void {
+  if (!resource.enabled) return
+  if (resource.protocol === 'internet') {
+    if (!network.internet_enabled) throw Error('请先在服务器菜单中配置互联网出口，再启用旁路由资源')
+    return
+  }
+  const prefix = (cidr: string) => {
+    const [address, length] = cidr.split('/')
+    return { address: address!.split('.').reduce((n, v) => (n * 256 + Number(v)) >>> 0, 0), bits: Number(length) }
+  }
+  const target = prefix(resource.cidr)
+  if (!network.local_cidrs.some(cidr => {
+    const lan = prefix(cidr), mask = (0xffffffff << (32 - lan.bits)) >>> 0
+    return lan.bits <= target.bits && ((target.address & mask) >>> 0) === lan.address
+  })) throw Error('资源地址必须位于服务器配置的局域网网段内；请修改目标地址或先在服务器菜单中添加网段')
+}
 
 export const resourcePresets = [
   { id: 'web', name: '网页服务（HTTPS）', protocol: 'tcp', ports: '443' },

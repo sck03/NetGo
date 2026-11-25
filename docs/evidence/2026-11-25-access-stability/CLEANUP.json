@@ -1,0 +1,11 @@
+{
+  "schema": 1,
+  "prior_cache": {
+    "Path": "E:\\NetGo\\.cache\\remote-lan-20261125",
+    "Files": 105,
+    "Bytes": 363407071,
+    "ReparsePoints": 0,
+    "Status": "retained-policy-rejection"
+  },
+  "current_task": "pending after evidence verification"
+}

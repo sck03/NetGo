@@ -234,7 +234,7 @@ func (s *Server) Handler() http.Handler {
 		if monitor == nil {
 			monitor = diagnostics.NewMonitor()
 		}
-		reply(w, 200, map[string]any{"users": st.Users, "resources": st.Resources, "devices": st.Devices, "leases": st.Leases, "audit": st.Audit, "revision": st.Revision, "observed_revision": st.ObservedRevision, "last_error": st.LastError, "runtime": monitor.Snapshot(s.Config, st)})
+		reply(w, 200, map[string]any{"users": st.Users, "resources": st.Resources, "devices": st.Devices, "leases": st.Leases, "audit": st.Audit, "revision": st.Revision, "observed_revision": st.ObservedRevision, "last_error": st.LastError, "runtime": monitor.Snapshot(s.Config, st), "network": s.Config.Access()})
 	})
 	secured("GET /netgo/v2/admin/diagnostics", true, func(w http.ResponseWriter, r *http.Request) {
 		state, err := s.Store.View()
@@ -469,7 +469,7 @@ func (s *Server) putResource(w http.ResponseWriter, r *http.Request) {
 		failure(w, errors.New("resource ID mismatch"))
 		return
 	}
-	if e := site.ValidateResource(v, s.Config.OverlayCIDR); e != nil {
+	if e := s.Config.ValidateResource(v); e != nil {
 		failure(w, e)
 		return
 	}

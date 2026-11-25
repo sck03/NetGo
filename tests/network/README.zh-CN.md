@@ -67,6 +67,8 @@ python3 tests/network/run.py metrics --input /root/recovery-samples.json
 
 本轮拓扑使用无 VPN 的独立目标命名空间，地址 198.19.240.2，HTTP 18080/18082、流式 TCP 18083、UDP 18081，程序为 `lab_target.py`。它不代表用户的生产 LAN。实验客户端阻断物理接口直接访问该目标，防止未经过隧道的流量造成假通过；每个核心都必须配置独立 NB_STATE_DIR。原生站点 CA 通过协议传递，测试客户端不借助 SSL_CERT_FILE 掩盖 Windows 信任差异。
 
+运行该隔离拓扑前，需把测试网段 `198.19.240.0/30` 加入实验站点的 `LocalCIDRs`，并配置对应网卡路径。当前资源 API 拒绝超出已配置 LAN 网段的资源；不要为测试放宽正式站点范围。单独运行 `live_api.py` 时，可用 `--resource-cidr` 指定现有实验 LAN 内的单主机地址。
+
 示例入口（须先准备上述已授权拓扑及公共站点）：
 
 ```sh

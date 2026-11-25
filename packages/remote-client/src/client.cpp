@@ -2,6 +2,7 @@
 #include "remote_transport.hpp"
 #include "netgo_remote_ticket.h"
 #include "netgo_remote_clock.hpp"
+#include "netgo_remote_watchdog.hpp"
 #include "remote_input.hpp"
 #include <nlohmann/json.hpp>
 #include <openssl/evp.h>
@@ -21,7 +22,6 @@ using Clock=std::chrono::steady_clock;using netgo::remote::Key;
 using netgo::remote::Message;using netgo::remote::Kind;
 constexpr char base[]="/netgo/v2/remote";
 void require(bool value,const char* code){if(!value)throw std::runtime_error(code);}
-int64_t ticks(){return std::chrono::duration_cast<std::chrono::milliseconds>(Clock::now().time_since_epoch()).count();}
 std::string encode(const uint8_t* bytes,size_t size){
  std::string out(4*((size+2)/3),'\0');auto n=EVP_EncodeBlock(reinterpret_cast<unsigned char*>(out.data()),bytes,int(size));out.resize(size_t(n));
  for(auto& c:out){if(c=='+')c='-';else if(c=='/')c='_';}while(!out.empty()&&out.back()=='=')out.pop_back();return out;
@@ -77,26 +77,28 @@ struct ng_remote_client {
 
 namespace {
 struct Monitor {
- ng_remote_client& client;std::string session;std::atomic_bool stop=false;std::atomic<int64_t> deadline{0};std::mutex mutex;Json renewal;std::thread worker;
+ ng_remote_client& client;std::string session;std::atomic_bool stop=false;netgo::remote::Watchdog watchdog;std::mutex mutex;Json renewal;std::thread worker;
  Monitor(ng_remote_client& c,std::string s):client(c),session(std::move(s)){
-  deadline=ticks()+6000;worker=std::thread([this]{try{while(!stop&&client.active()){
-   const auto nextPoll=ticks()+3000;
+  worker=std::thread([this]{try{while(live()){
+   const auto nextPoll=netgo::remote::monotonic_time_ms()+3000;
    auto a=client.call("GET",std::string(base)+"/sessions/"+session);
-   if(stop||!client.active())break;
+   if(!live())break;
    require(a.at("session").value("state","")!="closed","remote_revoked");
    if(a.at("session").value("state","")=="active"){
     auto requested=netgo::remote::monotonic_time_ms();
     auto fresh=client.call("POST",std::string(base)+"/sessions/"+session+"/renew",{{"sequence",a.at("session").at("sequence")}});
+    if(!live())break;
     fresh["netgo_requested_mono_ms"]=requested;
     std::lock_guard lock(mutex);renewal=std::move(fresh);
    }
    // Request time is part of the polling interval. Adding three more seconds
    // after slow successful calls can expire our unchanged six-second watchdog.
-   deadline=ticks()+6000;while(!stop&&client.active()&&ticks()<nextPoll)std::this_thread::sleep_for(std::chrono::milliseconds(100));
-  }}catch(...){ }deadline=0;});
+   if(!watchdog.refresh())break;
+   while(live()&&netgo::remote::monotonic_time_ms()<nextPoll)std::this_thread::sleep_for(std::chrono::milliseconds(100));
+  }}catch(...){ }watchdog.close();});
  }
- ~Monitor(){stop=true;if(worker.joinable())worker.join();}
- bool live(){return !stop&&client.active()&&ticks()<deadline.load();}
+ ~Monitor(){stop=true;watchdog.close();if(worker.joinable())worker.join();}
+ bool live(){return !stop&&client.active()&&watchdog.live();}
  Json take(){std::lock_guard lock(mutex);return std::exchange(renewal,Json());}
 };
 void run(ng_remote_client& c){

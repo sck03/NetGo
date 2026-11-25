@@ -1,4 +1,9 @@
 /* Shared access-management layouts; no platform or network behavior here. */
+.network-summary { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(100%, 310px), 1fr)); gap: 20px; }
+.network-summary .card { min-width: 0; border-top: 3px solid #49aa96; }
+.network-summary .capability-tags { margin-bottom: 14px; }
+.network-summary code { overflow-wrap: anywhere; }
+.network-summary small { display: block; line-height: 1.7; }
 .remote-heading { margin-bottom: 22px; }
 .remote-heading h2 { font-size: 22px; }
 .remote-stats { margin-bottom: 22px; }
@@ -44,3 +49,16 @@ button:focus-visible, input:focus-visible, select:focus-visible, summary:focus-v
 @media(max-width: 980px) { .access-row { grid-template-columns: 1fr 1fr; } .access-row > :last-child { grid-column: 1 / -1; justify-self: start; } }
 @media(max-width: 700px) { .form-columns { grid-template-columns: 1fr; } .host-card .panel-heading { flex-direction: row; align-items: center; } .host-footer { flex-wrap: wrap; } .remote-stats { grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 8px; } .remote-stats .card { padding: 14px; } .remote-stats .card strong { font-size: 26px; } .filter-bar label { min-width: 100%; } .access-row { gap: 12px; } }
 @media(prefers-reduced-motion: reduce) { * { scroll-behavior: auto !important; } }
+@media(max-width: 700px) {
+  .shell { flex-direction: column; }
+  .shell > aside { position: sticky; inset: 0 0 auto; width: 100%; padding: 14px 16px 10px; z-index: 10; }
+  .shell .brand { font-size: 20px; }
+  .shell .brand > div { display: block; }
+  .shell .brand small { display: none; }
+  .shell .mark { width: 30px; height: 30px; border-radius: 8px; font-size: 22px; }
+  .shell nav { display: flex; gap: 6px; overflow-x: auto; padding: 10px 0 4px; }
+  .shell nav button { flex-shrink: 0; font-size: 13px; padding: 10px 12px; }
+  .shell > main { margin-left: 0; width: 100%; padding: 22px 16px; }
+  header { align-items: flex-start; }
+  header > button { flex-shrink: 0; }
+}
