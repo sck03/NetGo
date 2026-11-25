@@ -422,7 +422,7 @@ HTTPS 证书按域名校验，不绑定 443。当前模板使用显式证书文�
 
 ## 9. 模块、数据和接口契约
 
-### 9.1 拟定代码目录
+### 9.1 当前代码目录与职责
 
 ```text
 cmd/netgo-server/             本地产品服务
@@ -433,6 +433,8 @@ cmd/netgo-ddns/              Linux DDNS 进程
 internal/site/               站点身份与配置
 internal/controlpath/        多入口探测、传输和重试
 internal/identity/           单一身份服务适配
+internal/accounts/           账号领域服务与上游账号协调
+internal/store/              SQLite 事务、索引查询与审计分页
 internal/engine/netbird/     daemon RPC 与管理 API 适配
 internal/session/            并发、租约和撤销
 internal/gateway/            Linux 转发与权限协调
@@ -443,12 +445,14 @@ internal/operations/         配置变更、发行校验与升级/回退事务
 internal/securefile/         受保护文件的原子写入
 apps/ui/                     Vue Linux 管理页面
 apps/windows/                C++20 原生界面、后台、协议和验证
-apps/android/                计划：Kotlin UI、VpnService、JNI
-apps/apple/                  计划：Swift macOS/iOS、Network Extension、ObjC++
-apps/linux/                  计划：GTK 桌面与 X11/Wayland 适配
-packages/remote-core/        计划：C ABI、媒体适配、会话/输入门禁
-internal/remote/             计划：主机、授权、远控租约和审计
-packages/ui/                 浏览器管理认证
+apps/android/                Kotlin UI、VpnService、JNI 查看器
+apps/apple/                  Swift macOS/iOS、Network Extension、ObjC++ 查看器
+apps/linux/                  GTK 桌面控制端；Linux 被控主机适配尚未实现
+packages/remote-core/        C ABI、票据验证、会话/输入门禁
+packages/remote-client/      跨平台远控查看器与会话控制
+packages/remote-transport/   认证传输与有界媒体发送
+internal/remote/             主机、授权、远控租约和审计
+packages/ui/                 浏览器管理认证与类型契约
 deploy/linux/                systemd、安装和升级
 deploy/templates/auxiliary/  VPS Relay/frp/443 模板
 deploy/windows/              Windows 安装和卸载
@@ -464,16 +468,18 @@ docs/evidence/               测试环境和脱敏证据
 
 下表为本项目实现的接口边界，NetBird REST/gRPC 保持独立。所有远端受保护请求均含短期令牌、设备签名、时间和防重放 nonce。
 
-| 接口类别 | 拟定契约 | 约束 |
+| 接口类别 | 当前契约 | 约束 |
 | --- | --- | --- |
-| 公共探测 | GET /netgo/v1/health | 只暴露最少健康信息，不返回拓扑、账号和密钥 |
-| 站点信息 | GET /netgo/v1/site | 认证后返回获准候选、版本与资源摘要 |
-| 原生认证 | POST /netgo/v1/auth/transactions，及对应完成/兑换动作 | 第 6 节约束；由 IdP 边界处理，不能自己伪造上游令牌 |
-| 会话 | POST /netgo/v1/sessions；续租、撤销、替换动作 | 用户/设备绑定、generation、幂等键、并发事务 |
+| 公共探测 | GET /netgo/v2/health | 只暴露最少健康信息，不返回拓扑、账号和密钥 |
+| 站点信息 | GET /netgo/v2/site | 认证后返回站点身份、控制候选与版本化配置 |
+| 原生认证 | POST /netgo/v2/auth/transactions，及对应完成/兑换动作 | 第 6 节约束；由 IdP 边界处理，不能自己伪造上游令牌 |
+| 会话 | POST /netgo/v2/sessions；续租、撤销、替换动作 | 用户/设备绑定、generation、幂等键、并发事务 |
 | 管理 | admin/state、users（创建/更新/删除）、devices（删除）、resources（更新/删除）、sessions（撤销）、reconcile | 管理角色；最后管理员不能删除；辅助节点通过 CLI/模板配置；不暴露上游令牌 |
+| 管理审计 | GET /netgo/v2/admin/audit，使用 before 游标分页 | 每页最多 100 条；响应 events、next_before；admin/state 不加载审计历史 |
+| 远控 | /netgo/v2/remote、remote/host、remote/sessions、admin/remote/grants | 路由与权限见 REMOTE_NATIVE_PLAN §4；授权响应包含 site_key；当前仅 Windows 本地同意主机与观看/输入/音频能力 |
 | 配置校验 | validate → plan → apply | 先验证并产生变更计划，失败回滚 |
 | Windows IPC | status、profiles、import、connect、disconnect、logs、diagnostic、credential-info、forget、delete、shutdown | 当前用户 SID 命名管道；4 字节长度 + 有界 UTF-8 JSON；验证服务端身份；无 TCP 监听/任意命令 |
-| helper IPC | ApplyOwnedRules、RevokeLease、InspectNetwork | 固定结构化操作，无任意 shell 字符串 |
+| helper IPC | POST /apply（仅本地 IPC） | 接收完整有效租约集合；最多 1024 条且 JSON 不超过 1 MiB；固定操作，无任意 shell 字符串 |
 
 上游 RPC 的 schema 和权限需要按锁定版本核对；不要开放无认证本地 TCP API，也不要假设后台服务天然能代表所有桌面用户操作 profile。[S05]
 

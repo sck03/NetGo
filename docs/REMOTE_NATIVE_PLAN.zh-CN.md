@@ -76,7 +76,7 @@ RD0 已定位并修复现有 VPS 失败机制：原 `WorkerRelay.preferredRelayS
 
 ### 4.2 v2 服务契约
 
-当前实现的准确端点为 `/netgo/v2/remote`（主机/授权/会话列表）、`/remote/key`、`PUT /remote/host`、`POST /remote/host/heartbeat`、`/remote/sessions` 和会话的 `consume`/`renew`/删除；管理授权为 `/admin/remote/grants`。下表记录领域要求，消费同时记录主机本地同意后的接受行为；不额外提供一套尚未实现的 enroll/decision 路由。客户端使用相同已认证设备身份和 VPN 租约登记主机。
+当前实现的准确端点为 `/netgo/v2/remote`（主机/授权/会话列表）、`PUT /remote/host`、`POST /remote/host/heartbeat`、`/remote/sessions` 和会话的 `consume`/`renew`/删除；管理授权为 `/admin/remote/grants`。远控授权响应直接提供 `site_key`，查看器使用该已认证响应中的站点公钥，不再单独请求公钥端点。下表记录领域要求，消费同时记录主机本地同意后的接受行为；不额外提供一套尚未实现的 enroll/decision 路由。客户端使用相同已认证设备身份和 VPN 租约登记主机。
 
 沿用签名、防重放、站点身份与唯一 IdP 的原则，统一路径 `/netgo/v2`、`X-NetGo-Protocol: 2`。公共 health 提供真实版本及能力；受保护的 v1/缺失/错误版本明确拒绝。客户端先协商版本/时钟，再发送密码。不维护两套密码库。
 
@@ -162,7 +162,7 @@ C ABI 使用 opaque handle、定宽整数、结构体 size/version 与明确的�
 python3 -B scripts/verify-linux.py --output .cache/verification-新的唯一目录
 ```
 
-两者现在包括 VPN 基线与 `remote-core` 独立阶段；Linux 还运行门禁 ASan/UBSan，Windows 编译采集适配并运行不采图的边界检查。实际桌面采集显式使用 `apps/windows/remote/README.md` 中的 `--run`，不宣称媒体或远控端到端验收。未创建 build-android、xcode 项目前，不给出伪造命令。现有真实实验入口在 `tests/network`；密码/私钥文件仅置于受保护实验目录，不提交。
+两者现在包括 VPN 基线与 `remote-core` 独立阶段；Linux 还运行门禁 ASan/UBSan，Windows 编译采集适配并运行不采图的边界检查。实际桌面采集显式使用 `apps/windows/remote/README.md` 中的 `--run`，不宣称媒体或远控端到端验收。Android、macOS 与 iOS 已有独立构建脚本和云工作流，准确入口见 [各平台构建说明](BUILD_CLIENTS.zh-CN.md)，本轮结果见 [重构验证记录](REFACTOR_2026-11-25.zh-CN.md)。现有真实实验入口在 `tests/network`；密码/私钥文件仅置于受保护实验目录，不提交。
 
 ## 8. 新增验收（与 A01–A33 并列，不能互相替代）
 
