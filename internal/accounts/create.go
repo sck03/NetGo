@@ -14,6 +14,13 @@ import (
 
 func (s *Service) Create(ctx context.Context, b NewUser) (Created, error) {
 	var result Created
+	b.Name = strings.TrimSpace(b.Name)
+	if b.Name == "" {
+		b.Name = b.Alias
+	}
+	if len(b.Name) > 256 {
+		return result, errors.New("invalid display name")
+	}
 	if !site.ValidID(b.Alias) || !strings.Contains(b.Email, "@") {
 		return result, errors.New("invalid alias/email")
 	}
@@ -63,7 +70,7 @@ func (s *Service) Create(ctx context.Context, b NewUser) (Created, error) {
 		defer cancel()
 		return result, errors.Join(err, s.deleteCreated(cleanup, upstream.ID))
 	}
-	u := model.User{ID: upstream.ID, Alias: b.Alias, Email: b.Email, Role: "user", MaxDevices: 3, MaxSessions: 1, Resources: []string{}}
+	u := model.User{ID: upstream.ID, Alias: b.Alias, Name: b.Name, Email: b.Email, Role: "user", MaxDevices: 3, MaxSessions: 1, Resources: []string{}}
 	err := s.Store.Update(func(st *model.State) error {
 		if _, exists := st.Users[u.ID]; exists {
 			return model.ErrConflict

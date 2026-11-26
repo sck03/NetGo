@@ -18,6 +18,14 @@ func (s *Server) remoteRoutes(secured func(string, bool, http.HandlerFunc)) {
 		})
 	}
 	credential := func(r *http.Request) model.Credential { return r.Context().Value(credKey).(model.Credential) }
+	register("GET /netgo/v2/admin/remote/inventory", true, func(w http.ResponseWriter, r *http.Request) {
+		page, err := s.Remote.AdminList(credential(r), r.URL.Query().Get("after"), r.URL.Query().Get("q"))
+		if err != nil {
+			failure(w, err)
+			return
+		}
+		reply(w, 200, page)
+	})
 	register("GET /netgo/v2/admin/remote/history", true, func(w http.ResponseWriter, r *http.Request) {
 		limit, _ := strconv.Atoi(r.URL.Query().Get("limit"))
 		page, err := s.Store.RemoteHistory(r.URL.Query().Get("before"), limit)

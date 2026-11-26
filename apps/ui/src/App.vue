@@ -23,7 +23,7 @@ const admin = new AdminSession(active => {
 })
 let timer: ReturnType<typeof setInterval> | undefined
 const listAfter = ref('')
-const stateQuery = new LatestQuery(() => admin.request(['overview', 'diagnostics', 'sessions'].includes(page.value)
+const stateQuery = new LatestQuery(() => admin.request(['overview', 'diagnostics', 'sessions', 'remote'].includes(page.value)
   ? '/netgo/v2/admin/summary'
   : '/netgo/v2/admin/state?section=' + page.value + '&after=' + encodeURIComponent(listAfter.value)), value => { state.value = { ...emptyState(), ...value }; pageReady.value = true })
 async function listPage(after = '') { listAfter.value = after; await refresh(true) }
@@ -148,7 +148,7 @@ onUnmounted(() => { if (timer) clearInterval(timer); stateQuery.invalidate(); au
       <UserPanel v-else-if="page === 'users'" :users="users" :resources="resources" :busy="busy" :create="createUser" :save="saveUser" :remove="deleteUser" />
       <ResourcePanel v-else-if="page === 'resources' && state.network" :resources="resources" :network="state.network" :busy="busy" :save="saveResource" :remove="deleteResource" />
       <SessionPanel v-else-if="page === 'sessions'" :request="(path, method, body) => admin.request(path, method, body)" />
-      <RemotePanel v-else-if="page === 'remote'" :users="state.users" :request="(path, method, body) => admin.request(path, method, body)" />
+      <RemotePanel v-else-if="page === 'remote'" :request="(path, method, body) => admin.request(path, method, body)" />
       <template v-else-if="page === 'diagnostics'">
         <section class="card"><h3>运行诊断</h3><p>最近检查：{{ state.runtime?.sampled_at && !state.runtime.sampled_at.startsWith('0001-') ? new Date(state.runtime.sampled_at).toLocaleString() : '等待采样' }}</p>
           <dl><dt>运行时间</dt><dd>{{ state.runtime?.uptime_seconds || 0 }} 秒</dd><dt>进程堆内存</dt><dd>{{ Math.round((state.runtime?.process_heap_bytes || 0) / 1048576) }} MiB</dd><dt>并发任务</dt><dd>{{ state.runtime?.process_goroutines || 0 }}</dd><dt>累计请求 / 错误</dt><dd>{{ state.runtime?.requests || 0 }} / {{ state.runtime?.request_errors || 0 }}</dd><dt>累计 CPU 时间</dt><dd>{{ (state.runtime?.host_resources?.process_cpu_seconds || 0).toFixed(1) }} 秒</dd><dt>峰值驻留内存</dt><dd>{{ Math.round((state.runtime?.host_resources?.process_max_rss_bytes || 0) / 1048576) }} MiB</dd><dt>数据库磁盘可用</dt><dd>{{ ((state.runtime?.host_resources?.database_disk_available_bytes || 0) / 1073741824).toFixed(1) }} GiB</dd><dt>近一分钟认证失败</dt><dd>{{ state.runtime?.authentication_failures_last_minute || 0 }}</dd></dl>

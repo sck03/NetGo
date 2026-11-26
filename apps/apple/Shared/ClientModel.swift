@@ -51,6 +51,8 @@ struct HostItem: Identifiable { let id: String; let name: String; let status: St
     let viewer = RemoteViewer()
     @Published var transferFiles:[String] = []
     @Published var remoteCapabilities: UInt32 = 0
+    @Published var remoteViewOnly = false
+    @Published var remoteAudio = true
     @Published var lastDownload:URL?
     private var selectedUpload:URL?
     private let downloads = RemoteDownloads()
@@ -173,9 +175,7 @@ struct HostItem: Identifiable { let id: String; let name: String; let status: St
     func connect() {
         guard let site = sites.first(where:{$0.id == selected}), !alias.isEmpty, !password.isEmpty else { message = "请选择站点并填写账号密码"; return }
         invalidate();remoteSuspended=false
-#if os(macOS)
-        if unattended {UserDefaults.standard.set(selected,forKey:"remoteSite")}
-#endif
+        UserDefaults.standard.set(selected,forKey:"remoteSite")
         let secret = password; password = ""; message = "连接中…"
         if let connectAction = connectAction { connectAction(site,alias,secret,internet,replaceSessions); return }
         let body = encode(["Site":site.id,"Alias":alias,"Password":secret,"Replace":replaceSessions,"Internet":internet])
@@ -244,7 +244,7 @@ struct HostItem: Identifiable { let id: String; let name: String; let status: St
             default: return try request("POST","/desktop/remote/call",body)
             }
         }
-        viewer.start(site:selected,host:host.id)
+        viewer.start(site:selected,host:host.id,audio:remoteAudio,viewOnly:remoteViewOnly)
     }
     private func exchangeEvent(_ value:[String:Any]) {
         if let error=value["error"] as? String { message="操作失败："+error }

@@ -1,7 +1,7 @@
 # Only reproducible outputs are eligible. Credentials, signing keys, installed
 # engines, site data and Git history are deliberately outside this allowlist.
 [CmdletBinding()]
-param([switch]$Apply, [switch]$IncludeSDK, [switch]$IncludeTestData)
+param([switch]$Apply, [switch]$IncludeSDK, [switch]$IncludeTestData, [switch]$IncludeToolchains)
 
 $ErrorActionPreference = 'Stop'
 $taskRoot = [IO.Path]::GetFullPath((Split-Path -Parent $PSScriptRoot))
@@ -10,7 +10,7 @@ if ((Get-Item -LiteralPath $taskRoot -Force).Attributes -band [IO.FileAttributes
 }
 $taskPrefix = $taskRoot.TrimEnd('\', '/') + [IO.Path]::DirectorySeparatorChar
 $taskTargets = @(
-    'node_modules', 'dist',
+    'node_modules', 'dist', '.cache/native-build',
     '.cache/toolchain/go-build', '.cache/toolchain/go', '.cache/toolchain/npm-cache',
     '.cache/toolchain/tmp', '.cache/toolchain/gradle', '.cache/toolchain/android-local',
     '.cache/refactor-native', '.cache/refactor-linux', '.cache/refactor-server', '.cache/apple-tests',
@@ -28,6 +28,27 @@ if ($IncludeSDK) {
     $taskTargets += @('.tools/android/ndk', '.tools/android/platforms', '.tools/android/build-tools',
         '.tools/android/cmake', '.tools/openssl-android-arm64', '.tools/bin', '.tools/python-libs')
 }
+
+if ($IncludeToolchains) {
+    $taskTargets += @('.tools/go', '.tools/android', '.tools/native-json', '.tools/openssl-native',
+        '.tools/wintun-package', '.tools/wintun-0.14.1.zip')
+    $toolRoot = Join-Path $taskRoot '.tools'
+    if (Test-Path -LiteralPath $toolRoot) {
+        Get-ChildItem -LiteralPath $toolRoot -Directory -Filter 'node-v*-win-*' | ForEach-Object {
+            if ($_.Name -match '^node-v[0-9]+[.][0-9]+[.][0-9]+-win-(x64|arm64)$') {
+                $taskTargets += '.tools/' + $_.Name
+            }
+        }
+    }
+}
+# Parent entries supersede nested SDK/cache entries; never count or remove twice.
+$taskTargets = @($taskTargets | Sort-Object -Unique | Where-Object {
+    $candidate = $_.Replace('\', '/').TrimEnd('/')
+    -not @($taskTargets | Where-Object {
+        $parent = $_.Replace('\', '/').TrimEnd('/')
+        $parent -ne $candidate -and $candidate.StartsWith($parent + '/', [StringComparison]::OrdinalIgnoreCase)
+    }).Count
+})
 
 function Get-TaskTarget([string]$Relative) {
     $target = [IO.Path]::GetFullPath((Join-Path $taskRoot $Relative))

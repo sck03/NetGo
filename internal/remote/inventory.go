@@ -50,12 +50,38 @@ type Inventory struct {
 }
 
 func (m *Manager) List(c model.Credential) (Inventory, error) {
-	out := Inventory{Hosts: []HostSummary{}, Grants: []GrantSummary{}, Sessions: []model.RemoteSession{}}
-	state, lastGeneration, e := m.Store.RemoteInventory(c)
-	if e != nil {
-		return out, e
+	state, lastGeneration, err := m.Store.RemoteInventory(c)
+	if err != nil {
+		return Inventory{}, err
 	}
-	e = func(st *model.State) error {
+	return m.inventory(c, state, lastGeneration)
+}
+
+type InventoryPage struct {
+	Inventory
+	NextAfter string            `json:"next_after"`
+	Users     map[string]string `json:"users"`
+}
+
+func (m *Manager) AdminList(c model.Credential, after, search string) (InventoryPage, error) {
+	st, next, err := m.Store.AdminRemotePage(c, after, search)
+	if err != nil {
+		return InventoryPage{}, err
+	}
+	if st.Users[c.UserID].Role != "admin" {
+		return InventoryPage{}, model.ErrForbidden
+	}
+	inventory, err := m.inventory(c, st, 0)
+	labels := make(map[string]string, len(st.Users))
+	for id, u := range st.Users {
+		labels[id] = u.Alias
+	}
+	return InventoryPage{Inventory: inventory, NextAfter: next, Users: labels}, err
+}
+
+func (m *Manager) inventory(c model.Credential, state model.State, lastGeneration uint64) (Inventory, error) {
+	out := Inventory{Hosts: []HostSummary{}, Grants: []GrantSummary{}, Sessions: []model.RemoteSession{}}
+	e := func(st *model.State) error {
 		now := m.now()
 		if e := current(st, c, now); e != nil {
 			return e

@@ -13,6 +13,7 @@ import android.net.VpnService
 import android.os.Build
 import androidx.core.app.NotificationCompat
 import kotlinx.coroutines.*
+import kotlinx.coroutines.flow.collect
 import org.netgo.runtime.mobile.Client
 import org.netgo.runtime.mobile.Mobile
 
@@ -30,6 +31,11 @@ class NetGoVpnService : VpnService() {
     }
     override fun onCreate() {
         super.onCreate(); platform = VpnPlatform(this); manager = getSystemService(ConnectivityManager::class.java)
+        serviceScope.launch {
+            NetGoRuntime.running.collect { active ->
+                if (!active) withContext(Dispatchers.Main) { if (!NetGoRuntime.running.value) stopForeground(STOP_FOREGROUND_REMOVE) }
+            }
+        }
         manager.registerNetworkCallback(NetworkRequest.Builder().addCapability(NetworkCapabilities.NET_CAPABILITY_INTERNET).addCapability(NetworkCapabilities.NET_CAPABILITY_NOT_VPN).build(), changes)
         serviceScope.launch {
             try {

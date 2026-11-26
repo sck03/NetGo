@@ -209,19 +209,28 @@ struct Monitor {
     Monitor(ng_remote_client &c, std::string s) : client(c), session(std::move(s)) {
         worker = std::thread([this] {
             try {
+                uint64_t sequence = 0;
                 while (live()) {
                     const auto nextPoll = netgo::remote::monotonic_time_ms() + 3000;
-                    auto a = client.call("GET", std::string(base) + "/sessions/" + session);
-                    if (!live())
-                        break;
-                    require(a.at("session").value("state", "") != "closed", "remote_revoked");
-                    if (a.at("session").value("state", "") == "active") {
+                    // Observe host consumption once. Renewal itself revalidates the
+                    // live authorization and returns the next sequence atomically.
+                    if (!sequence) {
+                        auto a = client.call("GET", std::string(base) + "/sessions/" + session);
+                        if (!live()) break;
+                        require(a.at("session").value("state", "") != "closed", "remote_revoked");
+                        if (a.at("session").value("state", "") == "active")
+                            sequence = a.at("session").at("sequence").get<uint64_t>();
+                    }
+                    if (sequence) {
                         auto requested = netgo::remote::monotonic_time_ms();
                         auto fresh =
                             client.call("POST", std::string(base) + "/sessions/" + session + "/renew",
-                                        {{"sequence", a.at("session").at("sequence")}});
+                                        {{"sequence", sequence}});
                         if (!live())
                             break;
+                        const auto nextSequence = fresh.at("session").at("sequence").get<uint64_t>();
+                        require(nextSequence > sequence && fresh.at("session").value("state", "") == "active", "remote_renewal_invalid");
+                        sequence = nextSequence;
                         fresh["netgo_requested_mono_ms"] = requested;
                         std::lock_guard lock(mutex);
                         renewal = std::move(fresh);

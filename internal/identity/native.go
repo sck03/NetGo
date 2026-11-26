@@ -256,7 +256,7 @@ func (n *Native) Exchange(ctx context.Context, id, verifier, signature string) (
 		return Result{}, model.ErrForbidden
 	}
 	out := Result{Token: model.ID(), IDToken: tokens.IDToken, RefreshToken: tokens.RefreshToken, ExpiresAt: tokens.Expiry, DeviceID: model.Hash(n.SiteID + ":" + t.UserID + ":" + t.Begin.PublicKey)}
-	e = n.Store.Update(func(st *model.State) error {
+	e = n.Store.EnrollmentUpdate(t.UserID, func(st *model.State) error {
 		u, ok := st.Users[t.UserID]
 		if !ok || !u.Active(time.Now()) || u.AuthRevision != t.AuthRevision || !time.Now().Before(out.ExpiresAt) {
 			return model.ErrForbidden

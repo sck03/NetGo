@@ -17,9 +17,12 @@ func inventoryState(tx *sql.Tx, c model.Credential) (model.State, error) {
 		return st, err
 	}
 	if st.Users[c.UserID].Role == "admin" {
-		st, err = read(tx, remoteTables & ^(remoteSessions|remoteOperations))
+		st, err = read(tx, hosts|grants)
 		if err == nil {
 			err = readRows(tx, "remote_sessions", st.RemoteSessions, "WHERE state IN ('issued','active')")
+		}
+		if err == nil {
+			err = remoteDependencies(tx, &st, c)
 		}
 		return st, err
 	}

@@ -8,7 +8,7 @@ GPU encoding follows the surface-based design used by mature streaming systems. 
 
 Unattended access is an explicit local setting and fresh authenticated login in a logged-in user session. Local opt-in does not replace administrator grants or system consent. The implementation does not impersonate a login-screen service or evade TCC/portal restrictions. Linux portal selection runs before host registration and uses the portal's rotating restore token when persistence is allowed.
 
-Clipboard uses bounded, explicit text operations. File exchange uses a dedicated directory, basename-only paths, native no-follow handles, sequential acknowledged chunks and checked publication without overwrite. All platforms use the same protocol and filesystem module. A single outstanding chunk provides simple backpressure; the tradeoff is lower throughput on high-RTT links. Clipboard and transfer contents are not logged.
+Clipboard uses bounded, explicit text operations. File exchange uses a dedicated directory, basename-only paths, native no-follow handles, sequential acknowledged chunks and checked publication without overwrite. All platforms use the same protocol and filesystem module. The current sender permits at most eight ordered chunks in flight and four new chunks per media iteration; acknowledgements and bounded queues provide backpressure. Independent transfer QoS remains deferred. Clipboard and transfer contents are not logged.
 
 ## References checked
 

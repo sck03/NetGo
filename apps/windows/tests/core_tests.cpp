@@ -34,6 +34,20 @@ int main(int argc,char** argv){
    }
    std::cout<<"PASS shared profile revision, rollback, identity and WAN contract\n";return 0;
   }
+  if(argc==3&&std::string(argv[1])=="--tls-isolation"){
+   auto p=Json::parse(readFile(wide(argv[2])));Transport transport(p);
+   transport.select();std::string seed(32,'a');
+   auto slow=std::async(std::launch::async,[&]{return transport.call("POST","/netgo/v2/sessions/slow/renew",{{"native",true}},seed,"fixture-token");});
+   Sleep(100);
+   const auto started=Clock::now();
+   auto first=transport.call("POST","/netgo/v2/remote/host/heartbeat",{{"native",true}},seed,"fixture-token");
+   const auto elapsed=std::chrono::duration_cast<std::chrono::milliseconds>(Clock::now()-started).count();
+   require(elapsed<2000,"remote heartbeat blocked behind VPN request");
+   auto second=transport.call("POST","/netgo/v2/remote/host/heartbeat",{{"native",true}},seed,"fixture-token");
+   require(first.at("connection")==second.at("connection"),"remote connection was not reused");
+   require(slow.get().at("verified")==true,"slow VPN request failed");
+   std::cout<<"PASS isolated remote heartbeat during slow VPN request: "<<elapsed<<" ms\n";return 0;
+  }
   if(argc==3&&std::string(argv[1])=="--tls-recovery-load"){
    auto p=Json::parse(readFile(wide(argv[2])));Transport transport(p,std::chrono::milliseconds(0));
    transport.select();std::string seed(32,'a');

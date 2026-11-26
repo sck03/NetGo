@@ -14,7 +14,7 @@
 
 namespace netgo {
 struct Transport::Link {
- std::mutex mutex;
+ std::timed_mutex mutex;
  SOCKET socket=INVALID_SOCKET;
  std::unique_ptr<SSL,decltype(&SSL_free)> tls{nullptr,SSL_free};
  Clock::time_point used{};
@@ -59,7 +59,8 @@ static void windowsRoots(X509_STORE* store) {
 }
 Transport::Transport(Json p,std::chrono::milliseconds cooldown):profile_(std::move(p)),context_(SSL_CTX_new(TLS_client_method()),SSL_CTX_free),cooldown_(cooldown) {
  validateProfile(profile_);if(!context_)throw Error("tls_initialization_failed");
- for(size_t i=0;i<profile_["Candidates"].size();++i)links_.push_back(std::make_shared<Link>());
+ for(size_t i=0;i<profile_["Candidates"].size();++i)
+  links_.push_back({std::make_shared<Link>(),std::make_shared<Link>(),std::make_shared<Link>()});
  SSL_CTX_set_min_proto_version(context_.get(),TLS1_2_VERSION);SSL_CTX_set_verify(context_.get(),SSL_VERIFY_PEER,nullptr);
  SSL_CTX_set_purpose(context_.get(),X509_PURPOSE_SSL_SERVER);auto store=SSL_CTX_get_cert_store(context_.get());windowsRoots(store);
  auto ca=profile_.value("CA","");
@@ -72,8 +73,11 @@ Transport::Transport(Json p,std::chrono::milliseconds cooldown):profile_(std::mo
 }
 Json Transport::requestAt(size_t index,const std::string& method,const std::string& path,const std::string& body,const std::string& headers) {
  auto deadline=Clock::now()+std::chrono::seconds(path=="/netgo/v2/health"?3:20);
- auto& link=*links_.at(index);
- std::lock_guard serial(link.mutex);
+ const size_t lane = path == "/netgo/v2/health" ? 0 :
+     (path == "/netgo/v2/remote" || path.starts_with("/netgo/v2/remote/")) ? 2 : 1;
+ auto& link=*links_.at(index).at(lane);
+ std::unique_lock serial(link.mutex, std::defer_lock);
+ if(!serial.try_lock_until(deadline))throw Error("control_timeout");
  struct Failure { Link& link; bool reusable=false; ~Failure(){if(!reusable)link.reset();} } failure{link};
  if(Clock::now()-link.used>std::chrono::seconds(30))link.reset();
  auto waitTLS=[&](int error){

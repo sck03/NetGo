@@ -1,5 +1,5 @@
 """Loopback TLS tests; these do not claim LAN/NAT/Relay network acceptance."""
-import argparse, base64, datetime, hashlib, http.server, json, pathlib, ssl, socketserver, subprocess, tempfile, threading, time
+import argparse, itertools, base64, datetime, hashlib, http.server, json, pathlib, ssl, socketserver, subprocess, tempfile, threading, time
 from cryptography import x509
 from cryptography.hazmat.primitives import hashes, serialization
 from cryptography.hazmat.primitives.asymmetric import rsa, ed25519
@@ -8,7 +8,7 @@ from cryptography.x509.oid import NameOID, ExtendedKeyUsageOID
 def unb64(s):
     return base64.urlsafe_b64decode(s + "=" * (-len(s) % 4))
 
-def run(binary):
+def run(binary, isolation_only=False):
     now = datetime.datetime.now(datetime.timezone.utc)
     key = rsa.generate_private_key(public_exponent=65537, key_size=2048)
     name = x509.Name([x509.NameAttribute(NameOID.COMMON_NAME, "NetGo loopback CA")])
@@ -26,23 +26,23 @@ def run(binary):
     events=[]
     expected_host="netgo.test"
     wan_ready=threading.Event()
+    slow_started=threading.Event()
+    connections=itertools.count()
     class Handler(http.server.BaseHTTPRequestHandler):
         protocol_version="HTTP/1.1"
         def setup(self):
             super().setup()
-            self.health_seen=False
+            self.connection_id=next(connections)
         def log_message(self,*args): pass
         def reply(self,value):
             data=json.dumps(value,separators=(",",":")).encode()
             self.send_response(200);self.send_header("Content-Type","application/json");self.send_header("Content-Length",str(len(data)));self.end_headers();self.wfile.write(data)
         def do_GET(self):
-            self.health_seen=True
             events.append(("health",self.headers["Host"]))
             self.reply({"protocol":2,"site_id":"unavailable" if getattr(self.server,"wan",False) and not wan_ready.is_set() else "fixture",
                         "capabilities":["native-auth-v1","device-signature-v1","leases-v1","profile-revision-v1","admin-v1","diagnostics-v1"],
                         "server_unix":int(time.time())+getattr(self.server,"clock_skew",0)})
         def do_POST(self):
-            assert self.health_seen, "signed request opened a new connection instead of reusing authenticated health transport"
             body=self.rfile.read(int(self.headers["Content-Length"]))
             token="fixture-token";stamp=self.headers["X-NetGo-Time"];nonce=self.headers["X-NetGo-Nonce"]
             assert abs(int(stamp)-int(time.time())-getattr(self.server,"clock_skew",0)) <= 3
@@ -50,11 +50,15 @@ def run(binary):
             ed25519.Ed25519PrivateKey.from_private_bytes(b"a"*32).public_key().verify(unb64(self.headers["X-NetGo-Signature"]),message.encode())
             assert self.headers["Authorization"]=="Bearer "+token
             assert self.headers["X-NetGo-Protocol"]=="2"
-            assert len(nonce)>=32 and abs(int(stamp)-now.timestamp()-getattr(self.server,"clock_skew",0))<60
-            assert self.headers["Host"]==expected_host and self.path in ("/fixture","/enable-wan")
+            assert len(nonce)>=32
+            assert self.headers["Host"]==expected_host and self.path in ("/fixture","/enable-wan","/netgo/v2/sessions/slow/renew","/netgo/v2/remote/host/heartbeat")
             if self.path=="/enable-wan": wan_ready.set()
+            if self.path=="/netgo/v2/sessions/slow/renew":
+                slow_started.set();time.sleep(7)
+            if self.path=="/netgo/v2/remote/host/heartbeat":
+                assert slow_started.wait(2), "heartbeat did not overlap the slow request"
             if getattr(self.server,'response_delay',0):time.sleep(self.server.response_delay)
-            events.append(("verified",self.headers["Host"]));self.reply({"verified":True})
+            events.append(("verified",self.headers["Host"]));self.reply({"verified":True,"connection":self.connection_id})
     with tempfile.TemporaryDirectory(prefix="netgo-tls-") as directory:
         root=pathlib.Path(directory)
         (root/"key.pem").write_bytes(cert_key.private_bytes(serialization.Encoding.PEM,serialization.PrivateFormat.PKCS8,serialization.NoEncryption()))
@@ -70,10 +74,19 @@ def run(binary):
                 {"ID":"fallback","Address":f"127.0.0.1:{server.server_port}","Kind":"auxiliary"}],
                "CA":ca.public_bytes(serialization.Encoding.PEM).decode(),"GatewayIP":"100.96.0.1"}
             file=root/"profile.json"
+            if isolation_only:
+                try:
+                    file.write_text(json.dumps(p),encoding="utf-8")
+                    subprocess.run([binary,"--tls-isolation",str(file)],check=True,timeout=15)
+                    assert ("verified","netgo.test") in events and ("sni","netgo.test") in events
+                finally:
+                    server.shutdown();server.server_close();thread.join(timeout=3)
+                return
             if expired:
                 file.write_text(json.dumps(p),encoding="utf-8");subprocess.run([binary,"--tls-reject",str(file)],check=True,timeout=30)
             else:
                 file.write_text(json.dumps(p),encoding="utf-8");subprocess.run([binary,"--tls",str(file)],check=True,timeout=30)
+                subprocess.run([binary,"--tls-isolation",str(file)],check=True,timeout=15)
                 for skew in (-3600,3600):
                     server.clock_skew=skew
                     subprocess.run([binary,"--tls",str(file)],check=True,timeout=30)
@@ -138,4 +151,4 @@ def run(binary):
     print("PASS loopback TLS: canonical SNI/Host including port 10443, auxiliary fallback, Ed25519, wrong host, unknown CA, expired certificate")
 
 if __name__=="__main__":
-    parser=argparse.ArgumentParser();parser.add_argument("binary");args=parser.parse_args();run(args.binary)
+    parser=argparse.ArgumentParser();parser.add_argument("binary");parser.add_argument("--isolation-only",action="store_true");args=parser.parse_args();run(args.binary,args.isolation_only)

@@ -23,6 +23,10 @@ struct ClientView: View {
             ForEach(model.resources,id: \.self) { Text($0).font(.caption) }
             Divider()
             HStack { Text("远程桌面"); Spacer(); Button("刷新主机") { model.loadHosts() }.disabled(!model.remoteReady) }
+            HStack {
+                Toggle("仅观看", isOn: $model.remoteViewOnly)
+                Toggle("播放对方声音（主机支持时）", isOn: $model.remoteAudio)
+            }.disabled(model.remoteCapabilities != 0)
             ScrollView(.horizontal) { HStack { ForEach(model.hosts) { host in Button(host.label) { model.view(host) }.disabled(!host.ready || !model.remoteReady) } } }
 #if os(macOS)
             HStack { Toggle("无人值守：保存凭据并在登录后恢复（连接前开启）",isOn:$model.unattended);Button("共享此 Mac") { model.shareDesktop() }.disabled(!model.remoteReady) }

@@ -1,6 +1,8 @@
 # 各平台构建与 Releases 发布
 
-本地体积清理：在 Windows 项目根运行 scripts/clean-workspace.ps1 预览，追加 -Apply 执行；-IncludeTestData 清除安装器实验样例和旧清理统计文件；-IncludeSDK 会额外删除可重建的 Android NDK、平台、构建工具及移动端编译缓存，保留 SDK 命令行工具/许可和签名文件。清理后 npm ci 恢复 Web 依赖；正常 Android 构建脚本会按锁定版本重新安装 SDK 组件、OpenSSL 和 Go 绑定，需可用网络。已清除 AAR 时不要使用 --skip-bind。运行中的引擎、身份、站点配置、数据库均不属于自动清理范围。
+本地体积清理：在 Windows 项目根运行 `scripts/clean-workspace.ps1` 预览，追加 `-Apply` 执行。默认清除可重建的依赖与构建缓存；`-IncludeTestData` 增加安装器实验样例和旧清理统计；`-IncludeSDK` 增加 Android NDK、平台和构建工具，保留命令行管理器和许可。`-IncludeToolchains` 进一步移除项目内 Go、版本化 Node、完整 Android SDK，以及可重新下载的原生 JSON/OpenSSL/Wintun 依赖。各选项仅影响脚本允许清单，父子目录会去重，并检查路径归属、目录联接和使用中的构建进程。
+
+完整清理示例：`./scripts/clean-workspace.ps1 -Apply -IncludeSDK -IncludeTestData -IncludeToolchains`。执行后先按 `upstream/versions.lock.json` 准备所需 Go/Node，再用 `npm ci` 恢复 Web 依赖。原生和 Android 构建脚本会重新下载相关依赖，需可用网络；已清除 AAR 时不要使用 `--skip-bind`。运行引擎、身份、站点配置、数据库、项目签名文件和嵌入服务器的当前 Web 页面均不属于自动清理范围；不要把安装目录或运行数据放入工具链目录。
 
 macOS 构建脚本在原生构建前运行独立的连接协调器回归，覆盖取消已排队的自动恢复、安装提示不阻塞断开、断开先于随后重连。Windows 开发机不能执行这项 Swift/macOS 检查；以 macOS runner 的输出为准。
 

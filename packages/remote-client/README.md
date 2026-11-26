@@ -14,9 +14,10 @@ from the media peer, ticket claims, or the local wall clock. next_generation in
 the inventory supplies the next controller generation, including closed sessions.
 Fresh authenticated renewals recalibrate server time without resetting an expired
 monotonic deadline. The LAN server and clients must be updated together for these response fields.
-The monitor
-rechecks authorization every three seconds; failed control IO stops the
-connection. Queues and wire messages are bounded. Cancel, join the caller's
+The monitor observes host consumption once, then renews authorization every
+three seconds using the last server-issued sequence. Renewal rechecks live
+permissions and must return a strictly newer active sequence; failed control IO
+stops the connection. Queues and wire messages are bounded. Cancel, join the caller's
 worker, then destroy; callbacks cannot outlive run. Final DELETE cleanup uses a
 separate bounded deadline after viewer cancellation, while the existing VPN
 identity remains available.
@@ -24,7 +25,10 @@ identity remains available.
 Video payloads are Annex B H.264. Audio kind 10 carries at most 960 frames of
 48 kHz stereo PCM S16LE (3840 bytes). Audio is requested only when both peers
 and the grant support it. Input JSON supports key/button/move/wheel/release
-and UTF-8 text. Clipboard and files are not implemented by this viewer.
+and UTF-8 text. Explicit UTF-8 clipboard exchange and file list/upload/download
+commands use the shared bounded exchange module. Files use a window of at most
+eight ordered chunks, cancellation, integrity checks and publication without
+overwriting an existing destination; platform UI owns file selection and storage.
 
 The TLS test fixture exercises real sockets, key pinning and possession; its
 six-byte video marker tests protocol dispatch and is not a media benchmark.

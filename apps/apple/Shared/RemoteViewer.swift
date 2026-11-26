@@ -24,7 +24,7 @@ final class RemoteViewer {
     private(set) var site = ""
     private(set) var capabilities: UInt32 = 0
 
-    func start(site: String, host: String, audio: Bool = true) {
+    func start(site: String, host: String, audio: Bool = true, viewOnly: Bool = false) {
         stop(); let selectedControl = control
         lock.lock(); let requested = generation; lock.unlock()
         queue.async { [self] in
@@ -34,7 +34,7 @@ final class RemoteViewer {
             var options = ng_remote_client_options()
             options.struct_size = UInt32(MemoryLayout<ng_remote_client_options>.size); options.abi_version = UInt32(NG_REMOTE_CLIENT_ABI)
             options.site_id = UnsafePointer(sitePointer); options.host_id = UnsafePointer(hostPointer)
-            options.capabilities = audio ? 63 : 59; options.context = Unmanaged.passUnretained(self).toOpaque()
+            options.capabilities = 1 | 8 | 16 | 32 | (audio ? 4 : 0) | (viewOnly ? 0 : 2); options.context = Unmanaged.passUnretained(self).toOpaque()
             options.active = { ctx in let v = Unmanaged<RemoteViewer>.fromOpaque(ctx!).takeUnretainedValue(); v.lock.lock(); defer { v.lock.unlock() }; return v.running ? 1 : 0 }
             options.control = { ctx, method, path, body, key, out, capacity, length in
                 let v = Unmanaged<RemoteViewer>.fromOpaque(ctx!).takeUnretainedValue()

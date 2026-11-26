@@ -34,7 +34,7 @@ class MainActivity : ComponentActivity() {
             .putExtra("site", value.site).putExtra("alias", value.alias).putExtra("password", value.password).putExtra("internet", value.internet).putExtra("replace", value.replace))
     }
     override fun onCreate(savedInstanceState: Bundle?) {
-        super.onCreate(savedInstanceState); startService(Intent(this, NetGoVpnService::class.java))
+        super.onCreate(savedInstanceState)
         setContent { NetGoTheme { Screen { site, alias, password, internet, replace ->
             val request = ConnectionRequest(site, alias, password, internet, replace); val approval = VpnService.prepare(this)
             if (approval == null) startConnection(request) else { pending = request; permission.launch(approval) }
@@ -46,7 +46,8 @@ class MainActivity : ComponentActivity() {
         NativeRemote.releaseCurrentInput()
         try { launch() } catch (e: Exception) { documentPickerActive = false; throw e }
     }
-    override fun onStop() { if (!documentPickerActive) NativeRemote.stopCurrent(); super.onStop() }
+    override fun onStart() { super.onStart(); NetGoRuntime.setVisible(true); startService(Intent(this, NetGoVpnService::class.java)) }
+    override fun onStop() { NetGoRuntime.setVisible(false); if (!documentPickerActive) NativeRemote.stopCurrent(); super.onStop() }
     override fun onDestroy() { NativeRemote.stopCurrent(); super.onDestroy() }
 }
 
@@ -56,6 +57,7 @@ class MainActivity : ComponentActivity() {
     var site by remember { mutableStateOf(NetGoRuntime.selectedSite) }; var alias by remember { mutableStateOf("") }; var password by remember { mutableStateOf("") }
     var select by remember { mutableStateOf(false) }; var target by remember { mutableStateOf("") }
     var internet by remember { mutableStateOf(false) }; var replace by remember { mutableStateOf(false) }
+    var viewOnly by remember { mutableStateOf(false) }; var audio by remember { mutableStateOf(true) }
     var pendingImport by remember { mutableStateOf<String?>(null) }
     val context = androidx.compose.ui.platform.LocalContext.current
     LaunchedEffect(profiles) { if (site.isEmpty() && profiles.isNotEmpty()) { site = profiles.first().first; NetGoRuntime.selectedSite = site } }
@@ -91,12 +93,14 @@ class MainActivity : ComponentActivity() {
         }
         Text(status.optString("state", "disconnected") + "  " + status.optString("error")); Text(message); HorizontalDivider()
         OutlinedButton(onClick = { NetGoRuntime.selectedSite = site; NetGoRuntime.refreshHosts() }, enabled = status.optBoolean("remote_ready")) { Text("更新远程主机") }
+        Row { Checkbox(checked = viewOnly, onCheckedChange = { viewOnly = it }, enabled = target.isEmpty()); Text("仅观看") }
+        Row { Checkbox(checked = audio, onCheckedChange = { audio = it }, enabled = target.isEmpty()); Text("播放对方声音（主机支持时）") }
         hosts.forEach { host -> OutlinedButton(enabled = host.ready, onClick = { NativeRemote.stopCurrent(); target = host.id }) { Text(host.label) } }
         LaunchedEffect(site, status.optBoolean("remote_ready")) { if (!status.optBoolean("remote_ready")) target = "" }
         status.optJSONObject("lease")?.optJSONArray("resources")?.let { values ->
             if (values.length() > 0) Text("已授权资源")
             for (index in 0 until values.length()) { val resource = values.getJSONObject(index); Text(resource.optString("name") + " · " + resource.optString("cidr")) }
         }
-        if (target.isNotEmpty()) RemoteScreen(site, target) { target = "" }
+        if (target.isNotEmpty()) RemoteScreen(site, target, viewOnly, audio) { target = "" }
     } }
 }

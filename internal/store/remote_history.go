@@ -11,6 +11,8 @@ import (
 type RemoteHistory struct {
 	Sessions   []model.RemoteSession `json:"sessions"`
 	NextBefore string                `json:"next_before"`
+	Users      map[string]string     `json:"users"`
+	Hosts      map[string]string     `json:"hosts"`
 }
 
 // Inventory loads active sessions and the generation watermark in one snapshot.
@@ -54,7 +56,7 @@ func (s *Store) RemoteHistory(before string, limit int) (RemoteHistory, error) {
 	if limit < 1 || limit > 100 {
 		limit = 100
 	}
-	page := RemoteHistory{Sessions: []model.RemoteSession{}}
+	page := RemoteHistory{Sessions: []model.RemoteSession{}, Users: map[string]string{}, Hosts: map[string]string{}}
 	var cursor historyCursor
 	if len(before) > 512 {
 		return page, errors.New("invalid_remote_history_cursor")
@@ -65,9 +67,11 @@ func (s *Store) RemoteHistory(before string, limit int) (RemoteHistory, error) {
 			return page, errors.New("invalid_remote_history_cursor")
 		}
 	}
-	rows, err := s.db.Query(`SELECT data FROM remote_sessions WHERE state='closed' AND (?1='' OR
-	 (julianday(json_extract(data,'$.created_at')),id) < (julianday(?2),?3))
-	 ORDER BY julianday(json_extract(data,'$.created_at')) DESC,id DESC LIMIT ?4`, before, cursor.At.UTC().Format(time.RFC3339Nano), cursor.ID, limit+1)
+	rows, err := s.db.Query(`SELECT r.data,coalesce(json_extract(u.data,'$.alias'),''),coalesce(json_extract(h.data,'$.name'),'')
+     FROM remote_sessions r LEFT JOIN users u ON u.id=r.user_id LEFT JOIN hosts h ON h.id=r.host_id
+     WHERE r.state='closed' AND (?1='' OR
+     (julianday(json_extract(r.data,'$.created_at')),r.id) < (julianday(?2),?3))
+     ORDER BY julianday(json_extract(r.data,'$.created_at')) DESC,r.id DESC LIMIT ?4`, before, cursor.At.UTC().Format(time.RFC3339Nano), cursor.ID, limit+1)
 	if err != nil {
 		return page, err
 	}
@@ -75,7 +79,8 @@ func (s *Store) RemoteHistory(before string, limit int) (RemoteHistory, error) {
 	for rows.Next() {
 		var raw []byte
 		var session model.RemoteSession
-		if err = rows.Scan(&raw); err != nil {
+		var user, host string
+		if err = rows.Scan(&raw, &user, &host); err != nil {
 			return page, err
 		}
 		if err = json.Unmarshal(raw, &session); err != nil {
@@ -88,6 +93,8 @@ func (s *Store) RemoteHistory(before string, limit int) (RemoteHistory, error) {
 			break
 		}
 		session.ControllerAuth = ""
+		page.Users[session.UserID] = user
+		page.Hosts[session.HostID] = host
 		page.Sessions = append(page.Sessions, session)
 	}
 	return page, rows.Err()

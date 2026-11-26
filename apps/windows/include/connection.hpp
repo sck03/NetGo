@@ -1,5 +1,6 @@
 #pragma once
 #include "common.hpp"
+#include <array>
 #include <deque>
 #include <future>
 #include <condition_variable>
@@ -20,7 +21,8 @@ class Transport {
  Json profile_;
  std::shared_ptr<ssl_ctx_st> context_;
  struct Link;
- std::vector<std::shared_ptr<Link>> links_;
+ // Independent persistent connections for probes, VPN and remote control.
+ std::vector<std::array<std::shared_ptr<Link>, 3>> links_;
  std::atomic_size_t selected_{0};
  int directSuccess_ = 0;
  size_t directCandidate_ = SIZE_MAX;

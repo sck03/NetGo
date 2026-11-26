@@ -35,11 +35,6 @@ foreach($name in $budgets.Keys){
 $dest=Join-Path $root 'dist\windows-amd64'
 New-Item -ItemType Directory -Path $dest -Force|Out-Null
 Publish-NetGoArtifact -Source "$root\.cache\native-build\NetGo.exe" -Destination (Join-Path $dest 'NetGo.exe')
-# Retire only the three superseded product images in this output directory.
-foreach($name in @('netgo-desktop.exe','netgo-agent.exe','netgo-remote.exe')){
- $old=Join-Path $dest $name
- if(Test-Path -LiteralPath $old){Remove-Item -LiteralPath $old}
-}
 Publish-NetGoArtifact -Source "$root\.tools\wintun-package\wintun\bin\amd64\wintun.dll" -Destination (Join-Path $dest 'wintun.dll')
 Get-ChildItem -LiteralPath $dest -File|Where-Object {$_.Name -ne 'SHA256SUMS'}|Get-FileHash -Algorithm SHA256|ForEach-Object {"$($_.Hash.ToLower())  $([IO.Path]::GetFileName($_.Path))"}|Set-Content -Encoding utf8NoBOM (Join-Path $dest 'SHA256SUMS')
 Write-Host 'Built and verified the single NetGo.exe entry, internal modes and system DLL imports. Build patched NetBird before packaging.'

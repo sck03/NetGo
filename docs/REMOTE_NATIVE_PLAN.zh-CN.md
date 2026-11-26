@@ -1,6 +1,6 @@
 # 远程桌面与原生多平台实施方案
 
-版本：2.3。日期：2026-11-24（Asia/Shanghai）。继承 EXECUTION_PLAN v2.2 的授权与功能范围。
+版本：2.4。修订日期：2026-11-26（Asia/Shanghai）。继承 EXECUTION_PLAN 的模块边界与验收范围；当前代码及本轮有限验证以 [维护记录](REFACTOR_MAINTENANCE_2026-11-26.zh-CN.md) 为准。下述带日期的阶段说明保留历史状态。
 
 本轮远控修复：服务端返回 server_unix_ms / next_generation，双方票据门禁使用可信服务端时间与包含休眠的系统单调时钟。共享 TLS 接收改为有总期限的分片读取；Windows 采用保持比例的最高720p软件配置、独立停止按钮与按实际画面映射的输入。详见 [本轮记录](evidence/2026-11-24-remote/REPORT.zh-CN.md)。这些实现不代替跨设备与全部平台验收。
 
@@ -76,7 +76,7 @@ RD0 已定位并修复现有 VPS 失败机制：原 `WorkerRelay.preferredRelayS
 
 ### 4.2 v2 服务契约
 
-当前实现的准确端点为 `/netgo/v2/remote`（主机/授权/会话列表）、`PUT /remote/host`、`POST /remote/host/heartbeat`、`/remote/sessions` 和会话的 `consume`/`renew`/删除；管理授权为 `/admin/remote/grants`。远控授权响应直接提供 `site_key`，查看器使用该已认证响应中的站点公钥，不再单独请求公钥端点。下表记录领域要求，消费同时记录主机本地同意后的接受行为；不额外提供一套尚未实现的 enroll/decision 路由。客户端使用相同已认证设备身份和 VPN 租约登记主机。
+当前实现的准确端点为 `/netgo/v2/remote`（主机/授权/会话列表）、`PUT /remote/host`、`POST /remote/host/heartbeat`、`/remote/sessions` 和会话的 `consume`/`renew`/删除；管理授权为 `/admin/remote/grants`；管理主机和账号选择分别使用 `/admin/remote/inventory?after=&q=`、`/admin/users/choices?after=&q=`，已结束会话使用 `/admin/remote/history?before=&limit=50`，这些相对路径均以 `/netgo/v2` 为前缀。远控授权响应直接提供 `site_key`，查看器使用该已认证响应中的站点公钥，不再单独请求公钥端点。下表记录领域要求，消费同时记录主机本地同意后的接受行为；不额外提供一套尚未实现的 enroll/decision 路由。客户端使用相同已认证设备身份和 VPN 租约登记主机。
 
 沿用签名、防重放、站点身份与唯一 IdP 的原则，统一路径 `/netgo/v2`、`X-NetGo-Protocol: 2`。公共 health 提供真实版本及能力；受保护的 v1/缺失/错误版本明确拒绝。客户端先协商版本/时钟，再发送密码。不维护两套密码库。
 

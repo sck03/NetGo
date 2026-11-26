@@ -33,6 +33,7 @@ struct Session {
     JavaVM *vm = nullptr;
     jobject object = nullptr;
     std::string site, host;
+    uint32_t capabilities = NG_REMOTE_VIEW;
     std::atomic_bool active = true;
     std::mutex mutex;
     ng_remote_client *client = nullptr;
@@ -156,7 +157,7 @@ void run(jlong handle, std::shared_ptr<Session> s) {
     o.abi_version = NG_REMOTE_CLIENT_ABI;
     o.site_id = s->site.c_str();
     o.host_id = s->host.c_str();
-    o.capabilities = NG_REMOTE_ALL_CAPABILITIES;
+    o.capabilities = s->capabilities;
     o.context = s.get();
     o.active = [](void *p) -> int32_t { return static_cast<Session *>(p)->active ? 1 : 0; };
     o.control = control;
@@ -238,9 +239,11 @@ void run(jlong handle, std::shared_ptr<Session> s) {
 } // namespace
 extern "C" JNIEXPORT jlong JNICALL Java_org_netgo_client_NativeRemote_startNative(JNIEnv *env, jobject object,
                                                                                   jstring site,
-                                                                                  jstring host) {
+                                                                                  jstring host, jint capabilities) {
     try {
+        if ((capabilities & ~NG_REMOTE_ALL_CAPABILITIES) != 0 || !(capabilities & NG_REMOTE_VIEW)) return 0;
         auto s = std::make_shared<Session>();
+        s->capabilities = uint32_t(capabilities);
         env->GetJavaVM(&s->vm);
         s->object = env->NewGlobalRef(object);
         s->site = text(env, site);

@@ -19,7 +19,6 @@ class VpnPlatform(private val service: NetGoVpnService) : Platform {
     private val folder = File(service.filesDir, "device-keys").apply { mkdirs() }
     private val store = KeyStore.getInstance("AndroidKeyStore").apply { load(null) }
     private val alias = "NetGo.DeviceKeyEncryption"
-    private var proxyDns = ""
 	private var selectedDns = ""
     private var address = ""
     private fun key(): SecretKey = synchronized(store) {
@@ -43,7 +42,7 @@ class VpnPlatform(private val service: NetGoVpnService) : Platform {
         catch (error: Exception) { target.failWrite(output); throw error }
     }
     @Synchronized override fun configureInterface(address: String, address6: String, mtu: Long, dns: String, search: String, routes: String): Long {
-        this.address = address; if (dns.isNotEmpty()) proxyDns = dns
+        this.address = address // configureDNS selects the site/system resolver explicitly.
         val builder = service.Builder().setSession("NetGo").setMtu(mtu.toInt().coerceIn(1280, 9000))
         fun add(value: String) { if (value.isNotEmpty()) { val fields = value.split('/'); require(fields.size == 2); builder.addAddress(fields[0], fields[1].toInt()) } }
         add(address); add(address6)

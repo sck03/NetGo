@@ -25,7 +25,7 @@ func (n *Native) Refresh(ctx context.Context, c model.Credential, oldToken, refr
 		return Result{}, e
 	}
 	result := Result{Token: model.ID(), IDToken: t.IDToken, RefreshToken: t.RefreshToken, ExpiresAt: t.Expiry, DeviceID: c.DeviceID}
-	e = n.Store.Update(func(st *model.State) error {
+	e = n.Store.CredentialUpdate(c.UserID, c.DeviceID, model.Hash(oldToken), func(st *model.State) error {
 		existing, ok := st.Credentials[model.Hash(oldToken)]
 		if !ok || existing.DeviceID != c.DeviceID || existing.UserID != c.UserID || !time.Now().Before(existing.ExpiresAt) {
 			return model.ErrUnauthorized
@@ -33,7 +33,7 @@ func (n *Native) Refresh(ctx context.Context, c model.Credential, oldToken, refr
 		d := st.Devices[c.DeviceID]
 		parts := strings.Split(t.Nonce, ":")
 		u := st.Users[c.UserID]
-		if t.Subject != u.ID || !u.Active(time.Now()) || !time.Now().Before(t.Expiry) || len(parts) != 4 || parts[0] != "netgo" || parts[1] != d.PublicKey || parts[2] != d.WireGuardKey {
+		if d.DeletePending || t.Subject != u.ID || !u.Active(time.Now()) || !time.Now().Before(t.Expiry) || len(parts) != 4 || parts[0] != "netgo" || parts[1] != d.PublicKey || parts[2] != d.WireGuardKey {
 			return model.ErrForbidden
 		}
 		if !u.ExpiresAt.IsZero() && u.ExpiresAt.Before(result.ExpiresAt) {

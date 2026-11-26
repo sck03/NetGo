@@ -41,6 +41,7 @@ type User struct {
 	DeletePending bool      `json:"delete_pending"`
 	ID            string    `json:"id"`
 	Alias         string    `json:"alias"`
+	Name          string    `json:"name"`
 	Email         string    `json:"email"`
 	Role          string    `json:"role"`
 	Disabled      bool      `json:"disabled"`

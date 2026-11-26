@@ -12,7 +12,7 @@ import androidx.compose.ui.viewinterop.AndroidView
 import kotlinx.coroutines.launch
 import org.json.JSONObject
 
-@Composable internal fun RemoteScreen(site: String, host: String, close: () -> Unit) {
+@Composable internal fun RemoteScreen(site: String, host: String, viewOnly: Boolean, audio: Boolean, close: () -> Unit) {
     var remote by remember(site, host) { mutableStateOf<NativeRemote?>(null) }
     var input by remember(site, host) { mutableStateOf(TextFieldValue()) }
     val textLimit = remember { NativeRemote.textLimitNative() }
@@ -74,7 +74,7 @@ import org.json.JSONObject
     DisposableEffect(site, host) { onDispose { pendingTransfer=null;downloads.dispose();remote?.stop();if(uploadOwner==null){uploadPath?.delete();uploadPath=null} } }
     AndroidView(modifier = Modifier.fillMaxWidth().aspectRatio(16f / 9f), onRelease = { it.release() }, factory = { viewContext ->
         RemoteDisplay(viewContext, { activity.documentPickerActive }, { surface ->
-            NetGoRuntime.client?.let { remote = NativeRemote(site, host, surface, it).apply { downloads.started(); finished={ downloads.finish() }; start() } }
+            NetGoRuntime.client?.let { remote = NativeRemote(site, host, surface, it, 1 or 8 or 16 or 32 or (if (viewOnly) 0 else 2) or (if (audio) 4 else 0)).apply { downloads.started(); finished={ downloads.finish() }; start() } }
         }, { remote })
     })
     OutlinedTextField(input, enabled = capabilities and 2 != 0, onValueChange = { value ->

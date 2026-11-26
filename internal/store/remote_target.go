@@ -57,12 +57,15 @@ func (s *Store) RemoteTargetUpdate(c model.Credential, id, host string, fn func(
 
 func (s *Store) RemoteSweep(now time.Time, fn func(*model.State) error) error {
 	return s.updateWith(func(tx *sql.Tx) (model.State, error) {
-		st, err := read(tx, remoteTables & ^(remoteSessions|remoteOperations))
+		st, err := read(tx, 0)
 		if err == nil {
 			err = readRows(tx, "remote_sessions", st.RemoteSessions, "WHERE state IN ('issued','active') OR julianday(json_extract(data,'$.closed_at'))<julianday(?)", now.Add(-24*time.Hour).UTC().Format(time.RFC3339Nano))
 		}
 		if err == nil {
 			err = readRows(tx, "remote_operations", st.RemoteOperations, "WHERE julianday(json_extract(data,'$.expires_at'))<=julianday(?)", now.UTC().Format(time.RFC3339Nano))
+		}
+		if err == nil {
+			err = remoteDependencies(tx, &st, model.Credential{})
 		}
 		return st, err
 	}, fn)

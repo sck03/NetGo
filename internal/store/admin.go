@@ -89,8 +89,6 @@ func (s *Store) AdminPage(section, before string, limit int) (model.State, strin
 				raw, _ := json.Marshal(keys)
 				err = readRows(tx, "users", st.Users, "WHERE id IN (SELECT value FROM json_each(?))", string(raw))
 			}
-		case "remote":
-			err = readMap(tx, "users", st.Users)
 		default:
 			return st, errors.New("invalid_admin_section")
 		}

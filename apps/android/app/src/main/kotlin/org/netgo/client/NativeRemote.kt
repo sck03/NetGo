@@ -8,7 +8,7 @@ import org.json.JSONArray
 import org.netgo.runtime.mobile.Client
 
 @Keep
-class NativeRemote(private val site: String, private val host: String, private val surface: Surface, private val controlClient: Client) {
+class NativeRemote(private val site: String, private val host: String, private val surface: Surface, private val controlClient: Client, private val requestedCapabilities: Int) {
     @Volatile private var active = true
 	val isActive: Boolean get() = active
 	@Volatile var presenting = true
@@ -27,10 +27,10 @@ class NativeRemote(private val site: String, private val host: String, private v
     }
     @Keep fun onEvent(bytes:ByteArray) { if(active) runCatching { val value=JSONObject(bytes.toString(Charsets.UTF_8));android.os.Handler(android.os.Looper.getMainLooper()).post { if(active) event?.invoke(value) } } }
     private var pendingAudio = ByteArray(0)
-    private external fun startNative(site: String, host: String): Long
+    private external fun startNative(site: String, host: String, capabilities: Int): Long
     private external fun cancelNative(handle: Long)
     private external fun inputNative(handle: Long, json: ByteArray): Boolean
-    fun start() { handle = startNative(site, host); current = this }
+    fun start() { handle = startNative(site, host, requestedCapabilities); current = this }
     private fun sendInput(value: String): Boolean = active && capabilities and 2 != 0 && handle != 0L && inputNative(handle, value.toByteArray(Charsets.UTF_8))
     fun send(value: JSONObject): Boolean = sendInput(value.toString())
     fun key(code: Int): Boolean = sendInput(JSONArray().put(JSONObject().put("type","key").put("code",code).put("down",true)).put(JSONObject().put("type","key").put("code",code).put("down",false)).toString())

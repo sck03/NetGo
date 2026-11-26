@@ -26,13 +26,13 @@ type Platform interface {
 	ConfigureNetwork(address, address6, dns, routes string) error
 }
 type iosBackend struct {
-	mu                                 sync.Mutex
-	node                               *sdk.Client
-	platform                           Platform
-	root, device, config, ip, ip6, dns string
-	connected                          bool
-	internetDNS                        []string
-	done                               chan struct{}
+	mu                            sync.Mutex
+	node                          *sdk.Client
+	platform                      Platform
+	root, device, config, ip, ip6 string
+	connected                     bool
+	internetDNS                   []string
+	done                          chan struct{}
 }
 
 func NewClient(root string, platform Platform, apiLevel int, deviceName string) (*Client, error) {
@@ -285,7 +285,9 @@ func (b *iosBackend) configure() {
 	}
 	_ = b.platform.ConfigureNetwork(ip, ip6, dns, strings.Join(selected, ";"))
 }
-func (b *iosBackend) ApplyDns(value string) { b.mu.Lock(); b.dns = value; b.mu.Unlock(); b.configure() }
+
+// NetGo configures site/system resolvers through its explicit DNS policy.
+func (b *iosBackend) ApplyDns(_ string) { b.configure() }
 func (b *iosBackend) SetInterfaceIP(value string) {
 	b.mu.Lock()
 	b.ip = value

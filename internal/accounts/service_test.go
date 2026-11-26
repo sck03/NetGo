@@ -155,3 +155,37 @@ func TestDeleteFailureIsRevokedAndRetryable(t *testing.T) {
 		t.Fatal("retry left orphan state")
 	}
 }
+
+func TestLoginNameIsImmutableAndDisplayNameIsEditable(t *testing.T) {
+	db, err := store.Open(":memory:")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer db.Close()
+	user := model.User{ID: "u", Alias: "login", Email: "user@example.test", Role: "user", MaxDevices: 1, MaxSessions: 1}
+	err = db.Update(func(st *model.State) error {
+		st.Users[user.ID] = user
+		st.Devices["d"] = model.Device{ID: "d", UserID: user.ID}
+		st.Credentials["token"] = model.Credential{UserID: user.ID, DeviceID: "d", ExpiresAt: time.Now().Add(time.Hour)}
+		st.Leases["lease"] = model.Lease{ID: "lease", UserID: user.ID, DeviceID: "d", ExpiresAt: time.Now().Add(time.Hour)}
+		return nil
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	service := Service{Store: db, Sessions: &session.Manager{Store: db, Gate: gate{}}}
+	changed := user
+	changed.Alias = "renamed"
+	if _, err = service.Update(context.Background(), changed); err == nil || err.Error() != "alias_immutable" {
+		t.Fatalf("rename accepted: %v", err)
+	}
+	st, err := db.View()
+	if err != nil || st.Users[user.ID].Alias != "login" || len(st.Credentials) != 1 || len(st.Leases) != 1 {
+		t.Fatalf("rejected rename changed identity or sessions: %v", err)
+	}
+	user.Name = "New display name"
+	saved, err := service.Update(context.Background(), user)
+	if err != nil || saved.Name != user.Name || saved.Alias != "login" {
+		t.Fatalf("display name update: %+v %v", saved, err)
+	}
+}

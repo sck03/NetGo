@@ -295,6 +295,14 @@ func (s *Server) Handler() http.Handler {
 		report.Counts = counts
 		reply(w, 200, report)
 	})
+	secured("GET /netgo/v2/admin/users/choices", true, func(w http.ResponseWriter, r *http.Request) {
+		page, err := s.Store.UserChoices(r.URL.Query().Get("after"), r.URL.Query().Get("q"))
+		if err != nil {
+			failure(w, err)
+			return
+		}
+		reply(w, 200, page)
+	})
 	secured("PUT /netgo/v2/admin/users/{id}", true, s.putUser)
 	secured("POST /netgo/v2/admin/users", true, s.createUser)
 	secured("DELETE /netgo/v2/admin/users/{id}", true, s.deleteUser)

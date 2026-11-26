@@ -1,4 +1,5 @@
 #include "remote_input.hpp"
+#include "netgo_remote_scroll.hpp"
 #include "netgo_remote_client.h"
 #include <iostream>
 #include <stdexcept>
@@ -6,6 +7,13 @@
 using namespace netgo::remote;
 void check(bool value,const char* message){if(!value)throw std::runtime_error(message);}
 int main(){try{
+ WheelAccumulator wheel;
+ for(int i=0;i<19;++i)check(wheel.consume(6,false)==0,"premature fine scroll");
+ check(wheel.consume(6,false)==1,"fine scroll lost");
+ check(wheel.consume(60,true)==0&&wheel.consume(60,false)==0,"axes mixed");
+ check(wheel.consume(-60,false)==0&&wheel.consume(60,true)==1,"direction remainder lost");
+ wheel.consume(90,false);wheel.reset();check(wheel.consume(30,false)==0,"release retained wheel remainder");
+ check(wheel.consume(-270,false)==-2,"negative multi-step scroll");
  InputQueue q;
  for(unsigned x=0;x<10000;++x)check(q.push({{"type","move"},{"x",x},{"y",0}},100),"move");
  auto events=q.take(101);check(events.size()==1&&events[0]["x"]==9999,"move coalescing");

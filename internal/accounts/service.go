@@ -51,6 +51,13 @@ func protectAdmin(st *model.State, u model.User) error {
 	return errors.New("last administrator cannot be disabled or deleted")
 }
 func (s *Service) Update(ctx context.Context, u model.User) (model.User, error) {
+	u.Name = strings.TrimSpace(u.Name)
+	if u.Name == "" {
+		u.Name = u.Alias
+	}
+	if len(u.Name) > 256 {
+		return u, errors.New("invalid display name")
+	}
 	if !site.ValidID(u.Alias) || (u.Role != "admin" && u.Role != "user") || u.MaxDevices < 1 || u.MaxDevices > 100 || u.MaxSessions < 1 || u.MaxSessions > 100 {
 		return u, errors.New("invalid user")
 	}
@@ -61,6 +68,11 @@ func (s *Service) Update(ctx context.Context, u model.User) (model.User, error) 
 		old, ok := st.Users[u.ID]
 		if !ok || old.Email != u.Email {
 			return model.ErrNotFound
+		}
+		// Login names key the protected device identity on every native client.
+		// Display names may change; login names are immutable.
+		if u.Alias != old.Alias {
+			return errors.New("alias_immutable")
 		}
 		if old.DeletePending || u.DeletePending {
 			return model.ErrConflict

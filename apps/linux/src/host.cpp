@@ -1,3 +1,4 @@
+#include "netgo_remote_scroll.hpp"
 #include "host.hpp"
 #include <gio/gio.h>
 #include <gio/gunixfdlist.h>
@@ -132,6 +133,7 @@ struct HostPlatform::Impl {
     bool wayland = false;
     Display *display = nullptr;
     int screen = 0;
+    netgo::remote::WheelAccumulator wheel;
     uint32_t width = 0, height = 0, sourceWidth = 0, sourceHeight = 0, node = 0;
     GDBusConnection *bus = nullptr;
     std::string session;
@@ -322,6 +324,7 @@ struct HostPlatform::Impl {
             buttons.erase(b);
     }
     void release() noexcept {
+        wheel.reset();
         try {
             auto held = keys;
             for (auto k : held)
@@ -488,8 +491,9 @@ void HostPlatform::input(const Json &e) {
                      g_variant_new("(o@a{sv}dd)", p.session.c_str(), options(),
                                    horizontal ? -delta / 120.0 : 0.0, horizontal ? 0.0 : -delta / 120.0));
         else {
-            unsigned button = horizontal ? (delta > 0 ? 6 : 7) : (delta > 0 ? 4 : 5);
-            for (int i = 0; i < std::abs(delta) / 120; ++i) {
+            const int steps = p.wheel.consume(delta, horizontal);
+            unsigned button = horizontal ? (steps > 0 ? 6 : 7) : (steps > 0 ? 4 : 5);
+            for (int i = 0; i < std::abs(steps); ++i) {
                 XTestFakeButtonEvent(p.display, button, True, CurrentTime);
                 XTestFakeButtonEvent(p.display, button, False, CurrentTime);
             }

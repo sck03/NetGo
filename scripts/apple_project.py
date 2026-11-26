@@ -26,7 +26,8 @@ def create(platform,output,native,framework=None,resources=(),selected_version=N
         return add(name+'config',{'isa':'XCConfigurationList','buildConfigurations':configs,'defaultConfigurationName':'Release','defaultConfigurationIsVisible':'0'})
     project_cfg=configs('project',{'CLANG_ENABLE_OBJC_ARC':'YES','CLANG_ENABLE_MODULES':'YES','SWIFT_VERSION':'5.0','CLANG_CXX_LANGUAGE_STANDARD':'c++17'})
     shared=sorted((ROOT/'apps/apple/Shared').glob('*.swift'))
-    specs=[('NetGo',shared+[ROOT/'apps/apple'/platform/'NetGoApp.swift'],'app')]
+    app_sources=sorted(p for p in (ROOT/'apps/apple'/platform).glob('*.swift') if p.name != 'PacketTunnelProvider.swift')
+    specs=[('NetGo',shared+app_sources,'app')]
     if platform=='iOS':specs.append(('NetGoTunnel',[ROOT/'apps/apple/iOS/PacketTunnelProvider.swift',ROOT/'apps/apple/iOS/TunnelBridge.m'],'appex'))
     target_map={name:ident('target'+name) for name,files,extension in specs}
     for name,files,extension in specs:
