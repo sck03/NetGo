@@ -229,7 +229,7 @@ func (m *Manager) Renew(ctx context.Context, c model.Credential, id string, gene
 		return result, e
 	}
 	now := m.now()
-	e = m.updateWith(ctx, m.Store.VPNUpdate, func(st *model.State) error {
+	e = m.updateWith(ctx, func(fn func(*model.State) error) error { return m.Store.VPNRenew(c, fn) }, func(st *model.State) error {
 		if !credentialCurrent(st, c, m.now()) {
 			return model.ErrUnauthorized
 		}

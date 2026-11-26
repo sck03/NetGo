@@ -29,6 +29,7 @@ func TestConcurrentUserCreationPreservesUniqueAlias(t *testing.T) {
 	}))
 	defer upstream.Close()
 	s := &Server{Store: db, Management: &netbird.Management{URL: upstream.URL, Client: upstream.Client()}}
+	s.initializeServices()
 	var wg sync.WaitGroup
 	var successes atomic.Int32
 	start := make(chan struct{})

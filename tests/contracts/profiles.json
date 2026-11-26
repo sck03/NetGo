@@ -15,12 +15,17 @@
     {"name":"new protocol","old":{},"next":{"ConfigRevision":3,"Protocol":3},"accept":false},
     {"name":"new gateway needs version","old":{},"next":{"GatewayIP":"100.96.0.2"},"accept":false},
     {"name":"new gateway versioned","old":{},"next":{"ConfigRevision":3,"GatewayIP":"100.96.0.2"},"accept":true},
-    {"name":"legacy migration","old":{"ConfigRevision":0},"next":{"ConfigRevision":1},"accept":true},
-    {"name":"legacy manual address edit","old":{"ConfigRevision":0},"next":{"ConfigRevision":0,"Candidates":[{"ID":"wan2","Address":"wan2.example:10443","Kind":"direct"}]},"accept":true},
+    {"name":"bootstrap publication","old":{"ConfigRevision":0},"next":{"ConfigRevision":1},"accept":true},
+    {"name":"bootstrap manual address edit","old":{"ConfigRevision":0},"next":{"ConfigRevision":0,"Candidates":[{"ID":"wan2","Address":"wan2.example:10443","Kind":"direct"}]},"accept":true},
     {"name":"negative revision","old":{},"next":{"ConfigRevision":-1},"accept":false},
     {"name":"fractional revision","old":{},"next":{"ConfigRevision":2.5},"accept":false},
     {"name":"JSON precision limit","old":{},"next":{"ConfigRevision":9007199254740992},"accept":false},
     {"name":"maximum exact revision","old":{},"next":{"ConfigRevision":9007199254740991},"accept":true},
-    {"name":"local entry remains required","old":{},"next":{"ConfigRevision":3,"Candidates":[{"ID":"vps","Address":"vps.example:443","Kind":"auxiliary"}]},"accept":false}
+    {"name":"local entry remains required","old":{},"next":{"ConfigRevision":3,"Candidates":[{"ID":"vps","Address":"vps.example:443","Kind":"auxiliary"}]},"accept":false},
+    {"name":"empty name","old":{},"next":{"ConfigRevision":3,"Name":""},"accept":false},
+    {"name":"invalid gateway","old":{},"next":{"ConfigRevision":3,"GatewayIP":"not-an-ip"},"accept":false},
+    {"name":"missing gateway","old":{},"next":{"ConfigRevision":3,"GatewayIP":""},"accept":false},
+    {"name":"IPv6 gateway unsupported","old":{},"next":{"ConfigRevision":3,"GatewayIP":"::1"},"accept":false},
+    {"name":"invalid CA","old":{},"next":{"ConfigRevision":3,"CA":"not-a-certificate"},"accept":false}
   ]
 }

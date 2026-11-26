@@ -13,7 +13,7 @@ import (
 )
 
 func configuration() site.Config {
-	return site.Config{Site: site.Profile{Protocol: 2, ID: "test", Origin: "https://site.test", Candidates: []site.Candidate{{ID: "local", Kind: "direct", Address: "site.test:443"}}}, Listen: "127.0.0.1:8081", Database: "/var/lib/netgo/netgo.db", ManagementURL: "http://127.0.0.1:8080", ManagementTokenFile: "/etc/netgo/management.token", NativeSecretFile: "/etc/netgo/native.secret", HelperSocket: "/run/netgo-helper/helper.sock", Interface: "wt0", LANInterface: "eth0", OverlayCIDR: "100.96.0.0/16", LeaseSeconds: 120}
+	return site.Config{Site: site.Profile{Name: "Test site", GatewayIP: "100.96.0.1", Protocol: 2, ID: "test", Origin: "https://site.test", Candidates: []site.Candidate{{ID: "local", Kind: "direct", Address: "site.test:443"}}}, Listen: "127.0.0.1:8081", Database: "/var/lib/netgo/netgo.db", ManagementURL: "http://127.0.0.1:8080", ManagementTokenFile: "/etc/netgo/management.token", NativeSecretFile: "/etc/netgo/native.secret", HelperSocket: "/run/netgo-helper/helper.sock", Interface: "wt0", LANInterface: "eth0", OverlayCIDR: "100.96.0.0/16", LeaseSeconds: 120}
 }
 func TestConfigurationFailureRestoresPreviousAndKeepsIdentity(t *testing.T) {
 	old := configuration()

@@ -59,7 +59,7 @@ export class AdminSession {
           }
           if (generation === this.generation && token === this.token && key === this.key) this.logout()
         }
-        throw Error(result.error || '请求失败')
+        throw Error(result.error === 'site_not_ready' ? '站点网关尚未就绪，请先完成服务器初始化。' : (result.error || '请求失败'))
       }
       return result
     } catch (error) {

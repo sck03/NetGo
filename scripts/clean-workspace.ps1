@@ -1,7 +1,7 @@
 # Only reproducible outputs are eligible. Credentials, signing keys, installed
 # engines, site data and Git history are deliberately outside this allowlist.
 [CmdletBinding()]
-param([switch]$Apply, [switch]$IncludeSDK)
+param([switch]$Apply, [switch]$IncludeSDK, [switch]$IncludeTestData)
 
 $ErrorActionPreference = 'Stop'
 $taskRoot = [IO.Path]::GetFullPath((Split-Path -Parent $PSScriptRoot))
@@ -13,12 +13,17 @@ $taskTargets = @(
     'node_modules', 'dist',
     '.cache/toolchain/go-build', '.cache/toolchain/go', '.cache/toolchain/npm-cache',
     '.cache/toolchain/tmp', '.cache/toolchain/gradle', '.cache/toolchain/android-local',
-    '.cache/refactor-native', '.cache/refactor-linux',
+    '.cache/refactor-native', '.cache/refactor-linux', '.cache/refactor-server', '.cache/apple-tests',
     'apps/android/.gradle', 'apps/android/.kotlin', 'apps/android/.cxx',
     'apps/android/build', 'apps/android/app/build', 'apps/android/app/.cxx',
     'apps/android/app/libs/netgo-mobile.aar', 'apps/android/app/libs/netgo-mobile-sources.jar',
     'scripts/__pycache__', 'tests/tools/__pycache__'
 )
+if ($IncludeTestData) {
+    # Generated installer fixtures; these are not installed station data.
+    $taskTargets += @('.cache/installer-lab', '.cache/cleanup-before.json', '.cache/cleanup-after.json',
+        '.cache/cleanup-plan.json', '.cache/cleanup-recycled.json', '.cache/cleanup-measurement.json')
+}
 if ($IncludeSDK) {
     $taskTargets += @('.tools/android/ndk', '.tools/android/platforms', '.tools/android/build-tools',
         '.tools/android/cmake', '.tools/openssl-android-arm64', '.tools/bin', '.tools/python-libs')

@@ -49,7 +49,7 @@ async function remove(resource: Resource) {
   <section class="card">
     <div class="panel-heading"><div><h3>允许访问哪些设备和服务</h3><p>选择常用服务并填写目标地址，再在“账号与权限”中授权给用户。</p></div><button class="primary" :disabled="busy" @click="add">添加资源</button></div>
     <p class="muted">NetGo 自带的屏幕控制请在“远程桌面”中设置；这里的 RDP 指设备上已有的 Windows RDP 服务。</p>
-    <div v-if="resources.length" class="filter-bar"><label class="search-field">查找资源<input v-model="search" type="search" placeholder="名称、IP、协议或端口"></label><span class="muted">共 {{ resources.length }} 项</span></div>
+    <div v-if="resources.length" class="filter-bar"><label class="search-field">查找本页资源<input v-model="search" type="search" placeholder="名称、IP、协议或端口"></label><span class="muted">本页 {{ resources.length }} 项</span></div>
     <section v-for="group in groups" :key="group.id" class="resource-group">
       <div class="group-heading"><h4>{{ group.title }}</h4><span class="status-pill">{{ group.resources.length }} 项</span></div><p>{{ group.hint }}</p>
       <div v-for="resource in group.resources" :key="resource.id" class="access-row">

@@ -292,6 +292,9 @@ func run() error {
 		return output(map[string]bool{"applied": true})
 	}
 	if cmd == "export-site" {
+		if err := c.Site.Validate(); err != nil {
+			return err
+		}
 		if *dest == "" {
 			return output(c.Site)
 		}

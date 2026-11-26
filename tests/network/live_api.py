@@ -86,6 +86,15 @@ class Session:
         self.token=result['token'];self.refresh_token=result.get('refresh_token','');self.user=result['user'];self.device_id=result['device_id']
         return result
 
+    def admin_items(self,section,field):
+        items={};after='';seen=set()
+        while True:
+            page=self.call('/netgo/v2/admin/state?section='+section+'&after='+urllib.parse.quote(after,safe=''))
+            items.update(page[field]);after=page.get('next_after','')
+            if not after:return items
+            if after in seen:raise ValueError('repeated administration page cursor')
+            seen.add(after)
+
     def refresh(self):
         result=self.call('/netgo/v2/auth/refresh','POST',{'refresh_token':self.refresh_token})
         self.token=result['token'];self.refresh_token=result.get('refresh_token','')
@@ -119,17 +128,17 @@ def exercise(profile,alias,password,output,resource_cidr='198.19.240.2/32'):
         check('trusted_https_health',lambda:require(admin.call('/netgo/v2/health')['site_id']==profile['ID'],'wrong site'))
         check('bootstrap_and_native_backend_not_public',lambda:require(all(admin.raw(path,'POST',b'{}')[0]==404 for path in ('/api/setup','/oauth2/netgo/native')),'private endpoint exposed'))
         check('protocol_required',lambda:require(admin.raw('/netgo/v2/site',headers={'Content-Type':'application/json'})[0]==426,'missing protocol accepted'))
-        check('admin_requires_authentication',lambda:rejected(lambda:admin.call('/netgo/v2/admin/state'),401))
+        check('admin_requires_authentication',lambda:rejected(lambda:admin.call('/netgo/v2/admin/summary'),401))
         check('wrong_password_rejected',lambda:rejected(lambda:Session(profile).login(alias,secrets.token_urlsafe(24)),401))
         check('real_dex_administrator_login',lambda:require(admin.login(alias,password)['user']['role']=='admin','wrong role'))
-        check('signed_administrator_state',lambda:require(admin.user['id'] in admin.call('/netgo/v2/admin/state')['users'],'administrator not registered'))
+        check('signed_administrator_state',lambda:require(admin.user['id'] in admin.admin_items('users','users'),'administrator not registered'))
         def replay():
-            path='/netgo/v2/admin/state';headers=admin.headers(path,'GET',None)
+            path='/netgo/v2/admin/summary';headers=admin.headers(path,'GET',None)
             require(admin.raw(path,headers=headers)[0]==200,'signed request failed')
             require(admin.raw(path,headers=headers)[0]==401,'replayed nonce accepted')
         check('request_replay_rejected',replay)
         def refresh():
-            path='/netgo/v2/admin/state';old=admin.headers(path,'GET',None)
+            path='/netgo/v2/admin/summary';old=admin.headers(path,'GET',None)
             admin.refresh()
             require(admin.raw(path,headers=old)[0]==401,'old bearer credential retained')
             admin.call(path)
@@ -145,13 +154,13 @@ def exercise(profile,alias,password,output,resource_cidr='198.19.240.2/32'):
         user=created['user'];user_password=created['initial_password'];normal=Session(profile,'')
         check('new_user_has_no_resources',lambda:require(user['resources']==[],'new user has unexpected LAN permissions'))
         check('normal_user_login',lambda:normal.login(test_alias,user_password))
-        check('normal_user_admin_denied',lambda:rejected(lambda:normal.call('/netgo/v2/admin/state'),403))
+        check('normal_user_admin_denied',lambda:rejected(lambda:normal.call('/netgo/v2/admin/summary'),403))
         rid='lab'+suffix
         resource={'id':rid,'name':'Isolated lab HTTP','cidr':resource_cidr,'protocol':'tcp','ports':[18080],'enabled':True}
         check('resource_create',lambda:admin.call('/netgo/v2/admin/resources/'+rid,'PUT',resource))
         user['resources']=[rid];user['max_devices']=1
         check('grant_explicit_resource',lambda:admin.call('/netgo/v2/admin/users/'+user['id'],'PUT',user))
-        check('permission_edit_invalidates_old_credential',lambda:rejected(lambda:normal.call('/netgo/v2/me'),401))
+        check('permission_edit_invalidates_old_credential',lambda:rejected(lambda:normal.call('/netgo/v2/site'),401))
         check('relogin_same_device_after_policy_change',lambda:normal.login(test_alias,user_password))
         check('device_quota_enforced',lambda:rejected(lambda:Session(profile,'').login(test_alias,user_password),error='device_limit'))
         def exported():

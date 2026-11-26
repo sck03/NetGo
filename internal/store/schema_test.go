@@ -35,13 +35,13 @@ func TestRejectOldDatabaseWithoutModification(t *testing.T) {
 	}
 }
 
-func TestRejectSchemaTwoWithoutMigration(t *testing.T) {
-	path := filepath.Join(t.TempDir(), "schema2.db")
+func TestRejectPreviousSchemaWithoutMigration(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "schema3.db")
 	db, err := sql.Open("sqlite", path)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if _, err = db.Exec("CREATE TABLE metadata(id INTEGER); PRAGMA application_id=1313296178; PRAGMA user_version=2"); err != nil {
+	if _, err = db.Exec("CREATE TABLE metadata(id INTEGER); PRAGMA application_id=1313296178; PRAGMA user_version=3"); err != nil {
 		t.Fatal(err)
 	}
 	db.Close()
@@ -49,7 +49,7 @@ func TestRejectSchemaTwoWithoutMigration(t *testing.T) {
 		if s != nil {
 			s.Close()
 		}
-		t.Fatal("accepted schema 2", err)
+		t.Fatal("accepted schema 3", err)
 	}
 	db, err = sql.Open("sqlite", path)
 	if err != nil {
@@ -57,7 +57,7 @@ func TestRejectSchemaTwoWithoutMigration(t *testing.T) {
 	}
 	defer db.Close()
 	var version int
-	if err = db.QueryRow("PRAGMA user_version").Scan(&version); err != nil || version != 2 {
+	if err = db.QueryRow("PRAGMA user_version").Scan(&version); err != nil || version != 3 {
 		t.Fatal("old database changed", version, err)
 	}
 }

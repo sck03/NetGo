@@ -61,4 +61,8 @@ std::string originHost(const std::string& origin);
 void validateProfile(const Json& p);
 Json profileEndpoints(const Json& profile,const std::string& direct,const std::string& auxiliary);
 void validateProfileUpdate(const Json& previous,const Json& next);
+std::string profileTrustIdentity(const Json& profile);
+Json decodeRememberedLogin(const Json& profile,const std::string& encoded);
+Json rememberedLogin(const Json& profile);
+void rememberLogin(const Json& profile,const std::string& alias,const std::string& password);
 }

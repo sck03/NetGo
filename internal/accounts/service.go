@@ -39,66 +39,6 @@ func unique(st *model.State, alias, email string) error {
 	}
 	return nil
 }
-func (s *Service) Create(ctx context.Context, b NewUser) (Created, error) {
-	var result Created
-	if !site.ValidID(b.Alias) || !strings.Contains(b.Email, "@") {
-		return result, errors.New("invalid alias/email")
-	}
-	release, ok := s.work.Try("alias:"+strings.ToLower(b.Alias), "email:"+strings.ToLower(b.Email))
-	if !ok {
-		return result, model.ErrConflict
-	}
-	defer release()
-	if e := s.Store.Read(func(st *model.State) error {
-		if err := authorization.CheckAdmin(ctx, st); err != nil {
-			return err
-		}
-		return unique(st, b.Alias, b.Email)
-	}); e != nil {
-		return result, e
-	}
-	var upstream struct {
-		ID       string `json:"id"`
-		Password string `json:"password"`
-	}
-	if s.Management == nil {
-		return result, errors.New("management unavailable")
-	}
-	if _, e := s.Management.Request(ctx, "POST", "/users", map[string]any{"email": b.Email, "name": b.Name, "role": "user", "auto_groups": []string{}, "is_service_user": false}, &upstream); e != nil {
-		return result, e
-	}
-	if upstream.ID == "" {
-		return result, errors.New("management returned no user ID")
-	}
-	u := model.User{ID: upstream.ID, Alias: b.Alias, Email: b.Email, Role: "user", MaxDevices: 3, MaxSessions: 1, Resources: []string{}}
-	owns := true
-	e := s.Store.Update(func(st *model.State) error {
-		if _, exists := st.Users[u.ID]; exists {
-			owns = false
-			return model.ErrConflict
-		}
-		if err := authorization.CheckAdmin(ctx, st); err != nil {
-			return err
-		}
-		if e := unique(st, b.Alias, b.Email); e != nil {
-			return e
-		}
-		st.Users[u.ID] = u
-		st.Record(authorization.Actor(ctx), "user.create", u.ID)
-		return nil
-	})
-	if e != nil && owns {
-		cleanup, cancel := context.WithTimeout(context.Background(), 5*time.Second)
-		defer cancel()
-		if _, err := s.Management.Request(cleanup, "DELETE", "/users/"+url.PathEscape(u.ID), nil, nil); err != nil {
-			return result, errors.New("user creation failed; upstream account cleanup required")
-		}
-	}
-	if e != nil {
-		return result, e
-	}
-	return Created{u, upstream.Password}, nil
-}
 func protectAdmin(st *model.State, u model.User) error {
 	if u.Role != "admin" {
 		return nil
@@ -243,10 +183,12 @@ func (s *Service) cleanup(ctx context.Context, id string) error {
 }
 
 func (s *Service) Retry(ctx context.Context) error {
+	creationErr := s.retryCreated(ctx)
 	items, err := s.Store.PendingUsers(time.Now(), 16)
 	if err != nil {
-		return err
+		return errors.Join(creationErr, err)
 	}
+	err = creationErr
 	for _, u := range items {
 		if ctx.Err() != nil {
 			return errors.Join(err, ctx.Err())

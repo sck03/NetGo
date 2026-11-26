@@ -2,6 +2,7 @@ package site
 
 import (
 	"bytes"
+	"crypto/x509"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -15,6 +16,7 @@ import (
 	"regexp"
 	"strconv"
 	"strings"
+	"unicode/utf8"
 )
 
 type Candidate struct {
@@ -101,11 +103,26 @@ func Load(path string) (Config, error) {
 	return c, e
 }
 func (p Profile) Validate() error {
+	return p.validate(true)
+}
+
+func (p Profile) validate(requireGateway bool) error {
 	if p.Protocol != model.Protocol || !ValidID(p.ID) {
 		return errors.New("unsupported protocol or invalid site ID")
 	}
 	if p.ConfigRevision > MaxConfigRevision {
 		return errors.New("invalid configuration revision")
+	}
+	if p.Name == "" || len(p.Name) > 256 || !utf8.ValidString(p.Name) {
+		return errors.New("invalid profile name")
+	}
+	if requireGateway || p.GatewayIP != "" {
+		if ip, err := netip.ParseAddr(p.GatewayIP); err != nil || !ip.Is4() {
+			return errors.New("invalid gateway IPv4 address")
+		}
+	}
+	if len(p.CA) > 32*1024 || (p.CA != "" && !x509.NewCertPool().AppendCertsFromPEM([]byte(p.CA))) {
+		return errors.New("invalid profile CA")
 	}
 	u, e := url.Parse(p.Origin)
 	if e != nil || u.Scheme != "https" || u.Hostname() == "" || u.User != nil || u.RawQuery != "" || u.Fragment != "" || u.Path != "" || strings.HasSuffix(u.Host, ":") {
@@ -148,7 +165,9 @@ func (p Profile) Validate() error {
 	return nil
 }
 func (c Config) Validate() error {
-	if e := c.Site.Validate(); e != nil {
+	// The server is configured before its gateway has enrolled in NetBird.
+	// Exported client profiles still require an assigned IPv4 address.
+	if e := c.Site.validate(false); e != nil {
 		return e
 	}
 	h, port, e := net.SplitHostPort(c.Listen)

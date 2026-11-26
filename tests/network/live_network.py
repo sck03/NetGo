@@ -306,7 +306,7 @@ while True:
             # Freeze both product processes, preserving the actual kernel timeout;
             # a graceful stop would revoke immediately and would not test expiry.
             c.product.kill();c.product.wait(timeout=5)
-            live=admin.call('/netgo/v2/admin/state')['leases'][replacement['lease']['id']]
+            live=admin.admin_items('sessions','leases')[replacement['lease']['id']]
             expiry=datetime.fromisoformat(live['expires_at'].replace('Z','+00:00')).timestamp()
             frozen=True
             command(['systemctl','kill','--kill-whom=main','--signal=STOP','netgo-server','netgo-helper'])
@@ -324,7 +324,7 @@ while True:
             raise AssertionError('kernel allowed traffic beyond lease expiry')
         check('kernel_timeout_blocks_noncooperating_client_with_both_services_frozen',kernel_expiry)
         resumed()
-        check('control_service_recovers_after_resume',lambda:admin.call('/netgo/v2/admin/state'))
+        check('control_service_recovers_after_resume',lambda:admin.call('/netgo/v2/admin/summary'))
         for client in (a,b):
             check('disconnect_'+client.name[-1],client.disconnect)
             check('route_cleanup_'+client.name[-1],lambda item=client:require('wt0' not in item.exec(['ip','route','show','table','all']),'tunnel route remained after disconnect'))

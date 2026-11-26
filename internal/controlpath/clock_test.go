@@ -21,7 +21,7 @@ func TestTrustedServerClockIsIndependentOfClientWallClock(t *testing.T) {
 				json.NewEncoder(w).Encode(protocol.Health{Protocol: 2, SiteID: "clock", Capabilities: protocol.Capabilities(), ServerUnix: remote.Unix()})
 			}))
 			defer server.Close()
-			profile := site.Profile{ID: "clock", Protocol: 2, Origin: server.URL, CA: string(pem.EncodeToMemory(&pem.Block{Type: "CERTIFICATE", Bytes: server.Certificate().Raw})), Candidates: []site.Candidate{{ID: "local", Kind: "direct", Address: strings.TrimPrefix(server.URL, "https://")}}}
+			profile := site.Profile{Name: "Test site", GatewayIP: "100.96.0.1", ID: "clock", Protocol: 2, Origin: server.URL, CA: string(pem.EncodeToMemory(&pem.Block{Type: "CERTIFICATE", Bytes: server.Certificate().Raw})), Candidates: []site.Candidate{{ID: "local", Kind: "direct", Address: strings.TrimPrefix(server.URL, "https://")}}}
 			selector, err := New(profile)
 			if err != nil {
 				t.Fatal(err)

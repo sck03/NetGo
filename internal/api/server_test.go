@@ -89,7 +89,7 @@ func TestSignedAPIReplayAndRoleBoundary(t *testing.T) {
 		st.Credentials[model.Hash(token)] = model.Credential{UserID: "u", DeviceID: "d", ExpiresAt: time.Now().Add(time.Hour)}
 		return nil
 	})
-	server := Server{Store: s, Config: site.Config{Site: site.Profile{ID: "site1", Origin: "https://site.test"}}}
+	server := Server{Store: s, Config: site.Config{Site: site.Profile{ID: "site1", Name: "Test", Protocol: 2, Origin: "https://site.test", GatewayIP: "100.96.0.1", Candidates: []site.Candidate{{ID: "direct", Kind: "direct", Address: "site.test:443"}}}}}
 	handler := server.Handler()
 	makeReq := func(path, nonce string) *http.Request {
 		r := httptest.NewRequest("GET", path, nil)
@@ -102,14 +102,14 @@ func TestSignedAPIReplayAndRoleBoundary(t *testing.T) {
 		return r
 	}
 	nonce := model.ID()
-	r := makeReq("/netgo/v2/me", nonce)
+	r := makeReq("/netgo/v2/site", nonce)
 	w := httptest.NewRecorder()
 	handler.ServeHTTP(w, r)
 	if w.Code != 200 {
 		t.Fatal(w.Code, w.Body.String())
 	}
 	w = httptest.NewRecorder()
-	handler.ServeHTTP(w, makeReq("/netgo/v2/me", nonce))
+	handler.ServeHTTP(w, makeReq("/netgo/v2/site", nonce))
 	if w.Code != 401 {
 		t.Fatal("replay accepted", w.Code)
 	}
@@ -117,6 +117,12 @@ func TestSignedAPIReplayAndRoleBoundary(t *testing.T) {
 	handler.ServeHTTP(w, makeReq("/netgo/v2/admin/state", model.ID()))
 	if w.Code != 403 {
 		t.Fatal("ordinary user reached admin", w.Code)
+	}
+	server.Config.Site.GatewayIP = ""
+	w = httptest.NewRecorder()
+	handler.ServeHTTP(w, makeReq("/netgo/v2/site", model.ID()))
+	if w.Code != http.StatusServiceUnavailable {
+		t.Fatal("exported an incomplete bootstrap profile", w.Code)
 	}
 }
 func TestHealthMinimalAndCrossOriginBlocked(t *testing.T) {

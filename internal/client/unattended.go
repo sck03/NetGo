@@ -25,13 +25,6 @@ func unattendedKey(id string) string {
 	sum := sha256.Sum256([]byte("remote-login/" + id))
 	return hex.EncodeToString(sum[:])
 }
-func profileIdentity(p site.Profile) string {
-	// Public connection discovery can change. Trust-anchor changes must require
-	// a new local login before unattended access can resume.
-	b, _ := json.Marshal(struct{ ID, Origin, CA string }{p.ID, p.Origin, p.CA})
-	sum := sha256.Sum256(b)
-	return hex.EncodeToString(sum[:])
-}
 func (c *Controller) saveVerifiedLogin(gen uint64, p site.Profile, alias, password string, internet bool) error {
 	c.mu.Lock()
 	defer c.mu.Unlock()
@@ -41,7 +34,7 @@ func (c *Controller) saveVerifiedLogin(gen uint64, p site.Profile, alias, passwo
 	if c.Vault == nil || alias == "" || password == "" {
 		return errors.New("unattended_credentials_required")
 	}
-	b, e := json.Marshal(unattendedLogin{p.ID, alias, password, profileIdentity(p), internet})
+	b, e := json.Marshal(unattendedLogin{p.ID, alias, password, site.TrustIdentity(p), internet})
 	if e != nil {
 		return e
 	}
@@ -99,7 +92,7 @@ func (c *Controller) RestoreUnattended() error {
 		return e
 	}
 	var p site.Profile
-	if json.Unmarshal(b, &p) != nil || p.Validate() != nil || profileIdentity(p) != login.Profile {
+	if json.Unmarshal(b, &p) != nil || p.Validate() != nil || site.TrustIdentity(p) != login.Profile {
 		return errors.New("unattended_trust_changed")
 	}
 	status := c.Status()

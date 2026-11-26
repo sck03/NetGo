@@ -55,18 +55,6 @@ func (s *Store) RemoteTargetUpdate(c model.Credential, id, host string, fn func(
 	return s.updateWith(remoteTarget(c, id, host), fn)
 }
 
-// VPN renewals must see active remote routes when expiry removes a lease, but
-// never need old tickets or remote idempotency responses.
-func (s *Store) VPNUpdate(fn func(*model.State) error) error {
-	return s.updateWith(func(tx *sql.Tx) (model.State, error) {
-		st, err := read(tx, allTables & ^(remoteSessions|remoteOperations))
-		if err == nil {
-			err = readRows(tx, "remote_sessions", st.RemoteSessions, "WHERE state IN ('issued','active')")
-		}
-		return st, err
-	}, fn)
-}
-
 func (s *Store) RemoteSweep(now time.Time, fn func(*model.State) error) error {
 	return s.updateWith(func(tx *sql.Tx) (model.State, error) {
 		st, err := read(tx, remoteTables & ^(remoteSessions|remoteOperations))

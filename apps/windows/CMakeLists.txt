@@ -11,7 +11,7 @@ find_path(JSON_INCLUDE nlohmann/json.hpp REQUIRED)
 
 # The desktop only uses the OS, public profiles and local IPC. TLS, device
 # signatures, connection state and the VPN process adapter belong to the agent.
-add_library(netgo-platform STATIC src/platform.cpp src/profile.cpp src/ipc.cpp)
+add_library(netgo-platform STATIC src/platform.cpp src/profile.cpp src/remembered_login.cpp src/ipc.cpp)
 target_include_directories(netgo-platform PUBLIC include ${JSON_INCLUDE})
 target_compile_definitions(netgo-platform PUBLIC UNICODE _UNICODE WIN32_LEAN_AND_MEAN NOMINMAX _WIN32_WINNT=0x0A00)
 target_link_libraries(netgo-platform PUBLIC ws2_32 crypt32 advapi32 bcrypt)

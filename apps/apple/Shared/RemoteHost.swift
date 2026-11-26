@@ -15,7 +15,8 @@ final class RemoteHost {
     var changed: ((String) -> Void)?
     func start(site: String, unattended: Bool, control: @escaping (String,String,String,String) throws -> String) {
         stop()
-        guard ng_apple_host_permissions() == 0 else { changed?("请在系统设置中允许 NetGo 屏幕录制与辅助功能权限，再重新开启共享"); return }
+        let capabilities = ng_apple_host_capabilities(1)
+        guard capabilities & 1 != 0 else { changed?("请在系统设置中允许 NetGo 屏幕录制，再重新开启共享"); return }
         lock.lock(); let epoch=generation; lock.unlock()
         queue.async { [self] in
             lock.lock(); guard generation==epoch else { lock.unlock(); return }; running=true; lock.unlock()
@@ -26,7 +27,7 @@ final class RemoteHost {
             do { try FileManager.default.createDirectory(at:directory,withIntermediateDirectories:true,attributes:[.posixPermissions:0o700]) } catch { report("无法创建文件交换目录"); return }
             let sitePointer=strdup(site), name=strdup(Host.current().localizedName ?? "Mac"), platform=strdup("macos"), folder=strdup(directory.path)
             defer { free(sitePointer); free(name); free(platform); free(folder) }
-            var o=ng_remote_host_options(); o.struct_size=UInt32(MemoryLayout<ng_remote_host_options>.size);o.abi_version=UInt32(NG_REMOTE_HOST_ABI);o.site_id=UnsafePointer(sitePointer);o.name=UnsafePointer(name);o.platform=UnsafePointer(platform);o.exchange_directory=UnsafePointer(folder);o.capabilities=59;o.unattended=unattended ? 1:0;o.context=Unmanaged.passUnretained(self).toOpaque()
+            var o=ng_remote_host_options(); o.struct_size=UInt32(MemoryLayout<ng_remote_host_options>.size);o.abi_version=UInt32(NG_REMOTE_HOST_ABI);o.site_id=UnsafePointer(sitePointer);o.name=UnsafePointer(name);o.platform=UnsafePointer(platform);o.exchange_directory=UnsafePointer(folder);o.capabilities=capabilities;o.unattended=unattended ? 1:0;o.context=Unmanaged.passUnretained(self).toOpaque()
             o.active = { ctx in let h=Unmanaged<RemoteHost>.fromOpaque(ctx!).takeUnretainedValue(); h.lock.lock(); defer { h.lock.unlock() };return h.running ? 1:0 }
             o.control = { ctx,method,path,body,_,output,capacity,length in
                 let h=Unmanaged<RemoteHost>.fromOpaque(ctx!).takeUnretainedValue()
@@ -49,7 +50,7 @@ final class RemoteHost {
             o.input = { ctx,text,size in let host=Unmanaged<RemoteHost>.fromOpaque(ctx!).takeUnretainedValue();return ng_apple_host_media_input(host.media,text,size) }
             o.close = { ctx in let host=Unmanaged<RemoteHost>.fromOpaque(ctx!).takeUnretainedValue();ng_apple_host_media_close(host.media) }
             o.clipboard=ng_apple_host_clipboard
-            o.status = { ctx,code in let host=Unmanaged<RemoteHost>.fromOpaque(ctx!).takeUnretainedValue();let value=String(cString:code!);let messages=["remote_host_waiting":"桌面共享已开启，等待本机确认连接","remote_host_unattended":"无人值守共享已开启，仅接受站点授权账号","remote_host_connected":"正在共享桌面（GPU 硬件编码）","remote_host_stopped":"桌面共享已停止"];host.report(messages[value] ?? value) }
+            o.status = { ctx,code in let host=Unmanaged<RemoteHost>.fromOpaque(ctx!).takeUnretainedValue();let value=String(cString:code!);let messages=["remote_host_waiting":"桌面共享已开启，等待本机确认连接","remote_host_unattended":"无人值守共享已开启，仅接受站点授权账号","remote_host_connected":"正在共享桌面","remote_host_stopped":"桌面共享已停止"];let hint = ng_apple_host_capabilities(0) & 2 == 0 && value != "remote_host_stopped" ? "；仅查看，允许辅助功能后重新共享可启用键鼠" : "";host.report((messages[value] ?? value)+hint) }
             var created:OpaquePointer?;guard ng_remote_host_create(&o,&created)==0,let created else { report("无法启动桌面共享");return }
             lock.lock();handle=created;if !running { ng_remote_host_cancel(created) };lock.unlock();_ = ng_remote_host_run(created);lock.lock();handle=nil;lock.unlock();ng_remote_host_destroy(created)
         }

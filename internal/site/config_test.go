@@ -26,7 +26,7 @@ func TestOversizedJSONAndNamedCandidatePortsRejected(t *testing.T) {
 	if Decode(strings.NewReader("{}"+strings.Repeat(" ", 1<<20)), &p) == nil {
 		t.Fatal("oversized JSON tail silently ignored")
 	}
-	p = Profile{Protocol: 2, ID: "test", Origin: "https://site.test", Candidates: []Candidate{{ID: "direct", Kind: "direct", Address: "site.test:https"}}}
+	p = Profile{Name: "Test site", GatewayIP: "100.96.0.1", Protocol: 2, ID: "test", Origin: "https://site.test", Candidates: []Candidate{{ID: "direct", Kind: "direct", Address: "site.test:https"}}}
 	if p.Validate() == nil {
 		t.Fatal("Go exported a candidate the native client cannot accept")
 	}
@@ -37,7 +37,7 @@ func TestOversizedJSONAndNamedCandidatePortsRejected(t *testing.T) {
 	}
 }
 func TestStandaloneCandidateRequired(t *testing.T) {
-	p := Profile{Protocol: 2, ID: "site", Origin: "https://site.test", Candidates: []Candidate{{ID: "vps", Kind: "auxiliary", Address: "vps.test:443"}}}
+	p := Profile{Name: "Test site", GatewayIP: "100.96.0.1", Protocol: 2, ID: "site", Origin: "https://site.test", Candidates: []Candidate{{ID: "vps", Kind: "auxiliary", Address: "vps.test:443"}}}
 	if p.Validate() == nil {
 		t.Fatal("VPS-only configuration accepted")
 	}

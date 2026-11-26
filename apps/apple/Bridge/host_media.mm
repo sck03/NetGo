@@ -297,12 +297,13 @@ extern "C" void *ng_apple_host_media_create() {
     }
 }
 extern "C" void ng_apple_host_media_destroy(void *p) { delete static_cast<HostMedia *>(p); }
-extern "C" int32_t ng_apple_host_permissions() {
+extern "C" uint32_t ng_apple_host_capabilities(int32_t request) {
     bool screen = CGPreflightScreenCaptureAccess();
-    if (!screen)
+    if (!screen && request)
         screen = CGRequestScreenCaptureAccess();
-    NSDictionary *options = @{(__bridge NSString *)kAXTrustedCheckOptionPrompt : @YES};
-    return screen && AXIsProcessTrustedWithOptions((__bridge CFDictionaryRef)options) ? 0 : -1;
+    if (!screen) return 0;
+    // Screen, clipboard and file exchange do not require input trust.
+    return 57u | (AXIsProcessTrusted() ? 2u : 0u);
 }
 extern "C" int32_t ng_apple_host_media_open(void *p, uint32_t caps, uint32_t *w, uint32_t *height,
                                             uint32_t *fps) {

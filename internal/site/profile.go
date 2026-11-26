@@ -1,6 +1,9 @@
 package site
 
 import (
+	"crypto/sha256"
+	"encoding/hex"
+	"encoding/json"
 	"errors"
 	"net/url"
 	"reflect"
@@ -9,6 +12,20 @@ import (
 
 // JSON revisions must remain exact in both native clients and browser tooling.
 const MaxConfigRevision uint64 = 1<<53 - 1
+
+// TrustIdentity excludes discovery addresses, ports and display names. A
+// versioned endpoint update must not invalidate credentials for the same trust
+// root, while replacing the authority or CA always requires a fresh login.
+func TrustIdentity(p Profile) string {
+	u, _ := url.Parse(p.Origin)
+	host := ""
+	if u != nil {
+		host = strings.ToLower(u.Hostname())
+	}
+	b, _ := json.Marshal([]any{p.Protocol, p.ID, host, p.CA})
+	sum := sha256.Sum256(b)
+	return hex.EncodeToString(sum[:])
+}
 
 // CheckProfileUpdate never accepts a new trust root under an existing identity.
 // Revision zero is reserved for a locally created bootstrap profile. Once

@@ -12,6 +12,19 @@ int main(int argc,char** argv){
   require(OpenSSL_version_num()==OPENSSL_VERSION_NUMBER,"OpenSSL header/library version mismatch");
   std::cout<<"Linked "<<OpenSSL_version(OPENSSL_VERSION)<<'\n';
   WSADATA wsa{};WSAStartup(MAKEWORD(2,2),&wsa);
+  {
+   auto original=profile();auto changed=original;
+   const auto saved=Json({{"alias","user"},{"password","test-secret"},{"profile",profileTrustIdentity(original)}}).dump();
+   require(decodeRememberedLogin(original,saved).contains("password"),"bound credentials lost");
+   changed["Origin"]="https://SITE.example:11443";changed["Name"]="Renamed";
+   require(decodeRememberedLogin(changed,saved).contains("password"),"port/name change lost credentials");
+   for(const auto& key:{"ID","Origin","CA"}){
+    changed=original;changed[key]=std::string(key)=="Origin"?"https://other.example":"changed";
+    require(decodeRememberedLogin(changed,saved).empty(),"trust replacement reused password");
+   }
+   require(decodeRememberedLogin(original,R"({"alias":"user","password":"test-secret"})").empty(),"unbound credentials reused");
+   require(decodeRememberedLogin(original,"invalid").empty(),"invalid credential record accepted");
+  }
   if(argc==3&&std::string(argv[1])=="--profile-contract"){
    auto fixture=Json::parse(readFile(wide(argv[2])));
    for(const auto& test:fixture.at("cases")){

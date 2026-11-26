@@ -69,7 +69,9 @@ I01–I10 尚未完成。门禁单元测试、采集探针、VPN 网络测试分
 
 ## 6. 当前接口与后续验收
 
-- 概览和诊断轮询 `GET /netgo/v2/admin/summary`，只返回 counts、策略版本/错误与运行指标。账号、资源、设备列表使用 `GET /netgo/v2/admin/state?section=users|resources|sessions&after=<cursor>`，每页 50 项、响应 next_after；用户编辑加载资源选项，设备页保留租约及账号标签。远控授权页通过 section=remote 取得账号选择项。
+- 概览和诊断轮询 `GET /netgo/v2/admin/summary`，只返回 counts、策略版本/错误与运行指标。列表使用 `GET /netgo/v2/admin/state?section=users|resources|sessions|devices&after=<cursor>`，每页 50 项、响应 next_after。sessions 按有效租约分页并附对应设备/账号标签，devices 单独分页；两者游标互不影响，过期或已停用账号的租约不显示为有效会话。用户编辑加载完整资源选项，远控授权页通过 section=remote 取得账号选择项。缺少 section 的旧全量接口不再支持；未使用的 `/netgo/v2/me` 已删除，认证探测使用 `/netgo/v2/site`。
+- Go/Windows 客户端站点名为 1–256 UTF-8 字节，GatewayIP 必须是 IPv4，非空 CA 必须可解析且不超过 32 KiB。服务器初始化允许尚未分配网关 IP，但禁止向客户端导出未完成配置。保存的密码绑定协议、ID、HTTPS 主机名（忽略大小写）和 CA，候选地址/端口/显示名不属于信任锚点。
+- 账号创建补偿使用 schema 4 的 account_cleanups 独立表；后台重试共用账号服务实例及每个上游 ID 的互斥任务。VPN 续租读取完整网关租约集、租约所有者、当前资源及活动远控依赖，不读取闲置身份和历史操作；网关应用仍位于数据库提交边界内。
 - 管理状态不再包含 audit；通过 GET /netgo/v2/admin/audit?before=<sequence> 分页，每次最多 100 条，next_before 为 0 表示没有更早记录。
 - 主机接受 windows/macos/linux、显式本地无人值守策略及实际实现的六项能力。登记必须提供每次启动生成的 transport_key；重启关闭旧会话。保留不可连接主机的状态和有效能力；客户端只允许 ready 状态发起连接。
 - /netgo/v2/remote/key 已移除，授权响应包含 site_key；所有内置客户端同步使用这一响应。
@@ -78,7 +80,7 @@ I01–I10 尚未完成。门禁单元测试、采集探针、VPN 网络测试分
 
 ## 7. 本轮接口与生命周期约束（2026-11-26）
 
-- `health.server_unix` 必填，Go、Windows、Web 使用相同范围校验。只支持当前 API v2/schema 3，不保留缺失时间字段的旧服务端回退。
+- `health.server_unix` 必填，Go、Windows、Web 使用相同范围校验。只支持当前 API v2/schema 4，不保留缺失时间字段的旧服务端回退。
 - 设备删除先提交本地撤权：移除凭据、VPN 租约、被控登记、相关授权及远控会话。上游删除失败返回 HTTP 202 `{deleted:false,cleanup_pending:true}`，设备显示 `delete_pending:true`，禁止重新签发该设备凭据。后台清理独立于租约过期检查，每分钟扫描到期待重试项；单项超时 2 秒，失败按 1–32 分钟退避并继续处理其他项。账号删除采用相同的 202、delete_pending 和持久化重试语义，待删除账号禁止恢复权限；上游 404 视为成功。管理页区分已完成与待清理，支持手动重试。
 - 认证事务只在实际注册的匿名路由限流：直接来源最多 90 请求/分钟、全局最多 900；本机 TLS 代理共享全局预算，不信任任意转发头。签名验证通过后的刷新按设备独立限制 12 次/分钟；账号失败尝试仍独立限制 5 次/分钟，成功登录不占失败预算。
 - `GET /netgo/v2/remote` 只返回当前活动会话；`next_generation` 仍计入保留的历史会话。`GET /netgo/v2/admin/remote/history?before=<cursor>&limit=50` 返回 `{sessions,next_before}`，上限 100，管理员专用。created_at 为毫秒精度、不可变的创建时间；issued_at 是当前票据签发时间；closed_at 记录首次关闭，关闭后保留 24 小时。按 created_at 与 ID 组合倒序分页；next_before 为不透明游标，客户端原样回传，即使上页末行已清理仍能继续分页。控制凭据字段不对外返回。

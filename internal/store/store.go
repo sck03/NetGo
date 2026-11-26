@@ -1,4 +1,4 @@
-// Package store owns schema 3. There is intentionally no earlier-schema migration or
+// Package store owns schema 4. There is intentionally no earlier-schema migration or
 // dual-write path: a deployment must initialize a new database directory.
 package store
 
@@ -19,7 +19,7 @@ import (
 
 const applicationID = 0x4e474f32
 
-var ErrSchema = errors.New("database_schema_incompatible: initialize a fresh schema-3 database")
+var ErrSchema = errors.New("database_schema_incompatible: initialize a fresh schema-4 database")
 
 type Store struct {
 	mu sync.Mutex

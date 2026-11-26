@@ -9,6 +9,11 @@ import (
 	"time"
 )
 
+const activeLeaseFilter = `julianday(json_extract(l.data,'$.expires_at'))>julianday(?)
+ AND coalesce(json_extract(u.data,'$.disabled'),0)=0
+ AND coalesce(json_extract(u.data,'$.delete_pending'),0)=0
+ AND (json_extract(u.data,'$.expires_at') LIKE '0001-%' OR julianday(json_extract(u.data,'$.expires_at'))>julianday(?))`
+
 // Summary counts rows inside the same snapshot as policy status without loading
 // user, device or lease bodies into the overview poll.
 func (s *Store) AdminSummary(now time.Time) (model.State, map[string]int, error) {
@@ -22,9 +27,7 @@ func (s *Store) AdminSummary(now time.Time) (model.State, map[string]int, error)
 		err = tx.QueryRow(`SELECT (SELECT count(*) FROM users),
    (SELECT count(*) FROM resources WHERE json_extract(data,'$.protocol')<>'internet'),
    (SELECT count(*) FROM devices WHERE coalesce(json_extract(data,'$.client_type'),'')<>'admin'),
-   (SELECT count(*) FROM vpn_leases l JOIN users u ON l.user_id=u.id WHERE
-    julianday(json_extract(l.data,'$.expires_at'))>julianday(?1) AND coalesce(json_extract(u.data,'$.disabled'),0)=0 AND
-    coalesce(json_extract(u.data,'$.delete_pending'),0)=0 AND (json_extract(u.data,'$.expires_at') LIKE '0001-%' OR julianday(json_extract(u.data,'$.expires_at'))>julianday(?1)))`, now.UTC().Format(time.RFC3339Nano)).Scan(&users, &resources, &devices, &leases)
+	   (SELECT count(*) FROM vpn_leases l JOIN users u ON l.user_id=u.id WHERE `+activeLeaseFilter+`)`, now.UTC().Format(time.RFC3339Nano), now.UTC().Format(time.RFC3339Nano)).Scan(&users, &resources, &devices, &leases)
 		counts = map[string]int{"users": users, "resources": resources, "devices": devices, "leases": leases}
 		return st, err
 	})
@@ -53,16 +56,23 @@ func (s *Store) AdminPage(section, before string, limit int) (model.State, strin
 		case "resources":
 			err = readRows(tx, "resources", st.Resources, "WHERE id>? ORDER BY id LIMIT ?", before, limit+1)
 			next = trimPage(st.Resources, limit)
-		case "sessions":
-			err = readRows(tx, "devices", st.Devices, "WHERE id>? AND coalesce(json_extract(data,'$.client_type'),'')<>'admin' ORDER BY id LIMIT ?", before, limit+1)
-			next = trimPage(st.Devices, limit)
-			if err == nil {
-				ids := make([]string, 0, len(st.Devices))
-				for id := range st.Devices {
-					ids = append(ids, id)
+		case "sessions", "devices":
+			if section == "devices" {
+				err = readRows(tx, "devices", st.Devices, "WHERE id>? AND coalesce(json_extract(data,'$.client_type'),'')<>'admin' ORDER BY id LIMIT ?", before, limit+1)
+				next = trimPage(st.Devices, limit)
+			} else {
+				now := time.Now().UTC().Format(time.RFC3339Nano)
+				err = readRows(tx, "vpn_leases", st.Leases, `WHERE id>? AND id IN
+				 (SELECT l.id FROM vpn_leases l JOIN users u ON l.user_id=u.id WHERE `+activeLeaseFilter+`) ORDER BY id LIMIT ?`, before, now, now, limit+1)
+				next = trimPage(st.Leases, limit)
+				if err == nil {
+					ids := make([]string, 0, len(st.Leases))
+					for _, lease := range st.Leases {
+						ids = append(ids, lease.DeviceID)
+					}
+					raw, _ := json.Marshal(ids)
+					err = readRows(tx, "devices", st.Devices, "WHERE id IN (SELECT value FROM json_each(?))", string(raw))
 				}
-				raw, _ := json.Marshal(ids)
-				err = readRows(tx, "vpn_leases", st.Leases, "WHERE device_id IN (SELECT value FROM json_each(?))", string(raw))
 			}
 			if err == nil {
 				ids := map[string]bool{}

@@ -6,7 +6,8 @@ extern "C" {
 #endif
 void *ng_apple_host_media_create(void);
 void ng_apple_host_media_destroy(void *);
-int32_t ng_apple_host_permissions(void);
+// Returns the capabilities permitted now; request prompts only for screen capture.
+uint32_t ng_apple_host_capabilities(int32_t request);
 int32_t ng_apple_host_media_open(void *, uint32_t, uint32_t *, uint32_t *, uint32_t *);
 int32_t ng_apple_host_media_poll(void *, uint32_t *, uint8_t *, size_t, size_t *);
 int32_t ng_apple_host_media_input(void *, const char *, size_t);

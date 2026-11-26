@@ -1,6 +1,8 @@
 # 各平台构建与 Releases 发布
 
-本地体积清理：在 Windows 项目根运行 scripts/clean-workspace.ps1 预览，追加 -Apply 执行；-IncludeSDK 会额外删除可重建的 Android NDK、平台、构建工具及移动端编译缓存，保留 SDK 命令行工具/许可和签名文件。清理后 npm ci 恢复 Web 依赖；正常 Android 构建脚本会按锁定版本重新安装 SDK 组件、OpenSSL 和 Go 绑定，需可用网络。已清除 AAR 时不要使用 --skip-bind。运行中的引擎、身份、站点配置、数据库均不属于自动清理范围。
+本地体积清理：在 Windows 项目根运行 scripts/clean-workspace.ps1 预览，追加 -Apply 执行；-IncludeTestData 清除安装器实验样例和旧清理统计文件；-IncludeSDK 会额外删除可重建的 Android NDK、平台、构建工具及移动端编译缓存，保留 SDK 命令行工具/许可和签名文件。清理后 npm ci 恢复 Web 依赖；正常 Android 构建脚本会按锁定版本重新安装 SDK 组件、OpenSSL 和 Go 绑定，需可用网络。已清除 AAR 时不要使用 --skip-bind。运行中的引擎、身份、站点配置、数据库均不属于自动清理范围。
+
+macOS 构建脚本在原生构建前运行独立的连接协调器回归，覆盖取消已排队的自动恢复、安装提示不阻塞断开、断开先于随后重连。Windows 开发机不能执行这项 Swift/macOS 检查；以 macOS runner 的输出为准。
 
 七个客户端/节点工作流保持独立。到 GitHub Actions 选择目标工作流，点击 **Run workflow** 后可以填写版本、架构和发布选项。
 
@@ -18,7 +20,7 @@
 | Apple build_number | macOS/iOS Bundle 构建号 | 1 |
 | iOS sdk | both、iphoneos 设备版、iphonesimulator 模拟器版 | both |
 
-版本会传给程序内版本信息、Windows 文件属性、Android versionName、Apple Bundle 信息和包名。Apple 标准版本字段使用数字部分，NetGoBuildVersion 保留完整版本及预发布后缀。API v2/schema 3 与发行版本号分别管理。
+版本会传给程序内版本信息、Windows 文件属性、Android versionName、Apple Bundle 信息和包名。Apple 标准版本字段使用数字部分，NetGoBuildVersion 保留完整版本及预发布后缀。API v2/schema 4 与发行版本号分别管理。
 
 自动 push 构建使用 VERSION 文件的版本，**不发布 Releases**。只有手动运行且勾选 publish 才进入具有 `contents: write` 权限的发布任务。失败的构建不进入发布。
 

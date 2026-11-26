@@ -42,7 +42,7 @@ func TestAuthenticatedProfileSyncProbesBeforePersisting(t *testing.T) {
 		_ = json.NewEncoder(w).Encode(published.Load())
 	}))
 	defer server.Close()
-	old := site.Profile{ID: "site", Name: "My name", Protocol: 2, ConfigRevision: 2, Origin: server.URL, CA: string(pem.EncodeToMemory(&pem.Block{Type: "CERTIFICATE", Bytes: server.Certificate().Raw})), Candidates: []site.Candidate{{ID: "old", Kind: "direct", Address: strings.TrimPrefix(server.URL, "https://")}}}
+	old := site.Profile{GatewayIP: "100.96.0.1", ID: "site", Name: "My name", Protocol: 2, ConfigRevision: 2, Origin: server.URL, CA: string(pem.EncodeToMemory(&pem.Block{Type: "CERTIFICATE", Bytes: server.Certificate().Raw})), Candidates: []site.Candidate{{ID: "old", Kind: "direct", Address: strings.TrimPrefix(server.URL, "https://")}}}
 	for _, scenario := range []string{"success", "stale", "bad-entry", "trust-change"} {
 		t.Run(scenario, func(t *testing.T) {
 			controller := &Controller{Root: t.TempDir()}
@@ -90,7 +90,7 @@ func TestAuthenticatedProfileSyncProbesBeforePersisting(t *testing.T) {
 }
 
 func TestExplicitImportTrustAndRevision(t *testing.T) {
-	old := site.Profile{ID: "site", Name: "Site", Protocol: 2, ConfigRevision: 2, Origin: "https://old.example:10443", Candidates: []site.Candidate{{ID: "wan", Kind: "direct", Address: "old.example:10443"}}}
+	old := site.Profile{GatewayIP: "100.96.0.1", ID: "site", Name: "Site", Protocol: 2, ConfigRevision: 2, Origin: "https://old.example:10443", Candidates: []site.Candidate{{ID: "wan", Kind: "direct", Address: "old.example:10443"}}}
 	for _, tc := range []struct {
 		name     string
 		trusted  bool

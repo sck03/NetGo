@@ -130,7 +130,7 @@ def main():
             states=check('ten_authorized_sessions_with_bounded_login_rate_retry',connect_all)
             check('ten_distinct_verified_peer_identities',lambda:require(len({state['lease']['peer_id'] for state in states})==count,'clients shared a peer identity'))
             def active():
-                leases=admin.call('/netgo/v2/admin/state')['leases']
+                leases=admin.admin_items('sessions','leases')
                 require(sum(lease['user_id']==user['id'] for lease in leases.values())==count,'active lease count differs')
             check('ten_current_server_authorized_sessions',active)
             def all_payloads():

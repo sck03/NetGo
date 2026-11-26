@@ -27,7 +27,7 @@ func testSite(t *testing.T, siteID string) *httptest.Server {
 }
 func TestFallbackKeepsCanonicalTLSIdentity(t *testing.T) {
 	srv := testSite(t, "site1")
-	p := site.Profile{ID: "site1", Protocol: 2, Origin: srv.URL, CA: string(pem.EncodeToMemory(&pem.Block{Type: "CERTIFICATE", Bytes: srv.Certificate().Raw})), Candidates: []site.Candidate{{ID: "local", Kind: "direct", Address: "127.0.0.1:1"}, {ID: "vps", Kind: "auxiliary", Address: strings.TrimPrefix(srv.URL, "https://")}}}
+	p := site.Profile{Name: "Test site", GatewayIP: "100.96.0.1", ID: "site1", Protocol: 2, Origin: srv.URL, CA: string(pem.EncodeToMemory(&pem.Block{Type: "CERTIFICATE", Bytes: srv.Certificate().Raw})), Candidates: []site.Candidate{{ID: "local", Kind: "direct", Address: "127.0.0.1:1"}, {ID: "vps", Kind: "auxiliary", Address: strings.TrimPrefix(srv.URL, "https://")}}}
 	s, e := New(p)
 	if e != nil {
 		t.Fatal(e)
@@ -49,7 +49,7 @@ func TestFallbackKeepsCanonicalTLSIdentity(t *testing.T) {
 }
 func TestRejectWrongSiteAndUntrustedTLS(t *testing.T) {
 	srv := testSite(t, "wrong")
-	p := site.Profile{ID: "expected", Protocol: 2, Origin: srv.URL, Candidates: []site.Candidate{{ID: "local", Kind: "direct", Address: strings.TrimPrefix(srv.URL, "https://")}}}
+	p := site.Profile{Name: "Test site", GatewayIP: "100.96.0.1", ID: "expected", Protocol: 2, Origin: srv.URL, Candidates: []site.Candidate{{ID: "local", Kind: "direct", Address: strings.TrimPrefix(srv.URL, "https://")}}}
 	s, _ := New(p)
 	if _, e := s.Select(context.Background()); e == nil {
 		t.Fatal("untrusted TLS accepted")
@@ -64,7 +64,7 @@ func TestRejectWrongSiteAndUntrustedTLS(t *testing.T) {
 func TestMultiWANRecoveryChecksHealthySecondEntry(t *testing.T) {
 	srv := testSite(t, "site1")
 	address := strings.TrimPrefix(srv.URL, "https://")
-	profile := site.Profile{ID: "site1", Protocol: 2, Origin: srv.URL,
+	profile := site.Profile{Name: "Test site", GatewayIP: "100.96.0.1", ID: "site1", Protocol: 2, Origin: srv.URL,
 		CA: string(pem.EncodeToMemory(&pem.Block{Type: "CERTIFICATE", Bytes: srv.Certificate().Raw})),
 		Candidates: []site.Candidate{{ID: "wan1", Kind: "direct", Address: "127.0.0.1:1"},
 			{ID: "wan2", Kind: "direct", Address: address}, {ID: "wan3", Kind: "direct", Address: "127.0.0.1:1"},
@@ -101,7 +101,7 @@ func TestSlowAPIHandshakeDoesNotInheritProbeDeadline(t *testing.T) {
 	srv.StartTLS()
 	t.Cleanup(srv.Close)
 	candidate := site.Candidate{ID: "wan", Kind: "direct", Address: strings.TrimPrefix(srv.URL, "https://")}
-	profile := site.Profile{ID: "slow", Protocol: 2, Origin: srv.URL,
+	profile := site.Profile{Name: "Test site", GatewayIP: "100.96.0.1", ID: "slow", Protocol: 2, Origin: srv.URL,
 		CA:         string(pem.EncodeToMemory(&pem.Block{Type: "CERTIFICATE", Bytes: srv.Certificate().Raw})),
 		Candidates: []site.Candidate{candidate}}
 	selector, err := New(profile)
@@ -145,7 +145,7 @@ func TestControlPoolReusesAndReleasesTLSConnections(t *testing.T) {
 	srv.StartTLS()
 	defer srv.Close()
 	candidate := site.Candidate{ID: "wan", Kind: "direct", Address: strings.TrimPrefix(srv.URL, "https://")}
-	selector, e := New(site.Profile{ID: "pool", Protocol: 2, Origin: srv.URL, CA: string(pem.EncodeToMemory(&pem.Block{Type: "CERTIFICATE", Bytes: srv.Certificate().Raw})), Candidates: []site.Candidate{candidate}})
+	selector, e := New(site.Profile{Name: "Test site", GatewayIP: "100.96.0.1", ID: "pool", Protocol: 2, Origin: srv.URL, CA: string(pem.EncodeToMemory(&pem.Block{Type: "CERTIFICATE", Bytes: srv.Certificate().Raw})), Candidates: []site.Candidate{candidate}})
 	if e != nil {
 		t.Fatal(e)
 	}

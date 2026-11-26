@@ -55,6 +55,14 @@ void Controller::importProfile(const Json& p,bool replaceTrust) {
  if(std::filesystem::exists(file)){
   auto old=Json::parse(readFile(file));
   try{validateProfileUpdate(old,p);}catch(const Error&){if(!replaceTrust||old.at("ID")!=p.at("ID")||old.at("Protocol")!=p.at("Protocol")||p.value("ConfigRevision",uint64_t(0))<=old.value("ConfigRevision",uint64_t(0)))throw;}
+  if(profileTrustIdentity(old)!=profileTrustIdentity(p)){
+   credentialDelete("password/"+id);
+   auto marker=root_/L".remote-unattended";
+   if(std::filesystem::exists(marker)){
+    auto settings=Json::parse(readFile(marker,4096),nullptr,false);
+    if(settings.is_object()&&settings.value("site","")==id)atomicFile(marker,Json({{"site",""}}).dump());
+   }
+  }
  }atomicFile(file,p.dump(2));
 }
 void Controller::disconnectLocked() {
@@ -77,8 +85,11 @@ void Controller::connect(const Json& r) {
  std::string alias=r.value("alias",""),password=r.value("password","");
  bool remember=r.value("remember",false);
  if(password.empty()){
-  auto saved=credentialRead("password/"+id);
-  if(!saved.empty()){auto c=Json::parse(saved);if(alias.empty()||alias==c.at("alias").get<std::string>()){alias=c.at("alias");password=c.at("password");}wipe(saved);}
+  auto saved=rememberedLogin(p);
+  if(saved.contains("password")){
+   if(alias.empty()||alias==saved.at("alias").get<std::string>()){alias=saved.at("alias");password=saved.at("password");}
+   wipe(saved["password"].get_ref<std::string&>());
+  }
  }
  if(alias.empty()||password.empty()||alias.size()>256||password.size()>2048)throw Error("credentials_required");
  disconnectLocked();cancel_=false;uint64_t gen;
@@ -145,7 +156,7 @@ void Controller::run(uint64_t gen,Json p,std::string alias,std::string password,
   if(internet&&p.value("InternetDNS",Json::array()).empty())throw Error("internet_not_configured");
   auto resources=selectedResources(lease.at("resources"),internet);routeConflicts(resources);
   engine("routes",{{"resources",resources}});
-  if(remember){auto saved=Json({{"alias",alias},{"password",password}}).dump();credentialWrite("password/"+id,saved);wipe(saved);}else credentialDelete("password/"+id);
+  if(remember)rememberLogin(p,alias,password);else credentialDelete("password/"+id);
   wipe(password);state(gen,"negotiating","",{{"lease",lease},{"internet",internet}});
   {std::lock_guard lock(mutex_);remoteReady_=true;remoteContext_={{"site_id",id},{"credential_scope",scope},{"user_id",userID},{"device_id",deviceID},{"generation",gen},{"lease",lease},{"public_key",publicKey(seed)}};}
   auto remoteWork=[&](const std::shared_ptr<RemoteJob>& job){
@@ -225,7 +236,12 @@ Json Controller::dispatch(const Json& r) {
   if(action=="clear-logs"){std::lock_guard lock(mutex_);logs_=Json::array();return {{"cleared",true}};}
   if(action=="credential-info"||action=="forget"||action=="delete"){
    std::string id=r.at("site");if(!std::regex_match(id,std::regex(R"(^[a-zA-Z0-9][a-zA-Z0-9_.-]{0,62}$)")))throw Error("invalid_site");
-   if(action=="credential-info"){auto saved=credentialRead("password/"+id);Json c=saved.empty()?Json::object():Json::parse(saved);wipe(saved);return {{"alias",c.value("alias","")},{"remembered",c.contains("password")}};}
+   if(action=="credential-info"){
+    std::lock_guard op(operation_);auto p=Json::parse(readFile(root_/wide(id+".json")));auto saved=rememberedLogin(p);
+    auto result=Json({{"alias",saved.value("alias","")},{"remembered",saved.contains("password")}});
+    if(saved.contains("password"))wipe(saved["password"].get_ref<std::string&>());
+    return result;
+   }
    std::lock_guard op(operation_);auto s=status();if(s["state"]!="disconnected"&&s["state"]!="failed")throw Error("disconnect_before_edit");
    if(cleanupFailed_)throw Error("engine_cleanup_failed");
    if(action=="delete"&&engineEnabled_){

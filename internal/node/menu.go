@@ -256,6 +256,9 @@ func (t terminal) serverOperation(value string) error {
 		c.Site.CA = string(files["ca.crt"])
 		return t.m.ApplyServerConfig(c, files)
 	case "export":
+		if err := c.Site.Validate(); err != nil {
+			return errors.New("站点网关尚未就绪，请先完成服务器初始化")
+		}
 		path, err := t.text("客户端配置保存位置", "/root/NetGo-site.json")
 		if err != nil {
 			return err

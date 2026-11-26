@@ -60,7 +60,7 @@ struct HostItem: Identifiable { let id: String; let name: String; let status: St
     @Published var unattended=UserDefaults.standard.bool(forKey:"remoteUnattended") { didSet {
         UserDefaults.standard.set(unattended,forKey:"remoteUnattended")
         do {if unattended {try SMAppService.mainApp.register()} else {try SMAppService.mainApp.unregister()}} catch {message="登录启动设置："+error.localizedDescription}
-        if !unattended {stopRemote();if let request {DispatchQueue.global().async {_ = try? request("DELETE","/desktop/unattended","")}}}
+        if !unattended {stopRemote();disableUnattendedAction?()}
     }}
     func shareDesktop() {
         guard remoteReady,let request else { return };remoteSuspended=false;viewer.stop();let site=selected
@@ -74,6 +74,8 @@ struct HostItem: Identifiable { let id: String; let name: String; let status: St
     var importAction: ((String,String,Bool) throws -> Void)?
     var connectAction: ((SiteItem,String,String,Bool,Bool) -> Void)?
     var disconnectAction: (() -> Void)?
+    var restoreAction: (() -> Void)?
+    var disableUnattendedAction: (() -> Void)?
     private var timer: Timer?
 
     init() {
@@ -204,7 +206,7 @@ struct HostItem: Identifiable { let id: String; let name: String; let status: St
                             self.nextRemoteAttempt=Date().addingTimeInterval(30);self.shareDesktop()
                         } else if !self.connected,["failed","disconnected"].contains(object["state"] as? String ?? "") {
                             self.nextRemoteAttempt=Date().addingTimeInterval(30)
-                            DispatchQueue.global().async {do {_ = try request("POST","/desktop/unattended/restore","")} catch {Task { @MainActor in self.message="自动恢复："+error.localizedDescription}}}
+                            self.restoreAction?()
                         }
                     }
 #endif

@@ -27,24 +27,21 @@ import (
 )
 
 type Server struct {
-	accountOnce    sync.Once
-	accountService *accounts.Service
-	Accounts       *accounts.Service
-	Config         site.Config
-	Store          *store.Store
-	Auth           *identity.Native
-	Sessions       *session.Manager
-	Management     *netbird.Management
-	Remote         *remote.Manager
-	deviceOnce     sync.Once
-	deviceService  *devices.Service
-	Devices        *devices.Service
-	publicRates    rateLimiter
-	refreshRates   rateLimiter
-	Web            http.Handler
-	Reconcile      func(context.Context) error
-	Monitor        *diagnostics.Monitor
-	Logger         *slog.Logger
+	servicesOnce sync.Once
+	Accounts     *accounts.Service
+	Config       site.Config
+	Store        *store.Store
+	Auth         *identity.Native
+	Sessions     *session.Manager
+	Management   *netbird.Management
+	Remote       *remote.Manager
+	Devices      *devices.Service
+	publicRates  rateLimiter
+	refreshRates rateLimiter
+	Web          http.Handler
+	Reconcile    func(context.Context) error
+	Monitor      *diagnostics.Monitor
+	Logger       *slog.Logger
 }
 type ctxKey int
 
@@ -52,7 +49,6 @@ const credKey ctxKey = 1
 const principalKey ctxKey = 2
 
 type principal struct {
-	user   model.User
 	device model.Device
 }
 
@@ -103,6 +99,7 @@ func body(w http.ResponseWriter, r *http.Request, v any) error {
 	return site.Decode(r.Body, v)
 }
 func (s *Server) Handler() http.Handler {
+	s.initializeServices()
 	m := http.NewServeMux()
 	m.HandleFunc("GET /netgo/v2/health", func(w http.ResponseWriter, r *http.Request) {
 		reply(w, 200, protocol.Health{Protocol: model.Protocol, SiteID: s.Config.Site.ID, Capabilities: protocol.Capabilities(), ServerUnix: time.Now().Unix()})
@@ -147,7 +144,13 @@ func (s *Server) Handler() http.Handler {
 	}))
 	secured := func(pattern string, admin bool, h http.HandlerFunc) { m.Handle(pattern, s.authorize(admin, h)) }
 	s.remoteRoutes(secured)
-	secured("GET /netgo/v2/site", false, func(w http.ResponseWriter, r *http.Request) { reply(w, 200, s.Config.Site) })
+	secured("GET /netgo/v2/site", false, func(w http.ResponseWriter, r *http.Request) {
+		if s.Config.Site.Validate() != nil {
+			reply(w, http.StatusServiceUnavailable, map[string]string{"error": "site_not_ready"})
+			return
+		}
+		reply(w, 200, s.Config.Site)
+	})
 	secured("POST /netgo/v2/auth/refresh", false, func(w http.ResponseWriter, r *http.Request) {
 		c := r.Context().Value(credKey).(model.Credential)
 		if !s.refreshRates.allow(c.DeviceID, 12, time.Now()) {
@@ -167,9 +170,6 @@ func (s *Server) Handler() http.Handler {
 			return
 		}
 		reply(w, 200, v)
-	})
-	secured("GET /netgo/v2/me", false, func(w http.ResponseWriter, r *http.Request) {
-		reply(w, 200, r.Context().Value(principalKey).(principal).user)
 	})
 	secured("GET /netgo/v2/peer", false, func(w http.ResponseWriter, r *http.Request) {
 		c := r.Context().Value(credKey).(model.Credential)
@@ -239,14 +239,7 @@ func (s *Server) Handler() http.Handler {
 		reply(w, 200, map[string]bool{"applied": true})
 	})
 	secured("GET /netgo/v2/admin/state", true, func(w http.ResponseWriter, r *http.Request) {
-		var st model.State
-		var e error
-		next := ""
-		if section := r.URL.Query().Get("section"); section != "" {
-			st, next, e = s.Store.AdminPage(section, r.URL.Query().Get("after"), 50)
-		} else {
-			st, e = s.Store.AdminView()
-		}
+		st, next, e := s.Store.AdminPage(r.URL.Query().Get("section"), r.URL.Query().Get("after"), 50)
 		if e != nil {
 			failure(w, e)
 			return
@@ -289,7 +282,7 @@ func (s *Server) Handler() http.Handler {
 		reply(w, 200, page)
 	})
 	secured("GET /netgo/v2/admin/diagnostics", true, func(w http.ResponseWriter, r *http.Request) {
-		state, err := s.Store.AdminView()
+		state, counts, err := s.Store.AdminSummary(time.Now())
 		if err != nil {
 			failure(w, err)
 			return
@@ -298,7 +291,9 @@ func (s *Server) Handler() http.Handler {
 		if monitor == nil {
 			monitor = diagnostics.NewMonitor()
 		}
-		reply(w, 200, monitor.Snapshot(s.Config, state))
+		report := monitor.Snapshot(s.Config, state)
+		report.Counts = counts
+		reply(w, 200, report)
 	})
 	secured("PUT /netgo/v2/admin/users/{id}", true, s.putUser)
 	secured("POST /netgo/v2/admin/users", true, s.createUser)
@@ -391,18 +386,19 @@ func (s *Server) authorize(admin bool, next http.Handler) http.Handler {
 		if admin {
 			ctx = authorization.WithAdmin(ctx, c)
 		}
-		ctx = context.WithValue(ctx, principalKey, principal{u, d})
+		ctx = context.WithValue(ctx, principalKey, principal{d})
 		next.ServeHTTP(w, r.WithContext(ctx))
 	})
 }
-func (s *Server) accounts() *accounts.Service {
-	s.accountOnce.Do(func() {
-		s.accountService = s.Accounts
-		if s.accountService == nil {
-			s.accountService = &accounts.Service{Store: s.Store, Sessions: s.Sessions, Management: s.Management}
+func (s *Server) initializeServices() {
+	s.servicesOnce.Do(func() {
+		if s.Accounts == nil {
+			s.Accounts = &accounts.Service{Store: s.Store, Sessions: s.Sessions, Management: s.Management}
+		}
+		if s.Devices == nil {
+			s.Devices = &devices.Service{Store: s.Store, Sessions: s.Sessions, Management: s.Management}
 		}
 	})
-	return s.accountService
 }
 func (s *Server) putUser(w http.ResponseWriter, r *http.Request) {
 	var u model.User
@@ -414,7 +410,7 @@ func (s *Server) putUser(w http.ResponseWriter, r *http.Request) {
 		failure(w, errors.New("user ID mismatch"))
 		return
 	}
-	u, e := s.accounts().Update(r.Context(), u)
+	u, e := s.Accounts.Update(r.Context(), u)
 	if e != nil {
 		failure(w, e)
 		return
@@ -427,7 +423,7 @@ func (s *Server) createUser(w http.ResponseWriter, r *http.Request) {
 		failure(w, e)
 		return
 	}
-	created, e := s.accounts().Create(r.Context(), b)
+	created, e := s.Accounts.Create(r.Context(), b)
 	if e != nil {
 		failure(w, e)
 		return
@@ -464,7 +460,7 @@ func (s *Server) putResource(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Server) deleteUser(w http.ResponseWriter, r *http.Request) {
-	result, e := s.accounts().Delete(r.Context(), r.PathValue("id"))
+	result, e := s.Accounts.Delete(r.Context(), r.PathValue("id"))
 	if e != nil {
 		failure(w, e)
 		return
@@ -477,13 +473,7 @@ func (s *Server) deleteUser(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Server) deleteDevice(w http.ResponseWriter, r *http.Request) {
-	s.deviceOnce.Do(func() {
-		s.deviceService = s.Devices
-		if s.deviceService == nil {
-			s.deviceService = &devices.Service{Store: s.Store, Sessions: s.Sessions, Management: s.Management}
-		}
-	})
-	result, err := s.deviceService.Delete(r.Context(), r.PathValue("id"))
+	result, err := s.Devices.Delete(r.Context(), r.PathValue("id"))
 	if err != nil {
 		failure(w, err)
 		return

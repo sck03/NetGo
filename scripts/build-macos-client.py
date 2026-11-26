@@ -21,7 +21,11 @@ def main():
     build_config=config('macos',args.version,args.arch)
     if args.build_number<1:parser.error('build number must be positive')
     if args.plan:print(json.dumps(dict(build_config,build_number=args.build_number)));print('macOS: SwiftUI app, Keychain-backed local controller, native viewer, independently managed NetBird daemon; macOS 14+; stable Xcode required.');return
-    env=environment();archive=native('macosx',args.arch,'14.0',env)
+    env=environment()
+    tests=ROOT/'.cache/apple-tests';tests.mkdir(parents=True,exist_ok=True)
+    run(['xcrun','swiftc','-swift-version','5','-parse-as-library',ROOT/'apps/apple/Shared/DesktopConnectionCoordinator.swift',ROOT/'apps/apple/tests/ConnectionCoordinatorTests.swift','-o',tests/'connections'],env=env)
+    run([tests/'connections'],env=env)
+    archive=native('macosx',args.arch,'14.0',env)
     target='arm64' if args.arch=='arm64' else 'amd64'
     env.update(GOOS='darwin',GOARCH=target,CGO_ENABLED='1',CC='clang -arch '+args.arch)
     binaries=ROOT/'.cache/macos-binaries';binaries.mkdir(exist_ok=True)

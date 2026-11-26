@@ -46,7 +46,7 @@ func (p Profile) WithDirectEndpoints(addresses []string) (Profile, error) {
 			next.Candidates = append(next.Candidates, c)
 		}
 	}
-	if err := next.Validate(); err != nil {
+	if err := next.validate(false); err != nil {
 		return p, err
 	}
 	return next, nil

@@ -3,7 +3,7 @@ package site
 import "testing"
 
 func TestEndpointIdentityAndIndependentWANs(t *testing.T) {
-	p := Profile{Protocol: 2, ID: "site", Origin: "https://192.168.18.220:10443", Candidates: []Candidate{
+	p := Profile{Name: "Test site", GatewayIP: "100.96.0.1", Protocol: 2, ID: "site", Origin: "https://192.168.18.220:10443", Candidates: []Candidate{
 		{ID: "lan", Kind: "direct", Address: "192.168.18.220:10443"},
 		{ID: "wan", Kind: "direct", Address: "wan.example:20443"},
 		{ID: "vps", Kind: "auxiliary", Address: "vps.example:24443"},

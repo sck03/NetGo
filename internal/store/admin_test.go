@@ -47,3 +47,35 @@ func TestAdminSummaryAndPages(t *testing.T) {
 		t.Fatal("missing session owner labels", err)
 	}
 }
+
+func TestSessionPagesAreIndependentOfIdleDevices(t *testing.T) {
+	s, err := Open(":memory:")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer s.Close()
+	if err = s.Update(func(st *model.State) error {
+		st.Users["u"] = model.User{ID: "u", Alias: "owner"}
+		for i := 0; i < 51; i++ {
+			id := fmt.Sprintf("d%03d", i)
+			st.Devices[id] = model.Device{ID: id, UserID: "u"}
+		}
+		st.Leases["last"] = model.Lease{ID: "last", UserID: "u", DeviceID: "d050", ExpiresAt: time.Now().Add(time.Hour)}
+		st.Leases["expired"] = model.Lease{ID: "expired", UserID: "u", DeviceID: "d000", ExpiresAt: time.Now().Add(-time.Hour)}
+		return nil
+	}); err != nil {
+		t.Fatal(err)
+	}
+	st, next, err := s.AdminPage("sessions", "", 50)
+	if err != nil || len(st.Leases) != 1 || st.Leases["last"].DeviceID != "d050" || len(st.Users) != 1 || next != "" {
+		t.Fatalf("session missing: %+v %q %v", st.Leases, next, err)
+	}
+	st, next, err = s.AdminPage("devices", "", 50)
+	if err != nil || len(st.Devices) != 50 || len(st.Leases) != 0 || next != "d049" {
+		t.Fatal("device pagination mixed with sessions", next, err)
+	}
+	st, next, err = s.AdminPage("devices", next, 50)
+	if err != nil || len(st.Devices) != 1 || next != "" {
+		t.Fatal("last device missing", err)
+	}
+}

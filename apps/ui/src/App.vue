@@ -5,6 +5,8 @@ import { LatestQuery } from '../../../packages/ui/query'
 import RemotePanel from './RemotePanel.vue'
 import ResourcePanel from './ResourcePanel.vue'
 import UserPanel from './UserPanel.vue'
+import SessionPanel from './SessionPanel.vue'
+import ListPager from './ListPager.vue'
 import type { User, AdminState, AuditPage } from '../../../packages/ui/contracts'
 import { emptyState } from '../../../packages/ui/contracts'
 import type { Resource } from '../../../packages/ui/resources'
@@ -21,14 +23,12 @@ const admin = new AdminSession(active => {
 })
 let timer: ReturnType<typeof setInterval> | undefined
 const listAfter = ref('')
-const stateQuery = new LatestQuery(() => admin.request(['overview', 'diagnostics'].includes(page.value)
+const stateQuery = new LatestQuery(() => admin.request(['overview', 'diagnostics', 'sessions'].includes(page.value)
   ? '/netgo/v2/admin/summary'
   : '/netgo/v2/admin/state?section=' + page.value + '&after=' + encodeURIComponent(listAfter.value)), value => { state.value = { ...emptyState(), ...value }; pageReady.value = true })
 async function listPage(after = '') { listAfter.value = after; await refresh(true) }
 const users = computed(() => Object.values(state.value.users))
 const resources = computed(() => Object.values(state.value.resources))
-const devices = computed(() => Object.values(state.value.devices).filter(d => d.client_type !== 'admin'))
-const leases = computed(() => Object.values(state.value.leases))
 async function action(fn: () => Promise<void>) {
   if (busy.value) return false
   stateQuery.invalidate()
@@ -93,7 +93,7 @@ function download(value: any, name: string) {
   a.href = url; a.download = name; a.click(); setTimeout(() => URL.revokeObjectURL(url), 1000)
 }
 watch(page, () => { initialPassword.value = ''; pageReady.value = false; stateQuery.invalidate(); auditQuery.invalidate(); listAfter.value = ''; state.value = emptyState(); if (logged.value) refresh().catch(e => { error.value = String(e.message || e) }) })
-onMounted(() => { timer = setInterval(() => { if (!document.hidden && !busy.value && ['overview','sessions','diagnostics'].includes(page.value)) refresh().catch(e => { error.value = String(e.message || e) }) }, 5000) })
+onMounted(() => { timer = setInterval(() => { if (!document.hidden && !busy.value && ['overview','diagnostics'].includes(page.value)) refresh().catch(e => { error.value = String(e.message || e) }) }, 5000) })
 onUnmounted(() => { if (timer) clearInterval(timer); stateQuery.invalidate(); auditQuery.invalidate(); admin.logout() })
 </script>
 <template>
@@ -147,10 +147,7 @@ onUnmounted(() => { if (timer) clearInterval(timer); stateQuery.invalidate(); au
       </template>
       <UserPanel v-else-if="page === 'users'" :users="users" :resources="resources" :busy="busy" :create="createUser" :save="saveUser" :remove="deleteUser" />
       <ResourcePanel v-else-if="page === 'resources' && state.network" :resources="resources" :network="state.network" :busy="busy" :save="saveResource" :remove="deleteResource" />
-      <template v-else-if="page === 'sessions'">
-        <section class="card"><h3>正在授权的会话</h3><div v-for="l in leases" :key="l.id" class="resource"><strong>{{ state.users[l.user_id]?.alias }}</strong><code>{{ l.ip }}</code><span>{{ new Date(l.expires_at).toLocaleString() }}</span><button class="secondary" :disabled="busy" @click="action(async () => { await admin.request('/netgo/v2/admin/sessions/' + l.id, 'DELETE'); await refresh(true) })">立即撤销</button></div><div v-if="!leases.length" class="empty">当前没有有效会话。</div></section>
-        <section class="card"><h3>已登记设备</h3><div v-for="d in devices" :key="d.id" class="resource"><strong>{{ state.users[d.user_id]?.alias }}</strong><code>{{ d.id.slice(0, 12) }}</code><span>{{ d.delete_pending ? '访问已撤销，等待上游清理' : (d.ip || '待连接') }}</span><small>{{ new Date(d.created_at).toLocaleString() }}</small><button class="secondary" :disabled="busy" @click="action(async () => { const result = await admin.request('/netgo/v2/admin/devices/' + encodeURIComponent(d.id), 'DELETE'); await refresh(true); notice = result.cleanup_pending ? '访问已撤销，上游暂不可用，后台将自动重试清理。' : '设备登记及其会话已撤销。' })">{{ d.delete_pending ? '重试清理' : '撤销设备' }}</button></div></section>
-      </template>
+      <SessionPanel v-else-if="page === 'sessions'" :request="(path, method, body) => admin.request(path, method, body)" />
       <RemotePanel v-else-if="page === 'remote'" :users="state.users" :request="(path, method, body) => admin.request(path, method, body)" />
       <template v-else-if="page === 'diagnostics'">
         <section class="card"><h3>运行诊断</h3><p>最近检查：{{ state.runtime?.sampled_at && !state.runtime.sampled_at.startsWith('0001-') ? new Date(state.runtime.sampled_at).toLocaleString() : '等待采样' }}</p>
@@ -160,10 +157,7 @@ onUnmounted(() => { if (timer) clearInterval(timer); stateQuery.invalidate(); au
         </section>
         <section class="card"><h3>管理审计</h3><table><thead><tr><th>时间</th><th>操作</th><th>对象</th></tr></thead><tbody><tr v-for="a in audit.events" :key="a.sequence"><td>{{ new Date(a.at).toLocaleString() }}</td><td>{{ a.action }}</td><td class="truncate">{{ a.object }}</td></tr></tbody></table><button class="secondary" :disabled="busy || !auditBefore" @click="action(() => auditPage())">最新记录</button><button class="secondary" :disabled="busy || !audit.next_before" @click="action(() => auditPage(audit.next_before))">更早记录</button></section>
       </template>
-      <div v-if="logged && ['users','resources','sessions'].includes(page)" class="actions">
-        <button class="secondary" :disabled="busy || !listAfter" @click="action(() => listPage())">第一页</button>
-        <button class="secondary" :disabled="busy || !state.next_after" @click="action(() => listPage(state.next_after))">下一页</button>
-      </div>
+      <ListPager v-if="logged && ['users','resources'].includes(page)" :after="listAfter" :next="state.next_after || ''" :busy="busy" @navigate="action(() => listPage($event))" />
       <footer>NetGo · 账号保留在本地，连接由你掌控。</footer>
     </main>
   </div>
