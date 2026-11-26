@@ -43,7 +43,7 @@ func TestAdminSummaryAndPages(t *testing.T) {
 		t.Fatal(next, err)
 	}
 	page, _, err = s.AdminPage("sessions", "049", 50)
-	if err != nil || len(page.Devices) != 5 || len(page.Users) != 55 || len(page.Leases) != 55 {
+	if err != nil || len(page.Devices) != 5 || len(page.Users) != 5 || len(page.Leases) != 5 {
 		t.Fatal("missing session owner labels", err)
 	}
 }

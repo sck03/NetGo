@@ -6,12 +6,13 @@ import (
 	"errors"
 	"net/http"
 	"net/url"
+	"netgo/internal/authorization"
+	"netgo/internal/coordination"
 	"netgo/internal/model"
 	"netgo/internal/session"
 	"netgo/internal/site"
 	"netgo/internal/store"
 	"strings"
-	"sync"
 	"time"
 )
 
@@ -19,7 +20,7 @@ type Management interface {
 	Request(context.Context, string, string, any, any) (http.Header, error)
 }
 type Service struct {
-	mu         sync.Mutex
+	work       coordination.InFlight
 	Store      *store.Store
 	Sessions   *session.Manager
 	Management Management
@@ -39,18 +40,29 @@ func unique(st *model.State, alias, email string) error {
 	return nil
 }
 func (s *Service) Create(ctx context.Context, b NewUser) (Created, error) {
-	s.mu.Lock()
-	defer s.mu.Unlock()
 	var result Created
 	if !site.ValidID(b.Alias) || !strings.Contains(b.Email, "@") {
 		return result, errors.New("invalid alias/email")
 	}
-	if e := s.Store.Read(func(st *model.State) error { return unique(st, b.Alias, b.Email) }); e != nil {
+	release, ok := s.work.Try("alias:"+strings.ToLower(b.Alias), "email:"+strings.ToLower(b.Email))
+	if !ok {
+		return result, model.ErrConflict
+	}
+	defer release()
+	if e := s.Store.Read(func(st *model.State) error {
+		if err := authorization.CheckAdmin(ctx, st); err != nil {
+			return err
+		}
+		return unique(st, b.Alias, b.Email)
+	}); e != nil {
 		return result, e
 	}
 	var upstream struct {
 		ID       string `json:"id"`
 		Password string `json:"password"`
+	}
+	if s.Management == nil {
+		return result, errors.New("management unavailable")
 	}
 	if _, e := s.Management.Request(ctx, "POST", "/users", map[string]any{"email": b.Email, "name": b.Name, "role": "user", "auto_groups": []string{}, "is_service_user": false}, &upstream); e != nil {
 		return result, e
@@ -65,11 +77,14 @@ func (s *Service) Create(ctx context.Context, b NewUser) (Created, error) {
 			owns = false
 			return model.ErrConflict
 		}
+		if err := authorization.CheckAdmin(ctx, st); err != nil {
+			return err
+		}
 		if e := unique(st, b.Alias, b.Email); e != nil {
 			return e
 		}
 		st.Users[u.ID] = u
-		st.Record("admin", "user.create", u.ID)
+		st.Record(authorization.Actor(ctx), "user.create", u.ID)
 		return nil
 	})
 	if e != nil && owns {
@@ -96,13 +111,13 @@ func protectAdmin(st *model.State, u model.User) error {
 	return errors.New("last administrator cannot be disabled or deleted")
 }
 func (s *Service) Update(ctx context.Context, u model.User) (model.User, error) {
-	s.mu.Lock()
-	defer s.mu.Unlock()
-	u.MaxSessions = u.SessionLimit()
 	if !site.ValidID(u.Alias) || (u.Role != "admin" && u.Role != "user") || u.MaxDevices < 1 || u.MaxDevices > 100 || u.MaxSessions < 1 || u.MaxSessions > 100 {
 		return u, errors.New("invalid user")
 	}
 	e := s.Sessions.MutateUser(ctx, u.ID, func(st *model.State) error {
+		if err := authorization.CheckAdmin(ctx, st); err != nil {
+			return err
+		}
 		old, ok := st.Users[u.ID]
 		if !ok || old.Email != u.Email {
 			return model.ErrNotFound
@@ -139,16 +154,17 @@ func (s *Service) Update(ctx context.Context, u model.User) (model.User, error) 
 			return e
 		}
 		u = st.Users[u.ID]
-		st.Record("admin", "user.update", u.ID)
+		st.Record(authorization.Actor(ctx), "user.update", u.ID)
 		return nil
 	})
 	return u, e
 }
 func (s *Service) Delete(ctx context.Context, id string) (model.DeleteResult, error) {
-	s.mu.Lock()
-	defer s.mu.Unlock()
 	var exists bool
 	err := s.Sessions.MutateUser(ctx, id, func(st *model.State) error {
+		if err := authorization.CheckAdmin(ctx, st); err != nil {
+			return err
+		}
 		u, ok := st.Users[id]
 		exists = ok
 		if !ok || u.DeletePending {
@@ -163,7 +179,7 @@ func (s *Service) Delete(ctx context.Context, id string) (model.DeleteResult, er
 		if err := st.InvalidateUser(id); err != nil {
 			return err
 		}
-		st.Record("admin", "user.delete.pending", id)
+		st.Record(authorization.Actor(ctx), "user.delete.pending", id)
 		return nil
 	})
 	if err != nil {
@@ -179,9 +195,23 @@ func (s *Service) Delete(ctx context.Context, id string) (model.DeleteResult, er
 }
 
 func (s *Service) cleanup(ctx context.Context, id string) error {
+	release, ok := s.work.Try("cleanup:" + id)
+	if !ok {
+		return coordination.ErrBusy
+	}
+	defer release()
+	u, err := s.Store.User(id)
+	if errors.Is(err, model.ErrNotFound) {
+		return nil
+	}
+	if err != nil {
+		return err
+	}
+	if !u.DeletePending {
+		return nil
+	}
 	attempt, cancel := context.WithTimeout(ctx, 2*time.Second)
 	defer cancel()
-	var err error
 	if s.Management == nil {
 		err = errors.New("management unavailable")
 	} else {
@@ -213,8 +243,6 @@ func (s *Service) cleanup(ctx context.Context, id string) error {
 }
 
 func (s *Service) Retry(ctx context.Context) error {
-	s.mu.Lock()
-	defer s.mu.Unlock()
 	items, err := s.Store.PendingUsers(time.Now(), 16)
 	if err != nil {
 		return err
@@ -223,7 +251,9 @@ func (s *Service) Retry(ctx context.Context) error {
 		if ctx.Err() != nil {
 			return errors.Join(err, ctx.Err())
 		}
-		err = errors.Join(err, s.cleanup(ctx, u.ID))
+		if next := s.cleanup(ctx, u.ID); !errors.Is(next, coordination.ErrBusy) {
+			err = errors.Join(err, next)
+		}
 	}
 	return err
 }

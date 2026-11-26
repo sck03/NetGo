@@ -15,7 +15,7 @@ type RemoteHistory struct {
 
 // Inventory loads active sessions and the generation watermark in one snapshot.
 // Closed session bodies never enter the frequently polled native response path.
-func (s *Store) RemoteInventory(device string) (model.State, uint64, error) {
+func (s *Store) RemoteInventory(c model.Credential) (model.State, uint64, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	tx, err := s.db.Begin()
@@ -23,36 +23,15 @@ func (s *Store) RemoteInventory(device string) (model.State, uint64, error) {
 		return model.State{}, 0, err
 	}
 	defer tx.Rollback()
-	st, err := read(tx, remoteTables&^(remoteSessions|remoteOperations))
+	st, err := inventoryState(tx, c)
 	if err != nil {
 		return st, 0, err
 	}
 	var generation uint64
-	if err = tx.QueryRow("SELECT coalesce(max(json_extract(data,'$.generation')),0) FROM remote_sessions WHERE controller_id=?", device).Scan(&generation); err != nil {
+	if err = tx.QueryRow("SELECT coalesce(max(json_extract(data,'$.generation')),0) FROM remote_sessions WHERE controller_id=?", c.DeviceID).Scan(&generation); err != nil {
 		return st, 0, err
 	}
-	rows, err := tx.Query("SELECT id,data FROM remote_sessions WHERE state IN ('issued','active')")
-	if err != nil {
-		return st, 0, err
-	}
-	for rows.Next() {
-		var id string
-		var raw []byte
-		var session model.RemoteSession
-		if err = rows.Scan(&id, &raw); err == nil {
-			err = json.Unmarshal(raw, &session)
-		}
-		if err != nil {
-			rows.Close()
-			return st, 0, err
-		}
-		st.RemoteSessions[id] = session
-	}
-	err = rows.Err()
-	rows.Close()
-	if err == nil {
-		err = tx.Commit()
-	}
+	err = tx.Commit()
 	return st, generation, err
 }
 

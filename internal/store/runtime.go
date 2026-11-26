@@ -10,6 +10,24 @@ import (
 
 type Revision struct{ Desired, Observed uint64 }
 
+func (s *Store) User(id string) (model.User, error) { return entity[model.User](s, "users", id) }
+func (s *Store) Device(id string) (model.Device, error) {
+	return entity[model.Device](s, "devices", id)
+}
+
+func entity[T any](s *Store, table, id string) (T, error) {
+	var out T
+	var raw []byte
+	err := s.db.QueryRow("SELECT data FROM "+table+" WHERE id=?", id).Scan(&raw)
+	if errors.Is(err, sql.ErrNoRows) {
+		return out, model.ErrNotFound
+	}
+	if err == nil {
+		err = json.Unmarshal(raw, &out)
+	}
+	return out, err
+}
+
 func (s *Store) Revision() (Revision, error) {
 	var r Revision
 	err := s.db.QueryRow("SELECT revision,observed_revision FROM metadata WHERE id=1").Scan(&r.Desired, &r.Observed)

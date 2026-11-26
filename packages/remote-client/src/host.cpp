@@ -15,6 +15,7 @@
 #include <thread>
 #include <stdexcept>
 #include <algorithm>
+#include <cstring>
 namespace {
 using namespace netgo::remote;
 using Json = nlohmann::json;
@@ -49,6 +50,7 @@ struct Gate {
     ServerClock clock;
     ng_remote_ticket_verifier *verifier = nullptr;
     ng_remote_gate *value = nullptr;
+    ng_remote_claims offered{};
     Gate(const Json &a, const Json &ctx, const Key &host, uint32_t caps, bool unattended, uint64_t requested)
         : clock(a.value("server_unix_ms", uint64_t(0)), requested) {
         const auto &s = a.at("session");
@@ -98,6 +100,24 @@ struct Gate {
         ng_remote_ticket_verifier_destroy(verifier);
     }
     bool check(uint32_t cap = NG_REMOTE_VIEW) { return ng_remote_gate_check(value, cap) == NG_REMOTE_OK; }
+    uint64_t offer(const Json &ticket) {
+        auto bytes = decode(ticket, NG_REMOTE_TICKET_SIZE);
+        ng_remote_claims next{};
+        next.struct_size = sizeof(next);
+        next.abi_version = NG_REMOTE_ABI;
+        require(ng_remote_ticket_verify(verifier, bytes.data(), bytes.size(), &next) == NG_REMOTE_OK,
+                "remote_renewal_invalid");
+        if (offered.sequence) {
+            require(std::memcmp(next.binding_digest, offered.binding_digest, 32) == 0 &&
+                        std::memcmp(next.session_id, offered.session_id, 16) == 0 &&
+                        next.generation == offered.generation && next.sequence > offered.sequence &&
+                        next.policy_revision >= offered.policy_revision &&
+                        next.issued_unix_ms >= offered.issued_unix_ms &&
+                        !(next.capabilities & ~offered.capabilities), "remote_renewal_invalid");
+        }
+        offered = next;
+        return next.sequence;
+    }
 };
 } // namespace
 struct ng_remote_host {
@@ -105,6 +125,7 @@ struct ng_remote_host {
     std::string site, name, platform, directory;
     std::atomic_bool cancelled = false, started = false;
     std::mutex control;
+    std::vector<char> controlBuffer = std::vector<char>(4 << 20);
     bool active() { return !cancelled && o.active(o.context); }
     void status(const std::string &s) {
         if (o.status)
@@ -112,7 +133,7 @@ struct ng_remote_host {
     }
     Json call(const char *method, const std::string &path, const Json &body = nullptr) {
         std::lock_guard lock(control);
-        std::vector<char> out(1 << 20);
+        auto &out = controlBuffer;
         size_t size = 0;
         auto text = body.is_null() ? std::string() : body.dump();
         require(o.control(o.context, method, path.c_str(), text.c_str(), "", out.data(), out.size(), &size) ==
@@ -179,9 +200,10 @@ struct Monitor {
     }
     bool live() { return !stop && host.active() && watchdog.live(); }
     bool authorized() { return live() && session.live(); }
-    bool renewal(const std::string &id, const Json &ticket, Json &out, uint64_t &at) {
+    bool renewal(const std::string &id, uint64_t sequence, Json &out, uint64_t &at) {
         std::lock_guard lock(snapshotMutex);
-        if (snapshotID != id || !snapshot.is_object() || snapshot.at("ticket") != ticket ||
+        if (snapshotID != id || !snapshot.is_object() ||
+            snapshot.at("session").at("sequence").get<uint64_t>() < sequence ||
             monotonic_time_ms() - observed > 5000) return false;
         out = snapshot;
         at = observed;
@@ -354,20 +376,24 @@ void run(ng_remote_host &h) {
                 Bytes buffer(max_message);
                 uint64_t commandWindow = monotonic_time_ms(), lastCommand = commandWindow;
                 unsigned commands = 0;
-                Json pendingRenewal;
+                uint64_t appliedSequence = gate.offer(a.at("ticket"));
+                uint64_t pendingRenewal = 0;
                 while (monitor.authorized() && gate.check()) {
                     // Control IO belongs to Monitor. Capture/input continue using
                     // the old, bounded ticket while a fresh authorization arrives.
                     Json fresh;
                     uint64_t observed = 0;
-                    if (!pendingRenewal.is_null() && monitor.renewal(id, pendingRenewal, fresh, observed)) {
+                    if (pendingRenewal && monitor.renewal(id, appliedSequence + 1, fresh, observed)) {
                         bool hadInput = gate.check(NG_REMOTE_INPUT), hadUpload = gate.check(NG_REMOTE_UPLOAD),
                              hadDownload = gate.check(NG_REMOTE_DOWNLOAD);
-                        auto bytes = decode(pendingRenewal, NG_REMOTE_TICKET_SIZE);
+                        // Snapshots may lead or lag offers. Advance on any newer authoritative
+                        // sequence, keeping a later offer pending instead of starving renewal.
+                        auto bytes = decode(fresh.at("ticket"), NG_REMOTE_TICKET_SIZE);
                         gate.clock.observe(fresh.at("server_unix_ms"), observed);
                         require(ng_remote_gate_renew(gate.value, bytes.data(), bytes.size()) == NG_REMOTE_OK,
                                 "remote_renewal_invalid");
-                        pendingRenewal = Json();
+                        appliedSequence = fresh.at("session").at("sequence").get<uint64_t>();
+                        if (pendingRenewal <= appliedSequence) pendingRenewal = 0;
                         if (hadInput && !gate.check(NG_REMOTE_INPUT) && h.o.input) {
                             constexpr char release[] = R"({"type":"release"})";
                             require(h.o.input(h.o.context, release, sizeof(release)-1) == 0, "remote_input_unavailable");
@@ -386,9 +412,8 @@ void run(ng_remote_host &h) {
                             break;
                         if (m.kind == Kind::renew) {
                             auto update = json(m);
-                            require(pendingRenewal.is_null(), "remote_renewal_pending");
-                            (void)decode(update.at("ticket"), NG_REMOTE_TICKET_SIZE);
-                            pendingRenewal = update.at("ticket");
+                            auto sequence = gate.offer(update.at("ticket"));
+                            if (sequence > appliedSequence) pendingRenewal = sequence;
                         } else if (m.kind == Kind::input) {
                             auto events = json(m);
                             require(valid_input_batch(events), "remote_invalid_input");

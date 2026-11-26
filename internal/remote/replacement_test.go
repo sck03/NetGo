@@ -43,9 +43,50 @@ func TestExpiredSessionReplacementKeepsHostUnique(t *testing.T) {
 		t.Fatal(active)
 	}
 }
-func TestDefaultLimitAndExecutableHostContract(t *testing.T) {
+
+func TestInventoryLoadsOnlyVisibleDependencies(t *testing.T) {
 	f := setup(t)
-	st, e := f.m.Store.RemoteView()
+	a := f.acquire(t)
+	if err := f.m.Store.Update(func(st *model.State) error {
+		u := st.Users[f.c.UserID]
+		u.Role = "user"
+		st.Users[u.ID] = u
+		st.Users["unrelated"] = model.User{ID: "unrelated", Alias: "unrelated"}
+		st.Devices["unrelated"] = model.Device{ID: "unrelated", UserID: "unrelated"}
+		return nil
+	}); err != nil {
+		t.Fatal(err)
+	}
+	state, _, err := f.m.Store.RemoteInventory(f.c)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, ok := state.Users["unrelated"]; ok {
+		t.Fatal("loaded unrelated account")
+	}
+	if _, ok := state.Devices["unrelated"]; ok {
+		t.Fatal("loaded unrelated device")
+	}
+	inventory, err := f.m.List(f.c)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(inventory.Sessions) != 1 || inventory.Sessions[0].ID != a.Session.ID {
+		t.Fatal("incomplete authorization dependencies", inventory)
+	}
+	found := false
+	for _, h := range inventory.Hosts {
+		if h.ID == "host" {
+			found = h.Status == "busy"
+		}
+	}
+	if !found {
+		t.Fatal("active host lost busy state")
+	}
+}
+func TestExecutableHostContract(t *testing.T) {
+	f := setup(t)
+	st, e := f.m.Store.View()
 	if e != nil {
 		t.Fatal(e)
 	}
@@ -75,7 +116,7 @@ func TestDefaultLimitAndExecutableHostContract(t *testing.T) {
 
 func TestUnattendedGrantAndTransportRotation(t *testing.T) {
 	f := setup(t)
-	st, _ := f.m.Store.RemoteView()
+	st, _ := f.m.Store.View()
 	h := st.Hosts["host"]
 	h.RequireConsent = false
 	h.Capabilities = SupportedCapabilities
@@ -93,7 +134,7 @@ func TestUnattendedGrantAndTransportRotation(t *testing.T) {
 	if _, e := f.m.Register(f.h, h); e != nil {
 		t.Fatal(e)
 	}
-	st, _ = f.m.Store.RemoteView()
+	st, _ = f.m.Store.View()
 	if st.RemoteSessions[a.Session.ID].State != "closed" {
 		t.Fatal("rotating transport identity retained session")
 	}

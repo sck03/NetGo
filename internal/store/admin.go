@@ -57,7 +57,12 @@ func (s *Store) AdminPage(section, before string, limit int) (model.State, strin
 			err = readRows(tx, "devices", st.Devices, "WHERE id>? AND coalesce(json_extract(data,'$.client_type'),'')<>'admin' ORDER BY id LIMIT ?", before, limit+1)
 			next = trimPage(st.Devices, limit)
 			if err == nil {
-				err = readMap(tx, "vpn_leases", st.Leases)
+				ids := make([]string, 0, len(st.Devices))
+				for id := range st.Devices {
+					ids = append(ids, id)
+				}
+				raw, _ := json.Marshal(ids)
+				err = readRows(tx, "vpn_leases", st.Leases, "WHERE device_id IN (SELECT value FROM json_each(?))", string(raw))
 			}
 			if err == nil {
 				ids := map[string]bool{}

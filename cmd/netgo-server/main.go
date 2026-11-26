@@ -54,7 +54,9 @@ func run() error {
 	m := &netbird.Management{URL: c.ManagementURL, Token: token, Client: cl}
 	reconciler := &netbird.Reconciler{Management: m, Store: s, SiteID: c.Site.ID, GatewayID: c.Site.GatewayPeerID, LANInterface: c.LANInterface, Bypass: c.Bypass}
 	auth := &identity.Native{SiteID: c.Site.ID, Store: s, Provider: &identity.Dex{Origin: c.Site.Origin, LocalURL: c.ManagementURL, Secret: secret, Client: cl, CheckUser: m.UserActive}}
-	leases := &session.Manager{Store: s, Gate: &privileged.Client{Path: c.HelperSocket}, Peers: m, TTL: time.Duration(c.LeaseSeconds) * time.Second}
+	helper := &privileged.Client{Path: c.HelperSocket}
+	defer helper.CloseIdleConnections()
+	leases := &session.Manager{Store: s, Gate: helper, Peers: m, TTL: time.Duration(c.LeaseSeconds) * time.Second}
 	ctx, stop := process.StopContext()
 	defer stop()
 	if e = leases.Reset(ctx); e != nil {

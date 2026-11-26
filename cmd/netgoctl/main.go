@@ -430,7 +430,7 @@ func run() error {
 			if len(st.Users) != 0 {
 				return errors.New("administrator bootstrap already completed")
 			}
-			st.Users[*userID] = model.User{ID: *userID, Alias: *alias, Email: *email, Role: "admin", MaxDevices: 20, Resources: []string{}}
+			st.Users[*userID] = model.User{ID: *userID, Alias: *alias, Email: *email, Role: "admin", MaxDevices: 20, MaxSessions: 1, Resources: []string{}}
 			st.Record("local", "bootstrap", *userID)
 			return nil
 		})

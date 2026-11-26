@@ -279,24 +279,28 @@ extern "C" JNIEXPORT void JNICALL Java_org_netgo_client_NativeRemote_cancelNativ
         ng_remote_client_cancel(s->client);
     s->inputs.clear();
 }
-extern "C" JNIEXPORT void JNICALL Java_org_netgo_client_NativeRemote_inputNative(JNIEnv *env, jobject,
+extern "C" JNIEXPORT jint JNICALL Java_org_netgo_client_NativeRemote_00024Companion_textLimitNative(JNIEnv *, jobject) {
+    return jint(netgo::remote::input_text_limit);
+}
+extern "C" JNIEXPORT jboolean JNICALL Java_org_netgo_client_NativeRemote_inputNative(JNIEnv *env, jobject,
                                                                                  jlong handle,
                                                                                  jbyteArray value) {
     try {
         auto s = get(handle);
         if (!s || !s->active || !value)
-            return;
+            return JNI_FALSE;
         auto size = env->GetArrayLength(value);
-        if (size <= 0 || size > 16384)
-            return;
+        if (size <= 0 || size > jint(netgo::remote::input_batch_limit))
+            return JNI_FALSE;
         std::string input(size_t(size), '\0');
         env->GetByteArrayRegion(value, 0, size, reinterpret_cast<jbyte *>(input.data()));
         if (!healthy(env))
-            return;
+            return JNI_FALSE;
         auto event = Json::parse(input);
         std::lock_guard lock(s->mutex);
-        s->inputs.push(std::move(event));
+        return (event.is_array() ? s->inputs.push_batch(std::move(event)) : s->inputs.push(std::move(event))) ? JNI_TRUE : JNI_FALSE;
     } catch (...) {
+        return JNI_FALSE;
     }
 }
 extern "C" JNIEXPORT jboolean JNICALL Java_org_netgo_client_NativeRemote_commandNative(JNIEnv *env, jobject,

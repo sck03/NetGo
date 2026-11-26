@@ -320,7 +320,7 @@ func (m *Manager) Acquire(ctx context.Context, c model.Credential, req Request, 
 				}
 			}
 		}
-		if active >= st.Users[c.UserID].SessionLimit() || len(st.RemoteSessions) >= 65536 {
+		if active >= st.Users[c.UserID].MaxSessions || len(st.RemoteSessions) >= 65536 {
 			return model.ErrConflict
 		}
 		hostKey, e := decode(h.TransportKey, 32)

@@ -37,14 +37,24 @@ func (c *Controller) synchronizeProfile(ctx context.Context, remote *Remote, cur
 	if err = ctx.Err(); err != nil {
 		return current, selector, err
 	}
-	b, err := json.MarshalIndent(next, "", "  ")
-	if err == nil {
-		err = securefile.Write(filepath.Join(c.Root, next.ID+".json"), b, 0600)
-	}
+	err = c.saveProfile(next)
 	if err != nil {
 		return current, selector, err
 	}
 	selector.CloseIdleConnections()
 	accepted = true
 	return next, updated, nil
+}
+
+func (c *Controller) saveProfile(p site.Profile) error {
+	b, err := json.MarshalIndent(p, "", "  ")
+	if err == nil {
+		err = securefile.Write(filepath.Join(c.Root, p.ID+".json"), b, 0600)
+	}
+	if err == nil {
+		c.mu.Lock()
+		c.profilesRevision++
+		c.mu.Unlock()
+	}
+	return err
 }

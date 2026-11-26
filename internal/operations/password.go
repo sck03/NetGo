@@ -133,7 +133,9 @@ func (t PasswordTransaction) Reset(ctx context.Context, path, userID string, pas
 	}
 	gate := t.Gate
 	if gate == nil {
-		gate = &privileged.Client{Path: c.HelperSocket}
+		helper := &privileged.Client{Path: c.HelperSocket}
+		defer helper.CloseIdleConnections()
+		gate = helper
 	}
 	journalPath := path + ".password-reset.json"
 	journal := passwordJournal{SiteID: c.Site.ID, UserID: userID, Active: map[string]bool{}, Phase: "prepared", At: time.Now().UTC()}

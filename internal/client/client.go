@@ -18,7 +18,6 @@ import (
 	"netgo/internal/identity"
 	"netgo/internal/model"
 	"netgo/internal/protocol"
-	"netgo/internal/securefile"
 	"netgo/internal/site"
 	"os"
 	"path/filepath"
@@ -52,19 +51,21 @@ type Status struct {
 	Lease            model.Lease        `json:"lease"`
 	Internet         bool               `json:"internet"`
 	RemoteReady      bool               `json:"remote_ready"`
+	ProfilesRevision uint64             `json:"profiles_revision"`
 }
 type Controller struct {
-	mu            sync.Mutex
-	op            sync.Mutex
-	Root          string
-	Vault         DeviceVault
-	Engine        Engine
-	status        Status
-	cancel        context.CancelFunc
-	done          chan struct{}
-	cleanupFailed bool
-	remote        *remoteConnection
-	remember      bool
+	mu               sync.Mutex
+	op               sync.Mutex
+	Root             string
+	Vault            DeviceVault
+	Engine           Engine
+	status           Status
+	cancel           context.CancelFunc
+	done             chan struct{}
+	cleanupFailed    bool
+	remote           *remoteConnection
+	remember         bool
+	profilesRevision uint64
 }
 type Remote struct {
 	auth          sync.RWMutex
@@ -155,6 +156,7 @@ func (c *Controller) Status() Status {
 	c.mu.Lock()
 	defer c.mu.Unlock()
 	s := c.status
+	s.ProfilesRevision = c.profilesRevision
 	s.RemoteReady = c.remote != nil && c.remote.ctx.Err() == nil && c.remote.site == s.SiteID && s.Lease.ID != "" && (s.State == "connected" || s.State == "negotiating")
 	if s.State == "" {
 		s.State = "disconnected"
@@ -198,8 +200,7 @@ func (c *Controller) importProfile(p site.Profile, replaceTrust bool) error {
 			}
 		}
 	}
-	b, _ := json.MarshalIndent(p, "", "  ")
-	return securefile.Write(path, b, 0600)
+	return c.saveProfile(p)
 }
 func (c *Controller) Profiles() ([]site.Profile, error) {
 	files, e := filepath.Glob(filepath.Join(c.Root, "*.json"))

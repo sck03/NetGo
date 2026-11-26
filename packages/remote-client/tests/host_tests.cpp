@@ -94,7 +94,7 @@ struct Fixture {
                                 std::chrono::system_clock::now().time_since_epoch())
                                 .count());
         put(ticket.data() + 80, now, 8);
-        put(ticket.data() + 88, now + 30000, 8);
+        put(ticket.data() + 88, now + 7000, 8);
         put(ticket.data() + 96, 59, 4);
         put(ticket.data() + 100, unattended ? 0 : 1, 4);
         sign(siteSeed, ticket.data(), 104, ticket.data() + 104);
@@ -116,9 +116,12 @@ struct Fixture {
                            {"capabilities", 59}}}};
     }
     Json control(bool host, const std::string &method, const std::string &path, const char *body) {
+        // Exercise both server-query delay and an already-captured response arriving late.
+        if (host && !unattended && method == "GET" && path.find("/sessions/") != std::string::npos && renewals > 0)
+            std::this_thread::sleep_for(std::chrono::milliseconds(400));
         if (!host && method == "GET" && path.find("/sessions/") != std::string::npos)
             std::this_thread::sleep_for(std::chrono::milliseconds(60));
-        std::lock_guard lock(mutex);
+        std::unique_lock lock(mutex);
         if (method == "CONTEXT")
             return {{"site_id", "site"},
                     {"device_id", host ? "host" : "controller"},
@@ -154,7 +157,7 @@ struct Fixture {
                 std::chrono::system_clock::now().time_since_epoch()).count());
             put(wire.data()+72, ++sequence, 8);
             put(wire.data()+80, now, 8);
-            put(wire.data()+88, now+30000, 8);
+            put(wire.data()+88, now + 7000, 8);
             sign(siteSeed, wire.data(), 104, wire.data()+104);
             authorization["ticket"] = encode64(wire.data(), wire.size());
             authorization["session"]["sequence"] = sequence;
@@ -166,7 +169,11 @@ struct Fixture {
             authorization["session"]["state"] = "closed";
             return {{"ok", true}};
         }
-        return authorization;
+        auto snapshot = authorization;
+        lock.unlock();
+        if (host && unattended && method == "GET" && path.find("/sessions/") != std::string::npos && renewals > 0)
+            std::this_thread::sleep_for(std::chrono::milliseconds(400));
+        return snapshot;
     }
     void submit(const Json &j) {
         auto s = j.dump();
@@ -285,7 +292,7 @@ int main() {
             std::atomic_bool done = false;
             std::thread timeout([&] {
                 for (unsigned i = 0; i < 1500 && !done; ++i) {
-                    if (f.completed && f.renewals >= 2) f.live = false;
+                    if (f.completed && f.renewals >= 4) f.live = false;
                     std::this_thread::sleep_for(std::chrono::milliseconds(10));
                 }
                 if (!done)

@@ -2,6 +2,7 @@ import Foundation
 import NetGoApple
 
 final class RemoteViewer {
+    static let textLimit = Int(ng_remote_input_text_limit())
     let media = MediaPlayer()
     private let lock = NSLock()
     private var running = false
@@ -59,7 +60,7 @@ final class RemoteViewer {
             options.format = { ctx, width, height, _, caps in let v = Unmanaged<RemoteViewer>.fromOpaque(ctx!).takeUnretainedValue(); v.lock.lock(); v.width = width; v.height = height; v.capabilities = caps; let epoch=v.sessionGeneration; v.lock.unlock(); DispatchQueue.main.async { if v.current(epoch) { v.permissionsChanged?(caps) } }; return 0 }
             options.video = { ctx, bytes, size, time in Unmanaged<RemoteViewer>.fromOpaque(ctx!).takeUnretainedValue().media.video(Data(bytes:bytes!,count:size),time:time) ? 0 : -1 }
             options.audio = { ctx, bytes, size in Unmanaged<RemoteViewer>.fromOpaque(ctx!).takeUnretainedValue().media.audio(Data(bytes:bytes!,count:size)) ? 0 : -1 }
-            options.event = { ctx,json in let v=Unmanaged<RemoteViewer>.fromOpaque(ctx!).takeUnretainedValue();if let data=String(cString:json!).data(using:.utf8),let object=(try? JSONSerialization.jsonObject(with:data)) as? [String:Any] { let epoch=v.sessionGeneration;DispatchQueue.main.async { if v.current(epoch)||(object["action"] as? String=="upload"&&object["done"] as? Bool==true){v.event?(object)} } } }
+            options.event = { ctx,json in let v=Unmanaged<RemoteViewer>.fromOpaque(ctx!).takeUnretainedValue();if let data=String(cString:json!).data(using:.utf8),let object=(try? JSONSerialization.jsonObject(with:data)) as? [String:Any] { let epoch=v.sessionGeneration;DispatchQueue.main.async { if v.current(epoch)||(["upload","download"].contains(object["action"] as? String ?? "")&&object["done"] as? Bool==true){v.event?(object)} } } }
             options.status = { ctx, code in let v = Unmanaged<RemoteViewer>.fromOpaque(ctx!).takeUnretainedValue(); let code = String(cString:code!); let messages = ["remote_connected":"远程桌面已连接", "remote_waiting_consent":"等待主机确认…", "remote_host_busy":"对方正在使用远程桌面，请稍后刷新", "remote_host_unavailable":"对方暂不可连接，请检查 VPN 和桌面共享", "remote_view_forbidden":"当前账号没有观看权限", "remote_disconnected":"远程桌面已结束"]; let epoch=v.sessionGeneration;DispatchQueue.main.async { if v.current(epoch){v.changed?(messages[code] ?? code)} } }
             var created: OpaquePointer?
             if ng_remote_client_create(&options,&created) == 0, let created = created {
@@ -79,12 +80,16 @@ final class RemoteViewer {
         return try control("LOCAL_CALL","",try json(["Site":site,"Method":method,"Path":path,"Body":(try? JSONSerialization.jsonObject(with:Data(body.utf8))) ?? NSNull(),"Idempotency":key]),"")
     }
     private func json(_ value: Any) throws -> String { String(decoding:try JSONSerialization.data(withJSONObject:value),as:UTF8.self) }
-    func input(_ event: [String:Any]) {
+    @discardableResult func input(_ event: Any) -> Bool {
         lock.lock(); defer { lock.unlock() }
-        guard running, capabilities & 2 != 0, let data = try? JSONSerialization.data(withJSONObject:event) else { return }
-        data.withUnsafeBytes { bytes in
-            _ = ng_remote_input_push(inputs, bytes.baseAddress?.assumingMemoryBound(to: CChar.self), bytes.count)
+        guard running, capabilities & 2 != 0, let data = try? JSONSerialization.data(withJSONObject:event) else { return false }
+        return data.withUnsafeBytes { bytes in
+            ng_remote_input_push(inputs, bytes.baseAddress?.assumingMemoryBound(to: CChar.self), bytes.count) == 0
         }
+    }
+    func key(_ code: Int) -> Bool {
+        let events: [[String:Any]] = [["type":"key","code":code,"down":true],["type":"key","code":code,"down":false]]
+        return input(events)
     }
     func pointer(x: CGFloat,y: CGFloat,viewWidth: CGFloat,viewHeight: CGFloat,down: Bool?,button: Int = 1) {
         lock.lock(); let w = CGFloat(width), h = CGFloat(height); lock.unlock()
@@ -95,7 +100,13 @@ final class RemoteViewer {
         if let down = down { input(["type":"button","button":button,"down":down]) }
     }
     @discardableResult func command(_ value:[String:Any]) -> Bool {
-        lock.lock();defer { lock.unlock() };guard running,let client,let data=try? JSONSerialization.data(withJSONObject:value) else { return false };return data.withUnsafeBytes { bytes in ng_remote_client_command(client,bytes.baseAddress?.assumingMemoryBound(to:CChar.self),bytes.count)==0 }
+        let accepted: Bool = {
+            lock.lock();defer { lock.unlock() }
+            guard running,let client,let data=try? JSONSerialization.data(withJSONObject:value) else { return false }
+            return data.withUnsafeBytes { bytes in ng_remote_client_command(client,bytes.baseAddress?.assumingMemoryBound(to:CChar.self),bytes.count)==0 }
+        }()
+        if !accepted { DispatchQueue.main.async { self.changed?("操作尚未提交，连接不可用或任务队列已满") } }
+        return accepted
     }
     func stop() { lock.lock(); generation &+= 1; let ended=generation; running = false; capabilities=0; if let client = client { ng_remote_client_cancel(client) }; lock.unlock(); DispatchQueue.main.async { if self.current(ended) { self.permissionsChanged?(0) } }; media.stop() }
 }

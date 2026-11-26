@@ -8,6 +8,7 @@ import (
 	"log/slog"
 	"net/http"
 	"netgo/internal/accounts"
+	"netgo/internal/authorization"
 	"netgo/internal/devices"
 	"netgo/internal/diagnostics"
 	"netgo/internal/engine/netbird"
@@ -306,8 +307,11 @@ func (s *Server) Handler() http.Handler {
 	secured("PUT /netgo/v2/admin/resources/{id}", true, s.putResource)
 	secured("DELETE /netgo/v2/admin/resources/{id}", true, func(w http.ResponseWriter, r *http.Request) {
 		e := s.Sessions.MutateResource(r.Context(), r.PathValue("id"), func(st *model.State) error {
+			if err := authorization.CheckAdmin(r.Context(), st); err != nil {
+				return err
+			}
 			delete(st.Resources, r.PathValue("id"))
-			st.Record("admin", "resource.delete", r.PathValue("id"))
+			st.Record(authorization.Actor(r.Context()), "resource.delete", r.PathValue("id"))
 			return nil
 		})
 		if e != nil {
@@ -384,6 +388,9 @@ func (s *Server) authorize(admin bool, next http.Handler) http.Handler {
 			return
 		}
 		ctx := context.WithValue(r.Context(), credKey, c)
+		if admin {
+			ctx = authorization.WithAdmin(ctx, c)
+		}
 		ctx = context.WithValue(ctx, principalKey, principal{u, d})
 		next.ServeHTTP(w, r.WithContext(ctx))
 	})
@@ -442,8 +449,11 @@ func (s *Server) putResource(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	e := s.Sessions.MutateResource(r.Context(), v.ID, func(st *model.State) error {
+		if err := authorization.CheckAdmin(r.Context(), st); err != nil {
+			return err
+		}
 		st.Resources[v.ID] = v
-		st.Record("admin", "resource.update", v.ID)
+		st.Record(authorization.Actor(r.Context()), "resource.update", v.ID)
 		return nil
 	})
 	if e != nil {

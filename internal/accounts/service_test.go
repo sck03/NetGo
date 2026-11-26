@@ -2,12 +2,16 @@ package accounts
 
 import (
 	"context"
+	"errors"
 	"net/http"
 	"net/http/httptest"
+	"netgo/internal/authorization"
 	"netgo/internal/engine/netbird"
 	"netgo/internal/model"
 	"netgo/internal/session"
 	"netgo/internal/store"
+	"sync"
+	"sync/atomic"
 	"testing"
 	"time"
 )
@@ -15,6 +19,72 @@ import (
 type gate struct{}
 
 func (gate) Apply(context.Context, []model.Lease) error { return nil }
+
+func TestBlockedCreateAllowsRevocationAndRechecksActor(t *testing.T) {
+	db, err := store.Open(":memory:")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer db.Close()
+	credential := model.Credential{TokenHash: "admin-token", UserID: "admin", DeviceID: "browser", ExpiresAt: time.Now().Add(time.Hour)}
+	target := model.User{ID: "target", Alias: "target", Email: "target@example.test", Role: "user", MaxDevices: 3, MaxSessions: 1}
+	if err = db.Update(func(st *model.State) error {
+		st.Users["admin"] = model.User{ID: "admin", Alias: "admin", Role: "admin"}
+		st.Users[target.ID] = target
+		st.Devices["browser"] = model.Device{ID: "browser", UserID: "admin"}
+		st.Credentials[credential.TokenHash] = credential
+		return nil
+	}); err != nil {
+		t.Fatal(err)
+	}
+	entered, release := make(chan struct{}), make(chan struct{})
+	var released sync.Once
+	unblock := func() { released.Do(func() { close(release) }) }
+	var compensated atomic.Bool
+	up := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Method == "POST" {
+			close(entered)
+			<-release
+			w.Write([]byte(`{"id":"created","password":"temporary"}`))
+		} else {
+			compensated.Store(true)
+			w.WriteHeader(204)
+		}
+	}))
+	defer up.Close()
+	defer unblock()
+	service := Service{Store: db, Sessions: &session.Manager{Store: db, Gate: gate{}}, Management: &netbird.Management{URL: up.URL, Client: up.Client()}}
+	done := make(chan error, 1)
+	go func() {
+		_, err := service.Create(authorization.WithAdmin(context.Background(), credential), NewUser{Alias: "new", Email: "new@example.test"})
+		done <- err
+	}()
+	<-entered
+	changed := make(chan error, 1)
+	target.Disabled = true
+	go func() { _, err := service.Update(context.Background(), target); changed <- err }()
+	select {
+	case err := <-changed:
+		if err != nil {
+			t.Fatal(err)
+		}
+	case <-time.After(time.Second):
+		t.Fatal("slow create blocked another account revocation")
+	}
+	if _, err = service.Create(context.Background(), NewUser{Alias: "NEW", Email: "other@example.test"}); !errors.Is(err, model.ErrConflict) {
+		t.Fatal("duplicate reservation", err)
+	}
+	if err = db.Update(func(st *model.State) error { delete(st.Credentials, credential.TokenHash); return nil }); err != nil {
+		t.Fatal(err)
+	}
+	unblock()
+	if err = <-done; !errors.Is(err, model.ErrUnauthorized) {
+		t.Fatal("revoked administrator committed create", err)
+	}
+	if !compensated.Load() {
+		t.Fatal("failed create did not compensate upstream")
+	}
+}
 func TestUpstreamCreateDoesNotBlockStateReads(t *testing.T) {
 	db, e := store.Open(":memory:")
 	if e != nil {

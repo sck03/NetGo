@@ -37,11 +37,23 @@ struct ClientView: View {
                         ForEach(model.transferFiles,id: \.self) { name in Button(name) { model.download(name) } }
                     }.disabled(model.remoteCapabilities & 32 == 0)
                     Button("取消传输") { model.viewer.command(["action":"cancel"]) }.disabled(model.remoteCapabilities == 0)
-                    if let url=model.lastDownload { ShareLink("导出已下载文件",item:url) }
+                    if let url=model.lastDownload { ShareLink("导出已下载文件",item:url); Button("删除此下载") { model.discardDownload() } }
                 }
             }
             ScreenView(viewer:model.viewer).frame(minHeight:180).background(.black)
-            HStack { TextField("发送文字",text:$text).textFieldStyle(.roundedBorder).disabled(model.remoteCapabilities & 2 == 0); Button("发送") { model.viewer.input(["type":"text","text":text]); text = "" }.disabled(model.remoteCapabilities & 2 == 0); Button("停止远控") { model.stopRemote() } }
+            HStack {
+                TextField("发送文字",text:$text).textFieldStyle(.roundedBorder).disabled(model.remoteCapabilities & 2 == 0)
+                Button("发送") {
+                    if model.viewer.input(["type":"text","text":text]) { text = "" }
+                    else { model.message = "文字尚未发送，连接或输入队列繁忙，请重试" }
+                }.disabled(model.remoteCapabilities & 2 == 0 || text.isEmpty || text.utf8.count > RemoteViewer.textLimit)
+                Button("停止远控") { model.stopRemote() }
+            }
+            Text("每次最多 \(RemoteViewer.textLimit) UTF-8 字节，超限请分段发送").font(.caption)
+            HStack {
+                Button("退格") { if !model.viewer.key(8) { model.message="按键尚未发送，请重试" } }
+                Button("回车") { if !model.viewer.key(13) { model.message="按键尚未发送，请重试" } }
+            }.disabled(model.remoteCapabilities & 2 == 0)
         }
         .padding()
         .fileImporter(isPresented:$importing,allowedContentTypes:uploading ? [.item]:[.json],allowsMultipleSelection:false) { result in

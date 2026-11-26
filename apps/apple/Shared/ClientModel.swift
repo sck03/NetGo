@@ -8,7 +8,7 @@ import UIKit
 import SwiftUI
 import NetGoApple
 
-struct SiteItem: Identifiable {
+struct SiteItem: Identifiable, Equatable {
     let id: String
     let name: String
     let raw: String
@@ -30,6 +30,8 @@ struct HostItem: Identifiable { let id: String; let name: String; let status: St
     private var epoch: UInt64 = 0
     private var hostEpoch: UInt64 = 0
     private var refreshing = false
+    private var profilesRevision: UInt64?
+    private var connectionSummary = ""
     private func invalidate() { epoch &+= 1; hostEpoch &+= 1; hosts=[]; resources=[]; remoteReady=false; stopRemote() }
     private var remoteSuspended=false
     private var nextRemoteAttempt=Date.distantPast
@@ -51,6 +53,8 @@ struct HostItem: Identifiable { let id: String; let name: String; let status: St
     @Published var remoteCapabilities: UInt32 = 0
     @Published var lastDownload:URL?
     private var selectedUpload:URL?
+    private let downloads = RemoteDownloads()
+    private var pendingDownload:URL?
 #if os(macOS)
     let host = RemoteHost()
     @Published var unattended=UserDefaults.standard.bool(forKey:"remoteUnattended") { didSet {
@@ -138,6 +142,7 @@ struct HostItem: Identifiable { let id: String; let name: String; let status: St
         } catch { message = error.localizedDescription }
     }
     private func saveSite(_ item: SiteItem,message: String) {
+        profilesRevision = nil
         sites.removeAll { $0.id == item.id }; sites.append(item); selected = item.id; self.message = message
         persistSites()
     }
@@ -147,16 +152,19 @@ struct HostItem: Identifiable { let id: String; let name: String; let status: St
         UserDefaults.standard.set(sites.filter{$0.needsImport}.map(\.id),forKey:"pendingSites")
         UserDefaults.standard.set(sites.filter{$0.trusted}.map(\.id),forKey:"trustedSites")
     }
-    private func synchronizeProfiles(_ data: Data) {
-        guard let values = try? JSONSerialization.jsonObject(with:data) as? [[String:Any]] else { return }
+    private func synchronizeProfiles(_ data: Data) -> Bool {
+        guard let values = try? JSONSerialization.jsonObject(with:data) as? [[String:Any]] else { return false }
+        var updated = sites
         for value in values {
-            guard let id=value["ID"] as? String, let bytes=try? JSONSerialization.data(withJSONObject:value) else {continue}
+            guard let id=value["ID"] as? String, let bytes=try? JSONSerialization.data(withJSONObject:value,options:.sortedKeys) else {continue}
             if let pending=sites.first(where:{$0.id==id && $0.needsImport}), let old=try? JSONSerialization.jsonObject(with:Data(pending.raw.utf8)) as? [String:Any] {
                 if old["Origin"] as? String != value["Origin"] as? String || old["CA"] as? String != value["CA"] as? String || (old["ConfigRevision"] as? UInt64 ?? 0) > (value["ConfigRevision"] as? UInt64 ?? 0) {continue}
             }
-            sites.removeAll{$0.id==id};sites.append(SiteItem(id:id,name:value["Name"] as? String ?? id,raw:String(decoding:bytes,as:UTF8.self)))
+            let item = SiteItem(id:id,name:value["Name"] as? String ?? id,raw:String(decoding:bytes,as:UTF8.self))
+            if let index=updated.firstIndex(where:{$0.id==id}) { updated[index]=item } else { updated.append(item) }
         }
-        persistSites()
+        if updated != sites { sites=updated; persistSites() }
+        return true
     }
     func approveImport() { if let data = pendingImport { pendingImport = nil; importSite(data,approved:true) } }
     func cancelImport() { pendingImport = nil }
@@ -174,17 +182,20 @@ struct HostItem: Identifiable { let id: String; let name: String; let status: St
     func disconnect() { invalidate(); connected=false; if let disconnectAction = disconnectAction { disconnectAction() } else { operation("POST","/desktop/disconnect","{}") } }
     func refresh() {
         guard let request = request, !refreshing else { return }
-        refreshing=true; let version=epoch
+        refreshing=true; let version=epoch; let knownProfiles=profilesRevision
         DispatchQueue.global(qos:.utility).async { [weak self] in
             do {
                 let raw = try request("GET","/desktop/status","")
                 let object = try JSONSerialization.jsonObject(with:Data(raw.utf8)) as? [String:Any] ?? [:]
-                let profiles = try? request("GET","/desktop/profiles","")
+                let revision = object["profiles_revision"] as? UInt64 ?? 0
+                let profiles: String?
+                if knownProfiles == revision { profiles=nil } else { profiles=try? request("GET","/desktop/profiles","") }
                 Task { @MainActor in
                     guard let self=self else{return}; self.refreshing=false; guard version==self.epoch else{return}
                     self.connected=object["state"] as? String == "connected"
                     self.remoteReady=object["remote_ready"] as? Bool == true
-                    self.message=self.connected ? "已连接" : ((object["error"] as? String).flatMap{$0.isEmpty ? nil : $0} ?? "未连接")
+                    let summary=self.connected ? "已连接" : ((object["error"] as? String).flatMap{$0.isEmpty ? nil : $0} ?? "未连接")
+                    if summary != self.connectionSummary { self.connectionSummary=summary;self.message=summary }
                     self.resources=((object["lease"] as? [String:Any])?["resources"] as? [[String:Any]] ?? []).map{($0["name"] as? String ?? "") + " · " + ($0["cidr"] as? String ?? "")}
                     if !self.remoteReady { self.hostEpoch &+= 1; self.hosts=[]; self.resources=[]; self.stopRemote(suspend:false) }
 #if os(macOS)
@@ -197,7 +208,7 @@ struct HostItem: Identifiable { let id: String; let name: String; let status: St
                         }
                     }
 #endif
-                    if let profiles=profiles {self.synchronizeProfiles(Data(profiles.utf8))}
+                    if let profiles=profiles,self.synchronizeProfiles(Data(profiles.utf8)) {self.profilesRevision=revision}
                 }
             } catch { Task { @MainActor in guard let self=self else{return};self.refreshing=false;if version==self.epoch {self.connected=false;self.remoteReady=false;self.hosts=[];self.resources=[];self.stopRemote(suspend:false)} } }
         }
@@ -244,7 +255,16 @@ struct HostItem: Identifiable { let id: String; let name: String; let status: St
             message="已复制远端剪贴板"
         } else if let files=value["files"] as? [[String:Any]] { transferFiles=files.compactMap{$0["name"] as? String} }
         else if let bytes=value["bytes"] as? NSNumber,let size=value["size"] as? NSNumber { message="文件传输：\(bytes) / \(size) 字节" }
-        if value["done"] as? Bool == true { if value["action"] as? String == "upload",value["path"] as? String == selectedUpload?.path { selectedUpload?.stopAccessingSecurityScopedResource();selectedUpload=nil };if value["action"] as? String == "download",value["error"]==nil,let path=value["path"] as? String { lastDownload=URL(fileURLWithPath:path) } }
+        if value["done"] as? Bool == true {
+            if value["action"] as? String == "upload",value["path"] as? String == selectedUpload?.path {
+                selectedUpload?.stopAccessingSecurityScopedResource();selectedUpload=nil
+            }
+            if value["action"] as? String == "download", let path=value["path"] as? String, path==pendingDownload?.path {
+                if value["error"]==nil { lastDownload=pendingDownload }
+                else if let url=pendingDownload { downloads.discard(url) }
+                pendingDownload=nil
+            }
+        }
     }
     func sendClipboard() {
 #if os(macOS)
@@ -255,7 +275,15 @@ struct HostItem: Identifiable { let id: String; let name: String; let status: St
         viewer.command(["action":"clipboard.set","text":text])
     }
     func upload(_ url:URL) { guard selectedUpload==nil else { message="请等待当前上传完成或取消";return };_ = url.startAccessingSecurityScopedResource();selectedUpload=url;if !viewer.command(["action":"upload","path":url.path,"name":url.lastPathComponent]) { url.stopAccessingSecurityScopedResource();selectedUpload=nil;message="远程连接不可用或任务队列已满" } }
-    func download(_ name:String) { guard !name.isEmpty,!name.hasPrefix("."),!name.contains("/"),!name.contains("\\"),!name.contains(":"),name.utf8.count<=180 else { message="无效的远端文件名";return };let root=FileManager.default.urls(for:.documentDirectory,in:.userDomainMask)[0].appendingPathComponent("NetGo Downloads",isDirectory:true);do { try FileManager.default.createDirectory(at:root,withIntermediateDirectories:true);viewer.command(["action":"download","name":name,"path":root.appendingPathComponent(name).path]) } catch { message=error.localizedDescription } }
+    func download(_ name:String) {
+        guard pendingDownload==nil else { message="请等待当前下载完成或取消";return }
+        do {
+            let url=try downloads.destination(name)
+            if viewer.command(["action":"download","name":name,"path":url.path]) { pendingDownload=url }
+            else { downloads.discard(url);message="远程连接不可用或任务队列已满" }
+        } catch { message=error.localizedDescription }
+    }
+    func discardDownload() { if let url=lastDownload { downloads.discard(url);lastDownload=nil } }
     private func operation(_ method: String,_ path: String,_ body: String) {
         let version=epoch
         guard let request = request else { return }

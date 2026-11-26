@@ -9,6 +9,7 @@ import (
 	"net/url"
 	"netgo/internal/controlpath"
 	"netgo/internal/model"
+	"netgo/internal/platform"
 	"netgo/internal/site"
 	"os"
 	"os/exec"
@@ -160,8 +161,8 @@ func runtimeChecks(ctx context.Context, c site.Config) ([]Check, HostResources) 
 		return []Check{{Name: "linux_runtime", Status: "NOT-RUN", Detail: "请在 Debian 12/13 服务端运行系统检查。"}}, HostResources{}
 	}
 	release, releaseErr := os.ReadFile("/etc/os-release")
-	if releaseErr != nil || !SupportedDebianRelease(string(release)) || runtime.GOARCH != "amd64" {
-		checks = append(checks, Check{Name: "linux_baseline", Status: "FAIL", Detail: "当前服务端基准为 Debian 12/13 amd64，请核对系统版本。"})
+	if releaseErr != nil || !SupportedDebianRelease(string(release)) || !platform.Supported(runtime.GOARCH) {
+		checks = append(checks, Check{Name: "linux_baseline", Status: "FAIL", Detail: "当前服务端基准为 Debian 12/13 amd64 / arm64，请核对系统版本与架构。"})
 	}
 	services := []string{"netbird-server", "netbird-relay", "netgo-router", "netgo-helper", "netgo-caddy"}
 	if c.Deployment.Mode == "443" {

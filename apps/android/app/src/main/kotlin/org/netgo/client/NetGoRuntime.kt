@@ -39,6 +39,7 @@ object NetGoRuntime {
     @Synchronized fun attach(value: Client) {
         client = value; polling?.cancel()
         polling = scope.launch {
+            var profilesRevision = -1L
             while (isActive && client === value) {
                 try {
                     val version=epoch.get()
@@ -46,7 +47,11 @@ object NetGoRuntime {
                     if (client === value && version == epoch.get()) {
                         status.value = next
                         if (!next.optBoolean("remote_ready")) { hostRequest.incrementAndGet(); hosts.value = emptyList() }
-                        refreshProfiles(value)
+                        val revision = next.optLong("profiles_revision")
+                        if (profilesRevision != revision) {
+                            refreshProfiles(value)
+                            profilesRevision = revision
+                        }
                     }
                 } catch (_: Exception) { if (client === value) { hosts.value = emptyList(); status.value = JSONObject().put("state", "disconnected") } }
                 delay(2000)

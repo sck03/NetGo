@@ -13,7 +13,7 @@ https://@@CONTROL_HOST@@:@@CONTROL_PORT@@ {
  handle @private {
   respond 404
  }
- @netgo path /netgo/* /netgo-ui/* /assets/* /
+ @netgo path /netgo/* /assets/* /
  handle @netgo {
   reverse_proxy @@PRODUCT_LISTEN@@
  }

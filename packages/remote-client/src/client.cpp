@@ -151,6 +151,7 @@ struct ng_remote_client {
     std::string site, host;
     std::atomic_bool cancelled = false, started = false;
     std::mutex controlMutex;
+    std::vector<char> controlBuffer = std::vector<char>(4 << 20);
     netgo::remote::Exchange exchange{[this](const Json &j) {
         if (options.event) {
             auto s = j.dump();
@@ -165,7 +166,7 @@ struct ng_remote_client {
     Json call(const std::string &method, const std::string &path, const Json &value = nullptr,
               const std::string &idem = {}) {
         std::lock_guard lock(controlMutex);
-        std::vector<char> output(1 << 20);
+        auto &output = controlBuffer;
         size_t length = 0;
         auto body = value.is_null() ? std::string() : value.dump();
         require(options.control(options.context, method.c_str(), path.c_str(), body.c_str(), idem.c_str(),

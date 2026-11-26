@@ -14,6 +14,9 @@ typedef struct ng_remote_input ng_remote_input;
 ng_remote_input *ng_remote_input_create(void);
 void ng_remote_input_destroy(ng_remote_input *input);
 void ng_remote_input_clear(ng_remote_input *input);
+size_t ng_remote_input_text_limit(void);
+/* One event or an atomic bounded array (e.g. key down/up). Rejected input
+ * remains the caller's responsibility; success means queued, not delivered. */
 int32_t ng_remote_input_push(ng_remote_input *input, const char *json, size_t size);
 /* capacity >= 61440; writes a JSON array without a trailing NUL. */
 int32_t ng_remote_input_read(ng_remote_input *input, char *output, size_t capacity, size_t *length);

@@ -1,5 +1,7 @@
 # 各平台构建与 Releases 发布
 
+本地体积清理：在 Windows 项目根运行 scripts/clean-workspace.ps1 预览，追加 -Apply 执行；-IncludeSDK 会额外删除可重建的 Android NDK、平台、构建工具及移动端编译缓存，保留 SDK 命令行工具/许可和签名文件。清理后 npm ci 恢复 Web 依赖；正常 Android 构建脚本会按锁定版本重新安装 SDK 组件、OpenSSL 和 Go 绑定，需可用网络。已清除 AAR 时不要使用 --skip-bind。运行中的引擎、身份、站点配置、数据库均不属于自动清理范围。
+
 七个客户端/节点工作流保持独立。到 GitHub Actions 选择目标工作流，点击 **Run workflow** 后可以填写版本、架构和发布选项。
 
 如果仍只看到分支选择，请刷新工作流页面并选择 main。具体入口见下表；参数定义位于 main 上的各工作流文件。

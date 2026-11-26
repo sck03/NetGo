@@ -4,9 +4,12 @@ import (
 	"context"
 	"fmt"
 	"net/http"
+	"net/http/httptest"
+	"netgo/internal/engine/netbird"
 	"netgo/internal/model"
 	"netgo/internal/session"
 	"netgo/internal/store"
+	"sync"
 	"testing"
 	"time"
 )
@@ -36,6 +39,57 @@ func (u *upstream) Request(context.Context, string, string, any, any) (http.Head
 type gate struct{}
 
 func (gate) Apply(context.Context, []model.Lease) error { return nil }
+
+func TestSlowCleanupDoesNotBlockAnotherDevice(t *testing.T) {
+	db, err := store.Open(":memory:")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer db.Close()
+	if err = db.Update(func(st *model.State) error {
+		st.Users["u"] = model.User{ID: "u"}
+		for _, id := range []string{"slow", "fast"} {
+			st.Devices[id] = model.Device{ID: id, UserID: "u", PeerID: id}
+		}
+		return nil
+	}); err != nil {
+		t.Fatal(err)
+	}
+	entered, release := make(chan struct{}), make(chan struct{})
+	var once sync.Once
+	unblock := func() { once.Do(func() { close(release) }) }
+	up := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path == "/api/peers/slow" {
+			close(entered)
+			<-release
+		}
+		w.WriteHeader(204)
+	}))
+	defer up.Close()
+	defer unblock()
+	s := Service{Store: db, Sessions: &session.Manager{Store: db, Gate: gate{}}, Management: &netbird.Management{URL: up.URL, Client: up.Client()}}
+	done := make(chan error, 1)
+	go func() { _, err := s.Delete(context.Background(), "slow"); done <- err }()
+	<-entered
+	fast := make(chan error, 1)
+	go func() { _, err := s.Delete(context.Background(), "fast"); fast <- err }()
+	select {
+	case err := <-fast:
+		if err != nil {
+			t.Fatal(err)
+		}
+	case <-time.After(time.Second):
+		t.Fatal("unrelated deletion blocked on slow upstream")
+	}
+	result, err := s.Delete(context.Background(), "slow")
+	if err != nil || !result.CleanupPending {
+		t.Fatal("concurrent cleanup was not coalesced", result, err)
+	}
+	unblock()
+	if err = <-done; err != nil {
+		t.Fatal(err)
+	}
+}
 func TestDeleteRevokesBeforeUpstreamAndRetries(t *testing.T) {
 	for _, code := range []int{404, 503} {
 		t.Run(fmt.Sprint(code), func(t *testing.T) {

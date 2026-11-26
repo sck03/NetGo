@@ -14,7 +14,8 @@ import org.json.JSONObject
 
 @Composable internal fun RemoteScreen(site: String, host: String, close: () -> Unit) {
     var remote by remember(site, host) { mutableStateOf<NativeRemote?>(null) }
-    var input by remember { mutableStateOf(TextFieldValue()) }; var committed by remember { mutableStateOf("") }
+    var input by remember(site, host) { mutableStateOf(TextFieldValue()) }
+    val textLimit = remember { NativeRemote.textLimitNative() }
     val context=androidx.compose.ui.platform.LocalContext.current
     val scope=rememberCoroutineScope()
     var pendingTransfer by remember { mutableStateOf<JSONObject?>(null) }
@@ -47,7 +48,20 @@ import org.json.JSONObject
     }
     LaunchedEffect(remote,pendingTransfer) {
         val value=pendingTransfer;val session=remote
-        if(value!=null && session!=null) { repeat(200) { if(session.capabilities!=0){if(session.command(value)){if(value.optString("action")=="upload")uploadOwner=session;pendingTransfer=null};return@LaunchedEffect};kotlinx.coroutines.delay(50) } }
+        if(value!=null && session!=null) {
+            repeat(200) {
+                if(session.capabilities!=0) {
+                    if(session.command(value)) {
+                        if(value.optString("action")=="upload") uploadOwner=session
+                    } else { uploadPath?.delete();uploadPath=null }
+                    pendingTransfer=null
+                    return@LaunchedEffect
+                }
+                kotlinx.coroutines.delay(50)
+            }
+            pendingTransfer=null;uploadPath?.delete();uploadPath=null
+            NetGoRuntime.message.value="传输未开始，连接尚未就绪，请重试"
+        }
     }
     LaunchedEffect(remote) { val session=remote;capabilities=session?.capabilities ?: 0;session?.capabilitiesChanged={ capabilities=it };session?.finished={ downloads.finish(); downloadPending=false; capabilities=0; if(uploadOwner===session){uploadPath?.delete();uploadPath=null;uploadOwner=null} };session?.event={ value ->
         if(value.has("error"))NetGoRuntime.message.value="操作失败："+value.optString("error")
@@ -64,14 +78,20 @@ import org.json.JSONObject
         }, { remote })
     })
     OutlinedTextField(input, enabled = capabilities and 2 != 0, onValueChange = { value ->
-        if (value.text.length <= 4096) { input = value
-            if (value.composition == null) {
-                var common = 0; while (common < committed.length && common < value.text.length && committed[common] == value.text[common]) common++
-                repeat(committed.codePointCount(common, committed.length)) { remote?.send(JSONObject().put("type", "key").put("code", 8).put("down", true)); remote?.send(JSONObject().put("type", "key").put("code", 8).put("down", false)) }
-                val added = value.text.substring(common); if (added.isNotEmpty()) remote?.send(JSONObject().put("type", "text").put("text", added)); committed = value.text
-            }
+        input = value
+    }, isError = input.text.toByteArray(Charsets.UTF_8).size > textLimit,
+       label = { Text("发送文字（每次最多 $textLimit UTF-8 字节）") }, modifier = Modifier.fillMaxWidth())
+    OutlinedButton(enabled = capabilities and 2 != 0 && input.composition == null && input.text.isNotEmpty() && input.text.toByteArray(Charsets.UTF_8).size <= textLimit, onClick = {
+        if (remote?.send(JSONObject().put("type", "text").put("text", input.text)) == true) input = TextFieldValue()
+        else NetGoRuntime.message.value = "文字尚未发送，连接或输入队列繁忙，请重试"
+    }) { Text("发送文字") }
+    Row(horizontalArrangement=Arrangement.spacedBy(8.dp)) {
+        listOf("退格" to 8, "回车" to 13).forEach { (label, code) ->
+            OutlinedButton(enabled=capabilities and 2 != 0,onClick={
+                if (remote?.key(code) != true) NetGoRuntime.message.value="按键尚未发送，请重试"
+            }) { Text(label) }
         }
-    }, label = { Text("远程键盘输入") }, modifier = Modifier.fillMaxWidth())
+    }
     Row(horizontalArrangement=Arrangement.spacedBy(8.dp)) {
         OutlinedButton(enabled=capabilities and 8 != 0,onClick={val manager=context.getSystemService(android.content.ClipboardManager::class.java);val text=manager.primaryClip?.getItemAt(0)?.coerceToText(context)?.toString() ?: "";remote?.command(JSONObject().put("action","clipboard.set").put("text",text))}) { Text("发送剪贴板") }
         OutlinedButton(enabled=capabilities and 8 != 0,onClick={remote?.command(JSONObject().put("action","clipboard.get"))}) { Text("获取剪贴板") }

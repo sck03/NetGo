@@ -133,7 +133,6 @@ const (
 const allTables = users | resources | devices | leases | credentials | operations | hosts | grants | remoteSessions | remoteOperations
 const remoteTables = users | devices | leases | credentials | hosts | grants | remoteSessions | remoteOperations
 
-func (s *Store) RemoteView() (model.State, error)               { return s.view(remoteTables) }
 func (s *Store) RemoteUpdate(fn func(*model.State) error) error { return s.update(remoteTables, fn) }
 func (s *Store) AdminView() (model.State, error)                { return s.view(users | resources | devices | leases) }
 func (s *Store) PolicyView() (model.State, error) {

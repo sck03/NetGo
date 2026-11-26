@@ -1,11 +1,12 @@
 #include "client.hpp"
 #include "operation_epoch.hpp"
+#include "startup.hpp"
+#include "service.hpp"
 #include "remote_actions.hpp"
 #include "netgo_remote_client.h"
 #include "netgo_remote.h"
 #include <gtk/gtk.h>
 #include <curl/curl.h>
-#include <openssl/evp.h>
 #include <filesystem>
 #include <fstream>
 #include <thread>
@@ -112,47 +113,9 @@ void status(std::string text) {
 Json call(const std::string &method, const std::string &path, const Json &body = nullptr) {
     return netgo::desktop_linux::ipc(state->socket, method, path, body, state->alive);
 }
-void startService() {
-    auto folder = std::filesystem::canonical("/proc/self/exe").parent_path();
-    auto binary = folder / "netgo-client-service";
-    if (std::filesystem::exists("/opt/netgo-client/bin/netgo-client-service"))
-        binary = "/opt/netgo-client/bin/netgo-client-service";
-    GError *error = nullptr;
-    state->service = g_subprocess_new(
-        GSubprocessFlags(G_SUBPROCESS_FLAGS_STDOUT_SILENCE | G_SUBPROCESS_FLAGS_STDERR_SILENCE), &error,
-        binary.c_str(), "--root", state->root.c_str(), "--socket", state->socket.c_str(), "--daemon",
-        "/run/netgo-client/netbird.sock", nullptr);
-    if (error) {
-        std::string message = error->message;
-        g_error_free(error);
-        throw std::runtime_error(message);
-    }
-}
+void startService() { state->service = netgo::desktop_linux::launchService(state->root, state->socket); }
 void prepareNetwork() {
-    struct stat info{};
-    if (stat("/run/netgo-client/netbird.sock", &info) == 0 && S_ISSOCK(info.st_mode) &&
-        info.st_uid == getuid() && std::filesystem::exists("/opt/netgo-client/bin/netgo-client-service"))
-        return;
-    auto folder = std::filesystem::canonical("/proc/self/exe").parent_path();
-    auto binary = folder / "netgo-client-service";
-    auto owner = std::to_string(getuid());
-    GError *error = nullptr;
-    auto setup = g_subprocess_new(
-        GSubprocessFlags(G_SUBPROCESS_FLAGS_STDOUT_SILENCE | G_SUBPROCESS_FLAGS_STDERR_SILENCE), &error,
-        "pkexec", binary.c_str(), "--network", "install", "--source", folder.c_str(), "--owner",
-        owner.c_str(), nullptr);
-    if (!setup) {
-        if (error)
-            g_error_free(error);
-        throw std::runtime_error("无法打开系统管理员授权，请检查桌面系统的授权组件");
-    }
-    auto ok = g_subprocess_wait_check(setup, nullptr, &error);
-    g_object_unref(setup);
-    if (!ok) {
-        if (error)
-            g_error_free(error);
-        throw std::runtime_error("网络组件安装未完成，请确认管理员授权后重试");
-    }
+    if (!netgo::desktop_linux::ensureNetwork()) return;
     if (state->service) {
         g_subprocess_send_signal(state->service, SIGTERM);
         g_subprocess_wait(state->service, nullptr, nullptr);
@@ -169,40 +132,6 @@ void prepareNetwork() {
         }
     }
     throw std::runtime_error("连接服务未就绪，请重新启动 NetGo");
-}
-std::string base64(const uint8_t *bytes, size_t size) {
-    std::string out(4 * ((size + 2) / 3), '\0');
-    auto n = EVP_EncodeBlock(reinterpret_cast<uint8_t *>(out.data()), bytes, int(size));
-    out.resize(size_t(n));
-    for (auto &c : out) {
-        if (c == '+')
-            c = '-';
-        else if (c == '/')
-            c = '_';
-    }
-    while (!out.empty() && out.back() == '=')
-        out.pop_back();
-    return out;
-}
-std::vector<uint8_t> decode(std::string text, size_t expected) {
-    for (auto &c : text) {
-        if (c == '-')
-            c = '+';
-        else if (c == '_')
-            c = '/';
-    }
-    while (text.size() % 4)
-        text += '=';
-    std::vector<uint8_t> out(text.size() / 4 * 3);
-    auto n = EVP_DecodeBlock(out.data(), reinterpret_cast<const uint8_t *>(text.data()), int(text.size()));
-    while (!text.empty() && text.back() == '=') {
-        --n;
-        text.pop_back();
-    }
-    if (n < 0 || size_t(n) != expected)
-        throw std::runtime_error("invalid_signature");
-    out.resize(expected);
-    return out;
 }
 void task(std::function<void()> action) {
     if (state->cancelling || state->jobBusy.exchange(true)) {
@@ -253,7 +182,7 @@ void queue(Json input) {
     std::lock_guard lock(state->mutex);
     if (!(state->caps & NG_REMOTE_INPUT))
         return;
-    state->inputs.push(std::move(input));
+    if (!state->inputs.push(std::move(input))) status("输入队列繁忙或内容超限，请重试");
 }
 void present(Frame frame) {
     {
@@ -365,8 +294,9 @@ void view(std::string host) {
             try {
                 auto result = call(
                     "POST", "/desktop/remote/sign",
-                    {{"Site", static_cast<ViewerContext *>(p)->site}, {"Message", base64(message, size)}});
-                auto bytes = decode(result.at("signature"), 64);
+                    {{"Site", static_cast<ViewerContext *>(p)->site}, {"Message", netgo::remote::encode64(message, size)}});
+                auto bytes = netgo::remote::decode64(result.at("signature"), 64);
+                if (bytes.size() != 64) throw std::runtime_error("invalid_signature");
                 std::copy(bytes.begin(), bytes.end(), output);
                 return 0;
             } catch (...) {
@@ -484,7 +414,7 @@ void submit(const Json &value) {
         auto text = value.dump();
         if (ng_remote_client_command(state->client, text.data(), text.size()) != 0)
             status("操作队列已满或权限不足");
-    }
+    } else { status("操作尚未提交，远程连接不可用"); }
 }
 struct ClipReply {
     std::promise<std::string> value;
@@ -532,39 +462,7 @@ struct ConsentReply {
     GCancellable *cancel = g_cancellable_new();
     ~ConsentReply() { g_object_unref(cancel); }
 };
-void configureStartup(bool enabled) {
-    auto directory = std::filesystem::path(g_get_user_config_dir()) / "autostart";
-    auto target = directory / "org.netgo.desktop.desktop";
-    if (!enabled) {
-        std::error_code error;
-        std::filesystem::remove(target, error);
-        if (error)
-            throw std::runtime_error("无法移除登录启动项");
-        return;
-    }
-    std::filesystem::create_directories(directory);
-    auto executable = std::filesystem::canonical("/proc/self/exe").string();
-    std::string quoted = "\"";
-    for (char c : executable) {
-        if (c == '\n' || c == '\r')
-            throw std::runtime_error("invalid_startup_path");
-        if (c == '%')
-            quoted += '%';
-        if (c == '\\' || c == '"' || c == '$' || c == 96)
-            quoted += '\\';
-        quoted += c;
-    }
-    quoted += '"';
-    auto content = "[Desktop Entry]\nType=Application\nName=NetGo Unattended\nExec=" + quoted +
-                   "\nTerminal=false\nX-GNOME-Autostart-enabled=true\n";
-    GError *error = nullptr;
-    auto saved = g_file_set_contents_full(target.c_str(), content.c_str(), gssize(content.size()),
-                                          G_FILE_SET_CONTENTS_CONSISTENT, 0600, &error);
-    if (error)
-        g_error_free(error);
-    if (!saved)
-        throw std::runtime_error("无法保存登录启动项");
-}
+using netgo::desktop_linux::configureStartup;
 void shareDesktop() {
     state->suspended = false;
     if (state->site.empty() || state->remoteStopping || state->remoteActive.exchange(true))
@@ -743,9 +641,12 @@ void transferChosen(GObject *obj, GAsyncResult *result, void *data) {
         auto p = g_file_get_path(file);
         if (p) {
             auto local = std::filesystem::path(p);
-            submit({{"action", name->empty() ? "upload" : "download"},
-                    {"name", name->empty() ? local.filename().string() : *name},
-                    {"path", p}});
+            std::error_code pathError;
+            const bool exists = !name->empty() && std::filesystem::exists(local, pathError);
+            if (exists || pathError) status("请为下载选择新的文件名；下载不会覆盖原文件");
+            else submit({{"action", name->empty() ? "upload" : "download"},
+                         {"name", name->empty() ? local.filename().string() : *name},
+                         {"path", p}});
             g_free(p);
         }
         g_object_unref(file);
@@ -1079,6 +980,7 @@ void activate(GtkApplication *app, void *) {
                              return;
                          auto d = gtk_file_dialog_new();
                          gtk_file_dialog_set_initial_name(d, name.c_str());
+                         gtk_file_dialog_set_title(d, "保存下载（请使用新的文件名）");
                          gtk_file_dialog_save(d, GTK_WINDOW(state->window), nullptr, transferChosen,
                                               new std::string(name));
                          g_object_unref(d);

@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"netgo/internal/authorization"
 	"netgo/internal/gateway"
 	"netgo/internal/model"
 	"netgo/internal/store"
@@ -150,7 +151,7 @@ func (m *Manager) Acquire(ctx context.Context, c model.Credential, peer string, 
 			return nil
 		}
 		active(st, now)
-		limit := u.SessionLimit()
+		limit := u.MaxSessions
 		if limit < 1 || limit > 100 {
 			return errors.New("invalid session limit")
 		}
@@ -269,6 +270,12 @@ func (m *Manager) Revoke(ctx context.Context, actor, id string) error {
 		}
 		if actor != l.UserID && actor != "admin" {
 			return model.ErrForbidden
+		}
+		if actor == "admin" {
+			if err := authorization.CheckAdmin(ctx, st); err != nil {
+				return err
+			}
+			actor = authorization.Actor(ctx)
 		}
 		delete(st.Leases, id)
 		st.Record(actor, "session.revoke", id)

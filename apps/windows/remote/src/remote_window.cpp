@@ -217,7 +217,7 @@ void stop() {
 void queue(Json value) {
     if (!inputEnabled())
         return;
-    inputs.push(std::move(value));
+    if (!inputs.push(std::move(value))) postStatus("输入队列繁忙或内容超限，请重试");
 }
 desktop::Callbacks callbacks() {
     return {[] { return running.load(); },
@@ -352,9 +352,16 @@ void refresh() {
     });
 }
 void submit(Json command) {
-    std::lock_guard lock(mutex);
-    if (commands.size() < 4)
-        commands.push_back(std::move(command));
+    bool accepted = false;
+    {
+        std::lock_guard lock(mutex);
+        if (command.value("action", "") == "cancel") commands.clear();
+        if (commands.size() < 4) {
+            commands.push_back(std::move(command));
+            accepted = true;
+        }
+    }
+    if (!accepted) postStatus("操作尚未提交，任务队列已满，请稍后重试");
 }
 std::string chooseFile(bool save, const std::string &name = {}) {
     wchar_t path[32768]{};
@@ -367,9 +374,14 @@ std::string chooseFile(bool save, const std::string &name = {}) {
     o.lpstrFile = path;
     o.nMaxFile = 32768;
     o.lpstrFilter = L"所有文件\0*.*\0\0";
+    o.lpstrTitle = save ? L"保存下载（请使用新的文件名）" : L"上传文件";
     o.Flags = OFN_NOCHANGEDIR | OFN_PATHMUSTEXIST | (save ? 0 : OFN_FILEMUSTEXIST);
     if (!(save ? GetSaveFileNameW(&o) : GetOpenFileNameW(&o)))
         return {};
+    if (save && std::filesystem::exists(path)) {
+        postStatus("目标文件已存在，请选择其他文件名；下载不会覆盖原文件");
+        return {};
+    }
     return utf8(path);
 }
 void exchangeMenu() {

@@ -4,6 +4,7 @@ import android.media.*
 import android.view.Surface
 import androidx.annotation.Keep
 import org.json.JSONObject
+import org.json.JSONArray
 import org.netgo.runtime.mobile.Client
 
 @Keep
@@ -19,14 +20,20 @@ class NativeRemote(private val site: String, private val host: String, private v
     var event: ((JSONObject)->Unit)? = null
     var finished: (() -> Unit)? = null
     private external fun commandNative(handle:Long,json:ByteArray):Boolean
-    fun command(value:JSONObject):Boolean = active && capabilities != 0 && handle != 0L && commandNative(handle,value.toString().toByteArray(Charsets.UTF_8))
+    fun command(value:JSONObject):Boolean {
+        val accepted = active && capabilities != 0 && handle != 0L && commandNative(handle,value.toString().toByteArray(Charsets.UTF_8))
+        if (!accepted) NetGoRuntime.message.value = "操作尚未提交，连接不可用或任务队列已满"
+        return accepted
+    }
     @Keep fun onEvent(bytes:ByteArray) { if(active) runCatching { val value=JSONObject(bytes.toString(Charsets.UTF_8));android.os.Handler(android.os.Looper.getMainLooper()).post { if(active) event?.invoke(value) } } }
     private var pendingAudio = ByteArray(0)
     private external fun startNative(site: String, host: String): Long
     private external fun cancelNative(handle: Long)
-    private external fun inputNative(handle: Long, json: ByteArray)
+    private external fun inputNative(handle: Long, json: ByteArray): Boolean
     fun start() { handle = startNative(site, host); current = this }
-    fun send(value: JSONObject) { if (active && capabilities and 2 != 0 && handle != 0L) inputNative(handle, value.toString().toByteArray(Charsets.UTF_8)) }
+    private fun sendInput(value: String): Boolean = active && capabilities and 2 != 0 && handle != 0L && inputNative(handle, value.toByteArray(Charsets.UTF_8))
+    fun send(value: JSONObject): Boolean = sendInput(value.toString())
+    fun key(code: Int): Boolean = sendInput(JSONArray().put(JSONObject().put("type","key").put("code",code).put("down",true)).put(JSONObject().put("type","key").put("code",code).put("down",false)).toString())
     fun stop() { active = false; if (handle != 0L) cancelNative(handle); if (current === this) current = null }
     @Keep fun control(method: String, path: String, body: String, key: String): ByteArray =
         (if (method == "CONTEXT") controlClient.remoteContext(site) else controlClient.remoteCall(site, method, path, body, key)).toByteArray(Charsets.UTF_8)
@@ -81,6 +88,7 @@ class NativeRemote(private val site: String, private val host: String, private v
     @Keep fun onClosed() { active = false; capabilities = 0; android.os.Handler(android.os.Looper.getMainLooper()).post { capabilitiesChanged?.invoke(0); finished?.invoke() }; pendingAudio=ByteArray(0); runCatching { decoder?.stop() }; decoder?.release(); decoder = null; surface.release(); runCatching { sound?.stop() }; sound?.release(); sound = null; if (current === this) current = null }
     companion object {
         init { System.loadLibrary("netgo-remote-jni") }
+        external fun textLimitNative(): Int
         @Volatile private var current: NativeRemote? = null
         fun stopCurrent() { current?.stop() }
         fun releaseCurrentInput() { current?.send(JSONObject().put("type", "release")) }

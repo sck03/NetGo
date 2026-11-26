@@ -5,16 +5,34 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"io"
 	"net"
 	"net/http"
 	"netgo/internal/gateway"
 	"netgo/internal/ipc"
 	"netgo/internal/model"
 	"netgo/internal/site"
+	"sync"
 	"time"
 )
 
-type Client struct{ Path string }
+type Client struct {
+	Path string
+	once sync.Once
+	http *http.Client
+}
+
+func (c *Client) transport() *http.Client {
+	c.once.Do(func() {
+		path := c.Path
+		tr := &http.Transport{MaxIdleConns: 1, MaxIdleConnsPerHost: 1, IdleConnTimeout: time.Minute,
+			DialContext: func(ctx context.Context, _, _ string) (net.Conn, error) { return ipc.Dial(ctx, path) }}
+		c.http = &http.Client{Transport: tr, Timeout: 5 * time.Second}
+	})
+	return c.http
+}
+
+func (c *Client) CloseIdleConnections() { c.transport().CloseIdleConnections() }
 
 func (c *Client) Apply(ctx context.Context, leases []model.Lease) error {
 	if e := gateway.ValidateCapacity(leases); e != nil {
@@ -24,15 +42,13 @@ func (c *Client) Apply(ctx context.Context, leases []model.Lease) error {
 	if e != nil {
 		return e
 	}
-	tr := &http.Transport{DialContext: func(ctx context.Context, _, _ string) (net.Conn, error) { return ipc.Dial(ctx, c.Path) }}
-	defer tr.CloseIdleConnections()
-	cl := &http.Client{Transport: tr, Timeout: 5 * time.Second}
 	r, _ := http.NewRequestWithContext(ctx, "POST", "http://helper/apply", bytes.NewReader(b))
-	resp, e := cl.Do(r)
+	resp, e := c.transport().Do(r)
 	if e != nil {
 		return errors.New("gateway helper unavailable")
 	}
 	defer resp.Body.Close()
+	_, _ = io.Copy(io.Discard, io.LimitReader(resp.Body, 8192))
 	if resp.StatusCode != 200 {
 		return errors.New("gateway policy rejected")
 	}

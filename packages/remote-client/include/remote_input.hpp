@@ -8,6 +8,7 @@ namespace netgo::remote {
 using InputEvent = nlohmann::json;
 inline constexpr std::size_t input_batch_limit = 60 * 1024;
 inline constexpr std::size_t input_event_limit = 128;
+inline constexpr std::size_t input_text_limit = 8192;
 inline constexpr std::uint64_t input_max_age_ms = 1000;
 
 inline bool valid_input(const InputEvent& event) {
@@ -28,7 +29,7 @@ inline bool valid_input(const InputEvent& event) {
  if (type == "wheel") return event.size() == 2 + event.count("horizontal") && integer("delta", -1200, 1200) && boolean("horizontal", true);
  if (type != "text" || event.size() != 2 || !event.contains("text") || !event["text"].is_string()) return false;
  const auto& text = event["text"].get_ref<const std::string&>();
- return !text.empty() && text.size() <= 8192 && text.find('\0') == std::string::npos;
+ return !text.empty() && text.size() <= input_text_limit && text.find('\0') == std::string::npos;
 }
 
 inline bool valid_input_batch(const InputEvent& batch) {
@@ -54,6 +55,17 @@ class InputQueue {
   return !entries_.empty() && (now < entries_.front().time || now - entries_.front().time >= input_max_age_ms);
  }
 public:
+ bool push_batch(InputEvent events, std::uint64_t now = monotonic_time_ms()) {
+  if (!valid_input_batch(events)) return false;
+  if (events.size() == 1) return push(std::move(events[0]), now);
+  for (const auto &event : events) if (event["type"] == "release") return false;
+  auto bytes = events.dump().size() - 1;
+  std::lock_guard lock(mutex_);
+  if (expired(now)) release(now);
+  if (entries_.size() + events.size() > input_event_limit || bytes_ + bytes > input_batch_limit) return false;
+  for (auto &event : events) append(std::move(event), now);
+  return true;
+ }
  bool push(InputEvent event, std::uint64_t now = monotonic_time_ms()) {
   if (!valid_input(event)) return false;
   auto bytes = event.dump().size() + 1;
@@ -63,7 +75,11 @@ public:
   if (event["type"] == "move" && !entries_.empty() && entries_.back().event["type"] == "move") {
    bytes_ -= entries_.back().bytes; entries_.pop_back();
   }
-  if (entries_.size() >= input_event_limit || bytes_ + bytes > input_batch_limit) release(now);
+  if (entries_.size() >= input_event_limit || bytes_ + bytes > input_batch_limit) {
+   // Text submissions can be retried; never erase earlier text to accept more.
+   if (event["type"] != "text") release(now);
+   return false;
+  }
   append(std::move(event), now); return true;
  }
  InputEvent take(std::uint64_t now = monotonic_time_ms()) {

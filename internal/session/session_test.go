@@ -45,7 +45,7 @@ func fixture(t *testing.T) (*Manager, *fakeGate, model.Credential, model.Credent
 	g := &fakeGate{}
 	m := &Manager{Store: s, Gate: g, TTL: 120 * time.Second, Now: func() time.Time { return now }, Peers: fakePeers{"p1": {ID: "p1", UserID: "u", IP: "100.96.0.2", PublicKey: "wg1", Connected: true}, "p2": {ID: "p2", UserID: "u", IP: "100.96.0.3", PublicKey: "wg2", Connected: true}}}
 	e = s.Update(func(st *model.State) error {
-		st.Users["u"] = model.User{ID: "u", MaxDevices: 3, Resources: []string{"nas"}}
+		st.Users["u"] = model.User{ID: "u", MaxDevices: 3, MaxSessions: 1, Resources: []string{"nas"}}
 		st.Resources["nas"] = model.Resource{ID: "nas", Name: "NAS", CIDR: "192.168.50.20/32", Protocol: "tcp", Ports: []uint16{443}, Enabled: true}
 		st.Devices["d1"] = model.Device{ID: "d1", UserID: "u", WireGuardKey: "wg1"}
 		st.Devices["d2"] = model.Device{ID: "d2", UserID: "u", WireGuardKey: "wg2"}
@@ -168,7 +168,7 @@ func TestScopedMutationPreservesOtherUsers(t *testing.T) {
 	peers := m.Peers.(fakePeers)
 	peers["p3"] = Binding{ID: "p3", UserID: "v", IP: "100.96.0.4", PublicKey: "wg3", Connected: true}
 	if err := m.Store.Update(func(st *model.State) error {
-		st.Users["v"] = model.User{ID: "v", MaxDevices: 1, Resources: []string{"ssh"}}
+		st.Users["v"] = model.User{ID: "v", MaxDevices: 1, MaxSessions: 1, Resources: []string{"ssh"}}
 		st.Resources["ssh"] = model.Resource{ID: "ssh", CIDR: "192.168.50.21/32", Protocol: "tcp", Ports: []uint16{22}, Enabled: true}
 		st.Devices["d3"] = model.Device{ID: "d3", UserID: "v", WireGuardKey: "wg3"}
 		st.Credentials[model.Hash("d3")] = model.Credential{UserID: "v", DeviceID: "d3", ExpiresAt: c1.ExpiresAt}

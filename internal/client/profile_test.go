@@ -79,6 +79,9 @@ func TestAuthenticatedProfileSyncProbesBeforePersisting(t *testing.T) {
 				if err != nil || result.ConfigRevision != 3 || result.Name != "My name" || !strings.Contains(string(saved), "updated") {
 					t.Fatal("profile did not update", err)
 				}
+				if controller.Status().ProfilesRevision != 1 {
+					t.Fatal("missing profile change notification")
+				}
 			} else if err == nil || string(saved) != string(data) {
 				t.Fatalf("invalid update changed protected profile: %v", err)
 			}
@@ -128,6 +131,13 @@ func TestExplicitImportTrustAndRevision(t *testing.T) {
 			}
 			if profiles[0].Origin != want {
 				t.Fatal("failed import replaced the saved profile")
+			}
+			wantRevision := uint64(1)
+			if tc.accept {
+				wantRevision++
+			}
+			if c.Status().ProfilesRevision != wantRevision {
+				t.Fatal("profile notification changed on rejected import")
 			}
 		})
 	}

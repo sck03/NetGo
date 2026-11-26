@@ -6,10 +6,11 @@ import (
 	"errors"
 	"net/http"
 	"net/url"
+	"netgo/internal/authorization"
+	"netgo/internal/coordination"
 	"netgo/internal/model"
 	"netgo/internal/session"
 	"netgo/internal/store"
-	"sync"
 	"time"
 )
 
@@ -18,7 +19,7 @@ type Management interface {
 }
 
 type Service struct {
-	mu         sync.Mutex
+	work       coordination.InFlight
 	Store      *store.Store
 	Sessions   *session.Manager
 	Management Management
@@ -37,10 +38,11 @@ func (s *Service) now() time.Time {
 // Delete persists revocation before any upstream IO. The tombstone blocks new
 // credentials and survives restarts until the remote peer is removed.
 func (s *Service) Delete(ctx context.Context, id string) (Result, error) {
-	s.mu.Lock()
-	defer s.mu.Unlock()
 	var device model.Device
 	err := s.Sessions.MutateDevice(ctx, id, func(st *model.State) error {
+		if err := authorization.CheckAdmin(ctx, st); err != nil {
+			return err
+		}
 		var ok bool
 		device, ok = st.Devices[id]
 		if !ok {
@@ -55,7 +57,7 @@ func (s *Service) Delete(ctx context.Context, id string) (Result, error) {
 			}
 			u.AuthRevision++
 			st.Users[device.UserID] = u
-			st.Record("admin", "device.delete.pending", id)
+			st.Record(authorization.Actor(ctx), "device.delete.pending", id)
 		}
 		device.DeletePending = true
 		st.Devices[id] = device
@@ -100,8 +102,6 @@ func (s *Service) remove(ctx context.Context, device model.Device) error {
 
 // Retry is bounded so an unavailable management service cannot starve sweeps.
 func (s *Service) Retry(ctx context.Context) error {
-	s.mu.Lock()
-	defer s.mu.Unlock()
 	items, err := s.Store.PendingDevices(s.now(), 16)
 	if err != nil {
 		return err
@@ -110,15 +110,32 @@ func (s *Service) Retry(ctx context.Context) error {
 		if ctx.Err() != nil {
 			return errors.Join(err, ctx.Err())
 		}
-		err = errors.Join(err, s.cleanup(ctx, d))
+		if next := s.cleanup(ctx, d); !errors.Is(next, coordination.ErrBusy) {
+			err = errors.Join(err, next)
+		}
 	}
 	return err
 }
 
 func (s *Service) cleanup(ctx context.Context, d model.Device) error {
+	release, ok := s.work.Try(d.ID)
+	if !ok {
+		return coordination.ErrBusy
+	}
+	defer release()
+	current, err := s.Store.Device(d.ID)
+	if errors.Is(err, model.ErrNotFound) {
+		return nil
+	}
+	if err != nil {
+		return err
+	}
+	if !current.DeletePending || current.PeerID != d.PeerID {
+		return nil
+	}
 	attempt, cancel := context.WithTimeout(ctx, 2*time.Second)
 	defer cancel()
-	err := s.remove(attempt, d)
+	err = s.remove(attempt, d)
 	if err == nil {
 		return nil
 	}

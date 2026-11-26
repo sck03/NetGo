@@ -36,11 +36,3 @@ func (s State) Clone() State {
 	c.Audit = slices.Clone(s.Audit)
 	return c
 }
-
-// SessionLimit is shared by VPN and remote access, including bootstrap accounts.
-func (u User) SessionLimit() int {
-	if u.MaxSessions == 0 {
-		return 1
-	}
-	return u.MaxSessions
-}

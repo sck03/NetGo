@@ -10,6 +10,7 @@ import { emptyState } from '../../../packages/ui/contracts'
 import type { Resource } from '../../../packages/ui/resources'
 const page = ref('overview'), alias = ref(''), password = ref(''), error = ref(''), notice = ref(''), busy = ref(false), logged = ref(false)
 const state = ref<AdminState>(emptyState())
+const pageReady = ref(false)
 const initialPassword = ref('')
 const audit = ref<AuditPage>({events:[],next_before:0}), auditBefore = ref(0)
 const auditQuery = new LatestQuery(() => admin.request('/netgo/v2/admin/audit' + (auditBefore.value ? '?before=' + auditBefore.value : '')), value => { audit.value = value })
@@ -22,8 +23,8 @@ let timer: ReturnType<typeof setInterval> | undefined
 const listAfter = ref('')
 const stateQuery = new LatestQuery(() => admin.request(['overview', 'diagnostics'].includes(page.value)
   ? '/netgo/v2/admin/summary'
-  : '/netgo/v2/admin/state?section=' + page.value + '&after=' + encodeURIComponent(listAfter.value)), value => { state.value = { ...emptyState(), ...value } })
-async function listPage(after = '') { stateQuery.invalidate(); listAfter.value = after; await refresh() }
+  : '/netgo/v2/admin/state?section=' + page.value + '&after=' + encodeURIComponent(listAfter.value)), value => { state.value = { ...emptyState(), ...value }; pageReady.value = true })
+async function listPage(after = '') { listAfter.value = after; await refresh(true) }
 const users = computed(() => Object.values(state.value.users))
 const resources = computed(() => Object.values(state.value.resources))
 const devices = computed(() => Object.values(state.value.devices).filter(d => d.client_type !== 'admin'))
@@ -34,18 +35,20 @@ async function action(fn: () => Promise<void>) {
   busy.value = true; error.value = ''; notice.value = ''; initialPassword.value = ''
   try { await fn(); return true } catch (e) { error.value = e instanceof Error ? e.message : String(e); if (logged.value && !admin.active) logout(); return false } finally { busy.value = false }
 }
-async function refresh() {
+async function refresh(fresh = false) {
   if (!logged.value) return
+  if (fresh) { stateQuery.invalidate(); auditQuery.invalidate() }
   try { await stateQuery.run(); if (page.value === 'diagnostics') await auditQuery.run() } catch (e) { if (!admin.active) logout(); throw e }
 }
 async function login() {
   await action(async () => {
     try {
-      await admin.login('', alias.value, password.value); logged.value = true; await refresh()
+      await admin.login('', alias.value, password.value); logged.value = true; await refresh(true)
     } finally { password.value = '' }
   })
 }
 function clearSession() {
+  pageReady.value = false
   stateQuery.invalidate(); auditQuery.invalidate()
   state.value = emptyState(); listAfter.value = ''; audit.value = { events: [], next_before: 0 }; auditBefore.value = 0
   notice.value = ''; initialPassword.value = ''; password.value = ''; error.value = ''; page.value = 'overview'
@@ -53,8 +56,8 @@ function clearSession() {
 function logout() { admin.logout() }
 async function saveUser(u: User) {
   return action(async () => {
-    await admin.request('/netgo/v2/admin/users/' + encodeURIComponent(u.id), 'PUT', { ...u, max_sessions: u.max_sessions || 1 })
-    await refresh(); notice.value = '账号设置已保存，旧会话已撤销。'
+    await admin.request('/netgo/v2/admin/users/' + encodeURIComponent(u.id), 'PUT', u)
+    await refresh(true); notice.value = '账号设置已保存，旧会话已撤销。'
   })
 }
 async function createUser(account: { Alias: string; Email: string; Name: string }) {
@@ -62,26 +65,26 @@ async function createUser(account: { Alias: string; Email: string; Name: string 
     const result = await admin.request('/netgo/v2/admin/users', 'POST', account)
     initialPassword.value = result.initial_password || ''
     notice.value = result.initial_password ? '账号已创建，请保存下方初始密码。' : '账号已创建，请通过身份服务激活并设置密码。'
-    await refresh()
+    await refresh(true)
   })
 }
 async function deleteUser(user: User) {
   if (!window.confirm('删除账号 ' + user.alias + ' 及其设备登记？所有连接将被撤销。')) return false
   return action(async () => {
     const result = await admin.request('/netgo/v2/admin/users/' + encodeURIComponent(user.id), 'DELETE')
-    await refresh(); notice.value = result.cleanup_pending ? '账号访问已撤销，等待上游清理，后台将自动重试。' : '账号及其设备已删除。'
+    await refresh(true); notice.value = result.cleanup_pending ? '账号访问已撤销，等待上游清理，后台将自动重试。' : '账号及其设备已删除。'
   })
 }
 async function saveResource(resource: Resource) {
   return action(async () => {
     await admin.request('/netgo/v2/admin/resources/' + encodeURIComponent(resource.id), 'PUT', resource)
-    await refresh(); notice.value = '资源已保存，服务会自动应用策略；请到账号与权限中勾选此资源。'
+    await refresh(true); notice.value = '资源已保存，服务会自动应用策略；请到账号与权限中勾选此资源。'
   })
 }
 async function deleteResource(resource: Resource) {
   return action(async () => {
     await admin.request('/netgo/v2/admin/resources/' + encodeURIComponent(resource.id), 'DELETE')
-    await refresh(); notice.value = '资源已删除，服务会自动更新策略。'
+    await refresh(true); notice.value = '资源已删除，服务会自动更新策略。'
   })
 }
 function exportSite() { return action(async () => download(await admin.request('/netgo/v2/site'), 'netgo-site.json')) }
@@ -89,7 +92,7 @@ function download(value: any, name: string) {
   const a = document.createElement('a'), url = URL.createObjectURL(new Blob([JSON.stringify(value, null, 2)], { type: 'application/json' }))
   a.href = url; a.download = name; a.click(); setTimeout(() => URL.revokeObjectURL(url), 1000)
 }
-watch(page, () => { initialPassword.value = ''; stateQuery.invalidate(); listAfter.value = ''; if (logged.value && !busy.value) refresh().catch(e => { error.value = String(e.message || e) }) })
+watch(page, () => { initialPassword.value = ''; pageReady.value = false; stateQuery.invalidate(); auditQuery.invalidate(); listAfter.value = ''; state.value = emptyState(); if (logged.value) refresh().catch(e => { error.value = String(e.message || e) }) })
 onMounted(() => { timer = setInterval(() => { if (!document.hidden && !busy.value && ['overview','sessions','diagnostics'].includes(page.value)) refresh().catch(e => { error.value = String(e.message || e) }) }, 5000) })
 onUnmounted(() => { if (timer) clearInterval(timer); stateQuery.invalidate(); auditQuery.invalidate(); admin.logout() })
 </script>
@@ -119,6 +122,10 @@ onUnmounted(() => { if (timer) clearInterval(timer); stateQuery.invalidate(); au
         <form @submit.prevent="login"><label>账号<input v-model="alias" required autocomplete="username"></label><label>密码<input v-model="password" type="password" required autocomplete="current-password"></label><button class="primary" :disabled="busy">登录管理控制台 →</button></form>
         <p class="muted">本次认证信息保存在浏览器内存，退出管理或关闭页面后清除。</p>
       </section>
+      <section v-else-if="!pageReady" class="card" role="status">
+        <p>{{ error ? '页面尚未加载，请重试。' : '正在加载页面…' }}</p>
+        <button v-if="error" class="secondary" @click="action(() => refresh(true))">重新加载</button>
+      </section>
       <template v-else-if="page === 'overview'">
         <div class="stats"><section class="card"><span>账号</span><strong>{{ state.counts?.users || 0 }}</strong></section><section class="card"><span>局域网资源</span><strong>{{ state.counts?.resources || 0 }}</strong></section><section class="card"><span>有效租约</span><strong>{{ state.counts?.leases || 0 }}</strong></section></div>
         <section class="card"><h3>从这里开始</h3><div class="quick-start">
@@ -128,7 +135,7 @@ onUnmounted(() => { if (timer) clearInterval(timer); stateQuery.invalidate(); au
           <button class="secondary" @click="page = 'remote'"><strong>远程桌面</strong><small>登记主机并授予查看或控制权限</small></button>
         </div></section>
         <section class="card"><h3>访问策略</h3><p>{{ state.last_error ? '策略应用遇到问题，请查看诊断或重试。' : state.revision === state.observed_revision ? '当前策略已生效。' : '设置已保存，正在自动应用策略。' }}</p>
-          <button v-if="state.last_error" class="secondary" :disabled="busy" @click="action(async () => { await admin.request('/netgo/v2/admin/reconcile', 'POST', {}); await refresh(); notice = '资源策略已应用。' })">重试应用</button>
+          <button v-if="state.last_error" class="secondary" :disabled="busy" @click="action(async () => { await admin.request('/netgo/v2/admin/reconcile', 'POST', {}); await refresh(true); notice = '资源策略已应用。' })">重试应用</button>
           <details><summary>技术信息</summary><dl><dt>配置版本</dt><dd>{{ state.revision }}</dd><dt>已应用版本</dt><dd>{{ state.observed_revision }}</dd><dt>最近结果</dt><dd>{{ state.last_error || '正常' }}</dd></dl></details>
           <p class="muted">新增账号默认无访问权限。修改权限会撤销相关连接，用户重新连接后获取新权限。</p>
         </section>
@@ -141,8 +148,8 @@ onUnmounted(() => { if (timer) clearInterval(timer); stateQuery.invalidate(); au
       <UserPanel v-else-if="page === 'users'" :users="users" :resources="resources" :busy="busy" :create="createUser" :save="saveUser" :remove="deleteUser" />
       <ResourcePanel v-else-if="page === 'resources' && state.network" :resources="resources" :network="state.network" :busy="busy" :save="saveResource" :remove="deleteResource" />
       <template v-else-if="page === 'sessions'">
-        <section class="card"><h3>正在授权的会话</h3><div v-for="l in leases" :key="l.id" class="resource"><strong>{{ state.users[l.user_id]?.alias }}</strong><code>{{ l.ip }}</code><span>{{ new Date(l.expires_at).toLocaleString() }}</span><button class="secondary" :disabled="busy" @click="action(async () => { await admin.request('/netgo/v2/admin/sessions/' + l.id, 'DELETE'); await refresh() })">立即撤销</button></div><div v-if="!leases.length" class="empty">当前没有有效会话。</div></section>
-        <section class="card"><h3>已登记设备</h3><div v-for="d in devices" :key="d.id" class="resource"><strong>{{ state.users[d.user_id]?.alias }}</strong><code>{{ d.id.slice(0, 12) }}</code><span>{{ d.delete_pending ? '访问已撤销，等待上游清理' : (d.ip || '待连接') }}</span><small>{{ new Date(d.created_at).toLocaleString() }}</small><button class="secondary" :disabled="busy" @click="action(async () => { const result = await admin.request('/netgo/v2/admin/devices/' + encodeURIComponent(d.id), 'DELETE'); await refresh(); notice = result.cleanup_pending ? '访问已撤销，上游暂不可用，后台将自动重试清理。' : '设备登记及其会话已撤销。' })">{{ d.delete_pending ? '重试清理' : '撤销设备' }}</button></div></section>
+        <section class="card"><h3>正在授权的会话</h3><div v-for="l in leases" :key="l.id" class="resource"><strong>{{ state.users[l.user_id]?.alias }}</strong><code>{{ l.ip }}</code><span>{{ new Date(l.expires_at).toLocaleString() }}</span><button class="secondary" :disabled="busy" @click="action(async () => { await admin.request('/netgo/v2/admin/sessions/' + l.id, 'DELETE'); await refresh(true) })">立即撤销</button></div><div v-if="!leases.length" class="empty">当前没有有效会话。</div></section>
+        <section class="card"><h3>已登记设备</h3><div v-for="d in devices" :key="d.id" class="resource"><strong>{{ state.users[d.user_id]?.alias }}</strong><code>{{ d.id.slice(0, 12) }}</code><span>{{ d.delete_pending ? '访问已撤销，等待上游清理' : (d.ip || '待连接') }}</span><small>{{ new Date(d.created_at).toLocaleString() }}</small><button class="secondary" :disabled="busy" @click="action(async () => { const result = await admin.request('/netgo/v2/admin/devices/' + encodeURIComponent(d.id), 'DELETE'); await refresh(true); notice = result.cleanup_pending ? '访问已撤销，上游暂不可用，后台将自动重试清理。' : '设备登记及其会话已撤销。' })">{{ d.delete_pending ? '重试清理' : '撤销设备' }}</button></div></section>
       </template>
       <RemotePanel v-else-if="page === 'remote'" :users="state.users" :request="(path, method, body) => admin.request(path, method, body)" />
       <template v-else-if="page === 'diagnostics'">

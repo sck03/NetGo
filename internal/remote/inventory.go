@@ -51,7 +51,7 @@ type Inventory struct {
 
 func (m *Manager) List(c model.Credential) (Inventory, error) {
 	out := Inventory{Hosts: []HostSummary{}, Grants: []GrantSummary{}, Sessions: []model.RemoteSession{}}
-	state, lastGeneration, e := m.Store.RemoteInventory(c.DeviceID)
+	state, lastGeneration, e := m.Store.RemoteInventory(c)
 	if e != nil {
 		return out, e
 	}

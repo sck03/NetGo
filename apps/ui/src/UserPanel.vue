@@ -5,7 +5,7 @@ type Account = { Alias: string; Email: string; Name: string }
 const props = defineProps<{ users: User[]; resources: { id: string; name: string }[]; busy: boolean; create: (account: Account) => Promise<boolean>; save: (user: User) => Promise<boolean>; remove: (user: User) => Promise<boolean> }>()
 const draft = ref<User | null>(null), creating = ref(false)
 const account = ref<Account>({ Alias: '', Email: '', Name: '' })
-function edit(user: User) { draft.value = { ...user, resources: [...(user.resources || [])], max_sessions: user.max_sessions || 1 } }
+function edit(user: User) { draft.value = { ...user, resources: [...user.resources] } }
 async function create() { if (await props.create({ ...account.value, Name: account.value.Name.trim() || account.value.Alias })) { account.value = { Alias: '', Email: '', Name: '' }; creating.value = false } }
 async function save() { if (draft.value && await props.save(draft.value)) draft.value = null }
 async function remove(user: User) { if (await props.remove(user) && draft.value?.id === user.id) draft.value = null }
