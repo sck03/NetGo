@@ -40,16 +40,27 @@ func (s *Store) Lease(id string) (model.Lease, error) {
 	return result, err
 }
 
-func (s *Store) PendingDevices(limit int) ([]model.Device, error) {
-	rows, err := s.db.Query("SELECT data FROM devices WHERE json_extract(data,'$.delete_pending')=1 ORDER BY id LIMIT ?", limit)
+func (s *Store) PendingDevices(now time.Time, limit int) ([]model.Device, error) {
+	return pending[model.Device](s, "devices", now, limit)
+}
+
+func (s *Store) PendingUsers(now time.Time, limit int) ([]model.User, error) {
+	return pending[model.User](s, "users", now, limit)
+}
+
+func pending[T any](s *Store, table string, now time.Time, limit int) ([]T, error) {
+	if limit < 1 || limit > 100 {
+		limit = 16
+	}
+	rows, err := s.db.Query("SELECT data FROM "+table+" WHERE json_extract(data,'$.delete_pending')=1 AND julianday(json_extract(data,'$.cleanup_after'))<=julianday(?) ORDER BY julianday(json_extract(data,'$.cleanup_after')),id LIMIT ?", now.UTC().Format(time.RFC3339Nano), limit)
 	if err != nil {
 		return nil, err
 	}
 	defer rows.Close()
-	out := []model.Device{}
+	out := []T{}
 	for rows.Next() {
 		var raw []byte
-		var d model.Device
+		var d T
 		if err = rows.Scan(&raw); err != nil {
 			return nil, err
 		}

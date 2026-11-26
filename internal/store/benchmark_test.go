@@ -37,6 +37,14 @@ func BenchmarkReadPaths(b *testing.B) {
 			}
 		}
 	})
+	b.Run("AdminSummary", func(b *testing.B) {
+		b.ReportAllocs()
+		for b.Loop() {
+			if _, _, e := db.AdminSummary(time.Now()); e != nil {
+				b.Fatal(e)
+			}
+		}
+	})
 	b.Run("IndexedIdentity", func(b *testing.B) {
 		b.ReportAllocs()
 		for b.Loop() {

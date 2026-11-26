@@ -112,7 +112,7 @@ func (m *Manager) Register(c model.Credential, h model.Host) (model.Host, error)
 		h.Revision = old.Revision + 1
 		h.LastSeen = now
 		if exists {
-			closeHost(st, h.ID, c.UserID)
+			closeHost(st, h.ID, c.UserID, now)
 		}
 		st.Hosts[h.ID] = h
 		st.Record(c.UserID, "remote.host.register", h.ID)
@@ -121,10 +121,10 @@ func (m *Manager) Register(c model.Credential, h model.Host) (model.Host, error)
 	return h, err
 }
 
-func closeHost(st *model.State, id, actor string) {
+func closeHost(st *model.State, id, actor string, now time.Time) {
 	for key, r := range st.RemoteSessions {
 		if r.HostID == id && r.State != "closed" {
-			r.State = "closed"
+			r.Close(now)
 			st.RemoteSessions[key] = r
 			st.Record(actor, "remote.session.close", key)
 		}
@@ -132,7 +132,7 @@ func closeHost(st *model.State, id, actor string) {
 }
 
 func (m *Manager) Heartbeat(c model.Credential, boot string) error {
-	return m.Store.RemoteUpdate(func(st *model.State) error {
+	return m.Store.RemoteTargetUpdate(c, "", c.DeviceID, func(st *model.State) error {
 		now := m.now()
 		if e := current(st, c, now); e != nil {
 			return e
@@ -185,7 +185,7 @@ func (m *Manager) Grant(c model.Credential, g model.RemoteGrant) (model.RemoteGr
 		// Any ACL change fences previous tickets; renewal cannot increase authority.
 		for id, r := range st.RemoteSessions {
 			if r.GrantID == g.ID {
-				r.State = "closed"
+				r.Close(now)
 				st.RemoteSessions[id] = r
 			}
 		}
@@ -206,7 +206,7 @@ func (m *Manager) DeleteGrant(c model.Credential, id string) error {
 		delete(st.RemoteGrants, id)
 		for key, r := range st.RemoteSessions {
 			if r.GrantID == id {
-				r.State = "closed"
+				r.Close(m.now())
 				st.RemoteSessions[key] = r
 			}
 		}
@@ -236,7 +236,7 @@ func (m *Manager) verifyPeers(ctx context.Context, c model.Credential, host stri
 	if m.Peers == nil {
 		return nil, ErrUnavailable
 	}
-	st, e := m.Store.RemoteView()
+	st, e := m.Store.RemoteTargetView(c, "", host)
 	if e != nil {
 		return nil, e
 	}
@@ -343,7 +343,7 @@ func (m *Manager) Acquire(ctx context.Context, c model.Credential, req Request, 
 		if _, e = rand.Read(id[:]); e != nil {
 			return e
 		}
-		r := model.RemoteSession{ID: base64.RawURLEncoding.EncodeToString(id[:]), UserID: c.UserID, ControllerID: c.DeviceID, HostID: h.ID, HostBoot: h.Boot, GrantID: g.ID, Binding: base64.RawURLEncoding.EncodeToString(binding[:]), Generation: req.Generation, PolicyRevision: g.Revision, Sequence: 1, Capabilities: req.Capabilities, RequireConsent: h.RequireConsent, IssuedAt: now, ExpiresAt: m.expiry(st, c, cl, hl, g, now), State: "issued", ControllerLease: cl.ID, HostLease: hl.ID, ControllerAuth: c.TokenHash}
+		r := model.RemoteSession{ID: base64.RawURLEncoding.EncodeToString(id[:]), UserID: c.UserID, ControllerID: c.DeviceID, HostID: h.ID, HostBoot: h.Boot, GrantID: g.ID, Binding: base64.RawURLEncoding.EncodeToString(binding[:]), Generation: req.Generation, PolicyRevision: g.Revision, Sequence: 1, Capabilities: req.Capabilities, RequireConsent: h.RequireConsent, CreatedAt: now.Truncate(time.Millisecond), IssuedAt: now, ExpiresAt: m.expiry(st, c, cl, hl, g, now), State: "issued", ControllerLease: cl.ID, HostLease: hl.ID, ControllerAuth: c.TokenHash}
 		if !r.ExpiresAt.After(now) {
 			return model.ErrForbidden
 		}
@@ -380,11 +380,11 @@ func (m *Manager) valid(st *model.State, r model.RemoteSession, now time.Time) b
 func (m *Manager) sweep(st *model.State, now time.Time) {
 	for id, r := range st.RemoteSessions {
 		if r.State != "closed" && !m.valid(st, r, now) {
-			r.State = "closed"
+			r.Close(now)
 			st.RemoteSessions[id] = r
 			st.Record("system", "remote.session.expire", id)
 		}
-		if r.State == "closed" && now.Sub(r.ExpiresAt) > 24*time.Hour {
+		if r.State == "closed" && now.Sub(r.ClosedAt) > 24*time.Hour {
 			delete(st.RemoteSessions, id)
 		}
 	}
@@ -400,7 +400,7 @@ func (m *Manager) Sweep() error {
 	if err != nil || !due {
 		return err
 	}
-	return m.Store.RemoteUpdate(func(st *model.State) error { m.sweep(st, m.now()); return nil })
+	return m.Store.RemoteSweep(m.now(), func(st *model.State) error { m.sweep(st, m.now()); return nil })
 }
 
 func (m *Manager) authorization(st *model.State, r model.RemoteSession) (Authorization, error) {
@@ -420,7 +420,7 @@ func (m *Manager) authorization(st *model.State, r model.RemoteSession) (Authori
 
 func (m *Manager) Consume(c model.Credential, id string, sequence uint64, boot string, proof Possession) (Authorization, error) {
 	var out Authorization
-	e := m.Store.RemoteUpdate(func(st *model.State) error {
+	e := m.Store.RemoteTargetUpdate(c, id, "", func(st *model.State) error {
 		now := m.now()
 		if e := current(st, c, now); e != nil {
 			return e
@@ -456,7 +456,11 @@ func (m *Manager) Consume(c model.Credential, id string, sequence uint64, boot s
 // Hosts use it to reconstruct bindings from the authenticated control plane.
 func (m *Manager) Inspect(c model.Credential, id string) (Authorization, error) {
 	var out Authorization
-	err := m.Store.RemoteRead(func(st *model.State) error {
+	st, err := m.Store.RemoteTargetView(c, id, "")
+	if err != nil {
+		return out, err
+	}
+	err = func(st *model.State) error {
 		now := m.now()
 		if e := current(st, c, now); e != nil {
 			return e
@@ -468,13 +472,13 @@ func (m *Manager) Inspect(c model.Credential, id string) (Authorization, error) 
 		var e error
 		out, e = m.authorization(st, r)
 		return e
-	})
+	}(&st)
 	return out, err
 }
 
 func (m *Manager) Renew(ctx context.Context, c model.Credential, id string, sequence uint64) (Authorization, error) {
 	var out Authorization
-	st, e := m.Store.RemoteView()
+	st, e := m.Store.RemoteTargetView(c, id, "")
 	if e != nil {
 		return out, e
 	}
@@ -486,7 +490,7 @@ func (m *Manager) Renew(ctx context.Context, c model.Credential, id string, sequ
 	if e != nil {
 		return out, e
 	}
-	e = m.Store.RemoteUpdate(func(st *model.State) error {
+	e = m.Store.RemoteTargetUpdate(c, id, "", func(st *model.State) error {
 		now := m.now()
 		if e := current(st, c, now); e != nil {
 			return e
@@ -510,7 +514,7 @@ func (m *Manager) Renew(ctx context.Context, c model.Credential, id string, sequ
 }
 
 func (m *Manager) Revoke(c model.Credential, id string) error {
-	return m.Store.RemoteUpdate(func(st *model.State) error {
+	return m.Store.RemoteTargetUpdate(c, id, "", func(st *model.State) error {
 		if e := current(st, c, m.now()); e != nil {
 			return e
 		}
@@ -521,7 +525,7 @@ func (m *Manager) Revoke(c model.Credential, id string) error {
 		if r.ControllerID != c.DeviceID && r.HostID != c.DeviceID && st.Users[c.UserID].Role != "admin" {
 			return model.ErrForbidden
 		}
-		r.State = "closed"
+		r.Close(m.now())
 		st.RemoteSessions[id] = r
 		st.Record(c.UserID, "remote.session.revoke", id)
 		return nil

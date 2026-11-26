@@ -1,5 +1,6 @@
 #include "client.hpp"
 #include "operation_epoch.hpp"
+#include "remote_actions.hpp"
 #include "netgo_remote_client.h"
 #include "netgo_remote.h"
 #include <gtk/gtk.h>
@@ -47,6 +48,7 @@ struct State {
     Frame frame;
     netgo::remote::InputQueue inputs;
     uint32_t caps = 0;
+    netgo::desktop_linux::RemoteActions remoteActions;
     std::unique_ptr<netgo::desktop_linux::Decoder> decoder;
     ng_remote_client *client = nullptr;
     ng_remote_host *host = nullptr;
@@ -302,6 +304,7 @@ bool point(double x, double y, bool clamp) {
 }
 void stopRemote() {
     ++state->remoteVersion;
+    if (state->alive) state->remoteActions.enable(0);
     if (state->remoteActive)
         state->remoteStopping = true;
     state->remoteActive = false;
@@ -383,13 +386,18 @@ void view(std::string host) {
                 return -1;
             }
         };
-        o.format = [](void *, uint32_t w, uint32_t h, uint32_t fps, uint32_t caps) -> int32_t {
+        o.format = [](void *p, uint32_t w, uint32_t h, uint32_t fps, uint32_t caps) -> int32_t {
             try {
                 if (w > 4096 || h > 2160 || fps > 60)
                     return -1;
                 state->decoder = std::make_unique<netgo::desktop_linux::Decoder>();
                 std::lock_guard lock(state->mutex);
                 state->caps = caps;
+                auto version = static_cast<ViewerContext *>(p)->version;
+                mainThread([version, caps] {
+                    if (state->alive && state->remoteVersion == version && state->remoteActive)
+                        state->remoteActions.enable(caps);
+                });
                 return 0;
             } catch (...) {
                 return -1;
@@ -465,6 +473,7 @@ void view(std::string host) {
             if (state->alive) {
                 gtk_picture_set_paintable(GTK_PICTURE(state->picture), nullptr);
                 gtk_widget_set_sensitive(state->remoteButton, TRUE);
+                state->remoteActions.enable(0);
             }
         });
     });
@@ -1032,18 +1041,21 @@ void activate(GtkApplication *app, void *) {
     g_signal_connect(share, "clicked", callback(+[](GtkButton *, void *) { shareDesktop(); }), nullptr);
     auto clipSend = gtk_button_new_with_label("发送剪贴板");
     gtk_box_append(GTK_BOX(row), clipSend);
+    state->remoteActions.add(clipSend, NG_REMOTE_CLIPBOARD);
     g_signal_connect(clipSend, "clicked", callback(+[](GtkButton *, void *) {
                          task([] { submit({{"action", "clipboard.set"}, {"text", clipboard(false, "")}}); });
                      }),
                      nullptr);
     auto clipGet = gtk_button_new_with_label("获取剪贴板");
     gtk_box_append(GTK_BOX(row), clipGet);
+    state->remoteActions.add(clipGet, NG_REMOTE_CLIPBOARD);
     g_signal_connect(clipGet, "clicked",
                      callback(+[](GtkButton *, void *) { submit({{"action", "clipboard.get"}}); }), nullptr);
     row = gtk_box_new(GTK_ORIENTATION_HORIZONTAL, 8);
     gtk_box_append(GTK_BOX(box), row);
     auto upload = gtk_button_new_with_label("上传文件");
     gtk_box_append(GTK_BOX(row), upload);
+    state->remoteActions.add(upload, NG_REMOTE_UPLOAD);
     g_signal_connect(upload, "clicked", callback(+[](GtkButton *, void *) {
                          auto d = gtk_file_dialog_new();
                          gtk_file_dialog_open(d, GTK_WINDOW(state->window), nullptr, transferChosen,
@@ -1055,10 +1067,12 @@ void activate(GtkApplication *app, void *) {
     gtk_box_append(GTK_BOX(row), state->files);
     auto files = gtk_button_new_with_label("刷新文件");
     gtk_box_append(GTK_BOX(row), files);
+    state->remoteActions.add(files, NG_REMOTE_DOWNLOAD);
     g_signal_connect(files, "clicked",
                      callback(+[](GtkButton *, void *) { submit({{"action", "file.list"}}); }), nullptr);
     auto download = gtk_button_new_with_label("下载选中文件");
     gtk_box_append(GTK_BOX(row), download);
+    state->remoteActions.add(download, NG_REMOTE_DOWNLOAD);
     g_signal_connect(download, "clicked", callback(+[](GtkButton *, void *) {
                          auto name = selected(state->files, state->remoteFiles, "name");
                          if (name.empty())
@@ -1072,6 +1086,7 @@ void activate(GtkApplication *app, void *) {
                      nullptr);
     auto cancel = gtk_button_new_with_label("取消传输");
     gtk_box_append(GTK_BOX(row), cancel);
+    state->remoteActions.add(cancel, NG_REMOTE_VIEW);
     g_signal_connect(cancel, "clicked",
                      callback(+[](GtkButton *, void *) { submit({{"action", "cancel"}}); }), nullptr);
     auto stop = gtk_button_new_with_label("结束远程桌面");
@@ -1268,7 +1283,7 @@ void activate(GtkApplication *app, void *) {
                     gtk_label_set_text(GTK_LABEL(state->resources), resources.c_str());
                     if (!state->remoteActive)
                         status(value.value("state", "") + "  " + value.value("error", ""));
-                    if (value.value("state", "") != "connected") {
+                    if (!value.value("remote_ready", false)) {
                         state->hostList = Json::array();
                         names(state->hosts, state->hostList, "name");
                     } else if (state->autoResume && !state->suspended && !state->remoteActive &&

@@ -1,7 +1,9 @@
 package store
 
 import (
+	"encoding/base64"
 	"encoding/json"
+	"errors"
 	"netgo/internal/model"
 	"time"
 )
@@ -57,19 +59,36 @@ func (s *Store) RemoteInventory(device string) (model.State, uint64, error) {
 func (s *Store) RemoteCleanupDue(now time.Time) (bool, error) {
 	var due bool
 	err := s.db.QueryRow(`SELECT EXISTS(SELECT 1 FROM remote_sessions WHERE state IN ('issued','active') OR
-	 julianday(json_extract(data,'$.expires_at')) < julianday(?1)-1) OR
+	 julianday(json_extract(data,'$.closed_at')) < julianday(?1)-1) OR
 	 EXISTS(SELECT 1 FROM remote_operations WHERE julianday(json_extract(data,'$.expires_at')) <= julianday(?1))`, now.UTC().Format(time.RFC3339Nano)).Scan(&due)
 	return due, err
 }
 
-// IDs are immutable; a keyset cursor never shifts pages when a session closes.
-// History is administrative and bounded; viewers use the active inventory only.
+type historyCursor struct {
+	At time.Time `json:"at"`
+	ID string    `json:"id"`
+}
+
+// The cursor includes the immutable creation time, so expiry or removal of the
+// last row on a page cannot invalidate the following page. IDs break time ties.
 func (s *Store) RemoteHistory(before string, limit int) (RemoteHistory, error) {
 	if limit < 1 || limit > 100 {
 		limit = 100
 	}
 	page := RemoteHistory{Sessions: []model.RemoteSession{}}
-	rows, err := s.db.Query(`SELECT data FROM remote_sessions WHERE state='closed' AND (?='' OR id<?) ORDER BY id DESC LIMIT ?`, before, before, limit+1)
+	var cursor historyCursor
+	if len(before) > 512 {
+		return page, errors.New("invalid_remote_history_cursor")
+	}
+	if before != "" {
+		raw, err := base64.RawURLEncoding.Strict().DecodeString(before)
+		if err != nil || json.Unmarshal(raw, &cursor) != nil || cursor.At.IsZero() || cursor.ID == "" {
+			return page, errors.New("invalid_remote_history_cursor")
+		}
+	}
+	rows, err := s.db.Query(`SELECT data FROM remote_sessions WHERE state='closed' AND (?1='' OR
+	 (julianday(json_extract(data,'$.created_at')),id) < (julianday(?2),?3))
+	 ORDER BY julianday(json_extract(data,'$.created_at')) DESC,id DESC LIMIT ?4`, before, cursor.At.UTC().Format(time.RFC3339Nano), cursor.ID, limit+1)
 	if err != nil {
 		return page, err
 	}
@@ -84,7 +103,9 @@ func (s *Store) RemoteHistory(before string, limit int) (RemoteHistory, error) {
 			return page, err
 		}
 		if len(page.Sessions) == limit {
-			page.NextBefore = page.Sessions[limit-1].ID
+			last := page.Sessions[limit-1]
+			raw, _ := json.Marshal(historyCursor{At: last.CreatedAt, ID: last.ID})
+			page.NextBefore = base64.RawURLEncoding.EncodeToString(raw)
 			break
 		}
 		session.ControllerAuth = ""

@@ -67,6 +67,7 @@ I01–I10 尚未完成。门禁单元测试、采集探针、VPN 网络测试分
 
 ## 6. 当前接口与后续验收
 
+- 概览和诊断轮询 `GET /netgo/v2/admin/summary`，只返回 counts、策略版本/错误与运行指标。账号、资源、设备列表使用 `GET /netgo/v2/admin/state?section=users|resources|sessions&after=<cursor>`，每页 50 项、响应 next_after；用户编辑加载资源选项，设备页保留租约及账号标签。远控授权页通过 section=remote 取得账号选择项。
 - 管理状态不再包含 audit；通过 GET /netgo/v2/admin/audit?before=<sequence> 分页，每次最多 100 条，next_before 为 0 表示没有更早记录。
 - 主机接受 windows/macos/linux、显式本地无人值守策略及实际实现的六项能力。登记必须提供每次启动生成的 transport_key；重启关闭旧会话。保留不可连接主机的状态和有效能力；客户端只允许 ready 状态发起连接。
 - /netgo/v2/remote/key 已移除，授权响应包含 site_key；所有内置客户端同步使用这一响应。
@@ -75,11 +76,11 @@ I01–I10 尚未完成。门禁单元测试、采集探针、VPN 网络测试分
 
 ## 7. 本轮接口与生命周期约束（2026-11-26）
 
-- `health.server_unix` 必填，Go、Windows、Web 使用相同范围校验。只支持当前 API v2/schema 2，不保留缺失时间字段的旧服务端回退。
-- 设备删除先提交本地撤权：移除凭据、VPN 租约、被控登记、相关授权及远控会话。上游删除失败返回 HTTP 202 `{deleted:false,cleanup_pending:true}`，设备显示 `delete_pending:true`，禁止重新签发该设备凭据。后台每分钟重试；上游 404 视为成功。管理页区分已完成与待清理，支持手动重试。
+- `health.server_unix` 必填，Go、Windows、Web 使用相同范围校验。只支持当前 API v2/schema 3，不保留缺失时间字段的旧服务端回退。
+- 设备删除先提交本地撤权：移除凭据、VPN 租约、被控登记、相关授权及远控会话。上游删除失败返回 HTTP 202 `{deleted:false,cleanup_pending:true}`，设备显示 `delete_pending:true`，禁止重新签发该设备凭据。后台清理独立于租约过期检查，每分钟扫描到期待重试项；单项超时 2 秒，失败按 1–32 分钟退避并继续处理其他项。账号删除采用相同的 202、delete_pending 和持久化重试语义，待删除账号禁止恢复权限；上游 404 视为成功。管理页区分已完成与待清理，支持手动重试。
 - 认证事务只在实际注册的匿名路由限流：直接来源最多 90 请求/分钟、全局最多 900；本机 TLS 代理共享全局预算，不信任任意转发头。签名验证通过后的刷新按设备独立限制 12 次/分钟；账号失败尝试仍独立限制 5 次/分钟，成功登录不占失败预算。
-- `GET /netgo/v2/remote` 只返回当前活动会话；`next_generation` 仍计入保留的历史会话。`GET /netgo/v2/admin/remote/history?before=<id>&limit=50` 返回 `{sessions,next_before}`，上限 100，管理员专用，游标按不可变 ID 排序，并非时间排序。控制凭据字段不对外返回。
-- 已认证账号可建立没有 LAN 资源的 overlay 租约。空资源集合不会产生 LAN/互联网授权，桌面访问仍须独立远控授权与主机门禁。互联网出口继续单独检查。
+- `GET /netgo/v2/remote` 只返回当前活动会话；`next_generation` 仍计入保留的历史会话。`GET /netgo/v2/admin/remote/history?before=<cursor>&limit=50` 返回 `{sessions,next_before}`，上限 100，管理员专用。created_at 为毫秒精度、不可变的创建时间；issued_at 是当前票据签发时间；closed_at 记录首次关闭，关闭后保留 24 小时。按 created_at 与 ID 组合倒序分页；next_before 为不透明游标，客户端原样回传，即使上页末行已清理仍能继续分页。控制凭据字段不对外返回。
+- 已认证账号可建立没有 LAN 资源的 overlay 租约。空资源集合不会产生 LAN/互联网授权，桌面访问仍须独立远控授权与主机门禁。互联网出口继续单独检查。Go/Windows 本地状态新增 remote_ready，表示当前身份、租约和远控工作者就绪；所有平台远控入口、主机列表和停止逻辑使用该字段，与 LAN 网关路径独立。
 - 主机允许 NetBird 管理 ACL 生效，保持默认拒绝；网络策略只授予获准控制端到主机指定 TCP 端口。未受管的启用策略仍阻止 NetGo 应用策略。不得用全局放行代替授权。
 - 客户端清理超时保留旧 worker 的完成信号；旧 worker 结束前不能启动新连接。Android 文档选择器只暂停画面呈现并释放输入，普通退后台、退出或销毁仍停止远控。
 - 后台策略核对独立于本地过期清理：本地版本变化及时处理，至少每分钟检查上游漂移，失败按 5–60 秒退避。数据库持久化层不拥有领域依赖清理规则，规则统一在 `model.PruneDependencies`。

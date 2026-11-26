@@ -10,6 +10,7 @@ import (
 	"netgo/internal/site"
 	"os"
 	"os/exec"
+	"reflect"
 	"regexp"
 	"sort"
 	"strconv"
@@ -31,15 +32,15 @@ type NFT struct {
 	Conntrack                        func(context.Context, string) error
 	active                           map[string]string
 	pending                          map[string]bool
+	lastFull                         time.Time
+	configuration                    string
 }
 
 func (n *NFT) Apply(ctx context.Context, leases []model.Lease) error {
 	n.mu.Lock()
 	defer n.mu.Unlock()
-	script, e := RenderBypass(n.Interface, n.LANInterface, n.Overlay, n.LocalCIDRs, n.Bypass, leases, time.Now())
-	if e != nil {
-		return e
-	}
+	now := time.Now()
+	var e error
 	// Refuse to overwrite an unowned table or operate beside flow offload.
 	if n.Inspect != nil {
 		if e = n.Inspect(ctx); e != nil {
@@ -63,14 +64,33 @@ func (n *NFT) Apply(ctx context.Context, leases []model.Lease) error {
 	}
 	next := map[string]string{}
 	for _, lease := range leases {
-		if !time.Now().Before(lease.ExpiresAt) {
+		if !now.Before(lease.ExpiresAt) {
 			continue
 		}
 		b, err := json.Marshal(lease.Resources)
 		if err != nil {
 			return err
 		}
+		if _, exists := next[lease.IP]; exists {
+			return errors.New("duplicate lease IP")
+		}
 		next[lease.IP] = model.Hash(lease.ID + string(b))
+	}
+	config, _ := json.Marshal([]any{n.Interface, n.LANInterface, n.Overlay, n.LocalCIDRs, n.Bypass})
+	if len(n.pending) == 0 && n.configuration == string(config) && !n.lastFull.IsZero() && now.Sub(n.lastFull) < time.Minute && reflect.DeepEqual(n.active, next) {
+		script, err := refreshMemberships(leases, n.Bypass.Enabled, now)
+		if err != nil {
+			return err
+		}
+		if err = apply(script); err != nil {
+			n.lastFull = time.Time{}
+			return err
+		}
+		return nil
+	}
+	script, e := RenderBypass(n.Interface, n.LANInterface, n.Overlay, n.LocalCIDRs, n.Bypass, leases, now)
+	if e != nil {
+		return e
 	}
 	if n.pending == nil {
 		n.pending = map[string]bool{}
@@ -122,6 +142,8 @@ func (n *NFT) Apply(ctx context.Context, leases []model.Lease) error {
 	}
 	n.pending = map[string]bool{}
 	n.active = next
+	n.lastFull = now
+	n.configuration = string(config)
 	return nil
 }
 

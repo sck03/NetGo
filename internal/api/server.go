@@ -28,6 +28,7 @@ import (
 type Server struct {
 	accountOnce    sync.Once
 	accountService *accounts.Service
+	Accounts       *accounts.Service
 	Config         site.Config
 	Store          *store.Store
 	Auth           *identity.Native
@@ -237,7 +238,14 @@ func (s *Server) Handler() http.Handler {
 		reply(w, 200, map[string]bool{"applied": true})
 	})
 	secured("GET /netgo/v2/admin/state", true, func(w http.ResponseWriter, r *http.Request) {
-		st, e := s.Store.AdminView()
+		var st model.State
+		var e error
+		next := ""
+		if section := r.URL.Query().Get("section"); section != "" {
+			st, next, e = s.Store.AdminPage(section, r.URL.Query().Get("after"), 50)
+		} else {
+			st, e = s.Store.AdminView()
+		}
 		if e != nil {
 			failure(w, e)
 			return
@@ -246,7 +254,21 @@ func (s *Server) Handler() http.Handler {
 		if monitor == nil {
 			monitor = diagnostics.NewMonitor()
 		}
-		reply(w, 200, map[string]any{"users": st.Users, "resources": st.Resources, "devices": st.Devices, "leases": st.Leases, "revision": st.Revision, "observed_revision": st.ObservedRevision, "last_error": st.LastError, "runtime": monitor.Snapshot(s.Config, st), "network": s.Config.Access()})
+		reply(w, 200, map[string]any{"users": st.Users, "resources": st.Resources, "devices": st.Devices, "leases": st.Leases, "revision": st.Revision, "observed_revision": st.ObservedRevision, "last_error": st.LastError, "runtime": monitor.Snapshot(s.Config, st), "network": s.Config.Access(), "next_after": next})
+	})
+	secured("GET /netgo/v2/admin/summary", true, func(w http.ResponseWriter, r *http.Request) {
+		st, counts, err := s.Store.AdminSummary(time.Now())
+		if err != nil {
+			failure(w, err)
+			return
+		}
+		monitor := s.Monitor
+		if monitor == nil {
+			monitor = diagnostics.NewMonitor()
+		}
+		report := monitor.Snapshot(s.Config, st)
+		report.Counts = counts
+		reply(w, 200, map[string]any{"counts": counts, "revision": st.Revision, "observed_revision": st.ObservedRevision, "last_error": st.LastError, "runtime": report})
 	})
 	secured("GET /netgo/v2/admin/audit", true, func(w http.ResponseWriter, r *http.Request) {
 		before := int64(0)
@@ -368,7 +390,10 @@ func (s *Server) authorize(admin bool, next http.Handler) http.Handler {
 }
 func (s *Server) accounts() *accounts.Service {
 	s.accountOnce.Do(func() {
-		s.accountService = &accounts.Service{Store: s.Store, Sessions: s.Sessions, Management: s.Management}
+		s.accountService = s.Accounts
+		if s.accountService == nil {
+			s.accountService = &accounts.Service{Store: s.Store, Sessions: s.Sessions, Management: s.Management}
+		}
 	})
 	return s.accountService
 }
@@ -429,11 +454,16 @@ func (s *Server) putResource(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Server) deleteUser(w http.ResponseWriter, r *http.Request) {
-	if e := s.accounts().Delete(r.Context(), r.PathValue("id")); e != nil {
+	result, e := s.accounts().Delete(r.Context(), r.PathValue("id"))
+	if e != nil {
 		failure(w, e)
 		return
 	}
-	reply(w, 200, map[string]bool{"deleted": true})
+	status := http.StatusOK
+	if result.CleanupPending {
+		status = http.StatusAccepted
+	}
+	reply(w, status, result)
 }
 
 func (s *Server) deleteDevice(w http.ResponseWriter, r *http.Request) {

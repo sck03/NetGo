@@ -45,12 +45,22 @@ type RemoteSession struct {
 	Sequence        uint64    `json:"sequence"`
 	Capabilities    uint32    `json:"capabilities"`
 	RequireConsent  bool      `json:"require_consent"`
+	CreatedAt       time.Time `json:"created_at"`
+	ClosedAt        time.Time `json:"closed_at"`
 	IssuedAt        time.Time `json:"issued_at"`
 	ExpiresAt       time.Time `json:"expires_at"`
 	State           string    `json:"state"`
 	ControllerLease string    `json:"controller_lease"`
 	HostLease       string    `json:"host_lease"`
 	ControllerAuth  string    `json:"controller_auth"`
+}
+
+// Close preserves the first termination time across retries and later ACL edits.
+func (r *RemoteSession) Close(now time.Time) {
+	if r.State != "closed" {
+		r.State = "closed"
+		r.ClosedAt = now.UTC()
+	}
 }
 
 type RemoteOperation struct {

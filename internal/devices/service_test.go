@@ -63,6 +63,7 @@ func TestDeleteRevokesBeforeUpstreamAndRetries(t *testing.T) {
 				t.Fatal(result)
 			}
 			remote.status = 204
+			service.Now = func() time.Time { return time.Now().Add(time.Hour) }
 			if err = service.Retry(context.Background()); err != nil {
 				t.Fatal(err)
 			}

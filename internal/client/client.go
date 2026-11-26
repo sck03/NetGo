@@ -51,6 +51,7 @@ type Status struct {
 	Data             netbird.DataStatus `json:"data"`
 	Lease            model.Lease        `json:"lease"`
 	Internet         bool               `json:"internet"`
+	RemoteReady      bool               `json:"remote_ready"`
 }
 type Controller struct {
 	mu            sync.Mutex
@@ -154,6 +155,7 @@ func (c *Controller) Status() Status {
 	c.mu.Lock()
 	defer c.mu.Unlock()
 	s := c.status
+	s.RemoteReady = c.remote != nil && c.remote.ctx.Err() == nil && c.remote.site == s.SiteID && s.Lease.ID != "" && (s.State == "connected" || s.State == "negotiating")
 	if s.State == "" {
 		s.State = "disconnected"
 	}
@@ -522,7 +524,8 @@ func (c *Controller) run(ctx context.Context, gen uint64, p site.Profile, alias 
 				s.Lease = lease
 				s.Data = ds
 				s.Error = ""
-				if ds.Path == "negotiating" {
+				// Remote-only accounts establish their peer path after choosing a host.
+				if len(lease.Resources) > 0 && ds.Path == "negotiating" {
 					s.State = "negotiating"
 				} else {
 					s.State = "connected"

@@ -1,10 +1,12 @@
 package remote
 
 import (
+	"context"
 	"encoding/json"
 	"fmt"
 	"netgo/internal/model"
 	"testing"
+	"time"
 )
 
 func TestInventoryExcludesHistoryAndHistoryIsBounded(t *testing.T) {
@@ -15,7 +17,7 @@ func TestInventoryExcludesHistoryAndHistoryIsBounded(t *testing.T) {
 			r := a.Session
 			r.ID = fmt.Sprintf("closed-session-%08d", i)
 			r.Generation = uint64(i + 2)
-			r.State = "closed"
+			r.Close(f.now)
 			r.ControllerAuth = "secret"
 			st.RemoteSessions[r.ID] = r
 		}
@@ -41,7 +43,50 @@ func TestInventoryExcludesHistoryAndHistoryIsBounded(t *testing.T) {
 		}
 	}
 	next, err := f.m.Store.RemoteHistory(page.NextBefore, 50)
-	if err != nil || len(next.Sessions) != 50 || next.Sessions[0].ID >= page.NextBefore {
+	if err != nil || len(next.Sessions) != 50 || next.Sessions[0].ID >= page.Sessions[len(page.Sessions)-1].ID {
 		t.Fatal("cursor repeated history", err)
+	}
+}
+
+func TestHistoryUsesCreationTimeAndRetainsItAcrossRenewal(t *testing.T) {
+	f := setup(t)
+	a := f.acquire(t)
+	if _, err := f.m.Consume(f.h, a.Session.ID, a.Session.Sequence, f.boot, proof(t, a, f.controller)); err != nil {
+		t.Fatal(err)
+	}
+	f.now = f.now.Add(time.Second)
+	renewed, err := f.m.Renew(context.Background(), f.c, a.Session.ID, 1)
+	if err != nil || !renewed.Session.CreatedAt.Equal(a.Session.CreatedAt) || !renewed.Session.IssuedAt.After(a.Session.IssuedAt) {
+		t.Fatal("renew changed start time", err)
+	}
+	if err = f.m.Revoke(f.c, a.Session.ID); err != nil {
+		t.Fatal(err)
+	}
+	if err = f.m.Store.RemoteUpdate(func(st *model.State) error {
+		for i, id := range []string{"z-oldest", "a-newest", "m-middle"} {
+			r := a.Session
+			r.ID = id
+			r.State = "closed"
+			r.CreatedAt = f.now.Add(time.Duration([]int{-3, -1, -2}[i]) * time.Hour)
+			r.ClosedAt = f.now
+			st.RemoteSessions[id] = r
+		}
+		return nil
+	}); err != nil {
+		t.Fatal(err)
+	}
+	first, err := f.m.Store.RemoteHistory("", 2)
+	if err != nil || len(first.Sessions) != 2 || first.Sessions[0].ID != a.Session.ID || first.Sessions[1].ID != "a-newest" {
+		t.Fatal("history not chronological", first, err)
+	}
+	if err = f.m.Store.RemoteUpdate(func(st *model.State) error { delete(st.RemoteSessions, "a-newest"); return nil }); err != nil {
+		t.Fatal(err)
+	}
+	next, err := f.m.Store.RemoteHistory(first.NextBefore, 2)
+	if err != nil || len(next.Sessions) != 2 || next.Sessions[0].ID != "m-middle" || next.Sessions[1].ID != "z-oldest" {
+		t.Fatal("cursor depended on retained row", next, err)
+	}
+	if _, err = f.m.Store.RemoteHistory("invalid!", 2); err == nil {
+		t.Fatal("invalid cursor accepted")
 	}
 }

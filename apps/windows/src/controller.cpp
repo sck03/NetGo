@@ -32,7 +32,7 @@ Controller::Controller(std::filesystem::path root,bool engineEnabled):root_(std:
  status_["generation"]=generation_;
 }
 Controller::~Controller(){try{disconnect();}catch(...){}}
-Json Controller::status(){std::lock_guard lock(mutex_);return status_;}
+Json Controller::status(){std::lock_guard lock(mutex_);auto result=status_;auto name=result.value("state","");result["remote_ready"]=remoteReady_&&!cancel_&&(name=="connected"||name=="negotiating");return result;}
 void Controller::state(uint64_t gen,const std::string& name,const std::string& error,const Json& fields) {
  std::lock_guard lock(mutex_);if(gen!=generation_)return;
  if(status_.value("state","")!=name||status_.value("error","")!=error){
@@ -198,7 +198,7 @@ void Controller::run(uint64_t gen,Json p,std::string alias,std::string password,
      throw Error("engine_recovering");
     }
     failed=0;
-    auto path=data.value("path","negotiating");state(gen,path=="negotiating"?"negotiating":"connected","",{{"data",data},{"lease",lease},{"control",transport->kind()},{"control_candidate",transport->candidate()}});
+    auto path=data.value("path","negotiating");state(gen,!lease.at("resources").empty()&&path=="negotiating"?"negotiating":"connected","",{{"data",data},{"lease",lease},{"control",transport->kind()},{"control_candidate",transport->candidate()}});
    }catch(const Error& e){
     std::string error=e.what();
     if(error=="unauthorized"||error=="forbidden"||error=="not_found"||error=="lease_expired"||error=="session_conflict")throw;

@@ -22,10 +22,10 @@ struct ClientView: View {
             HStack { Button("连接") { model.connect() }.disabled(model.connected); Button("断开") { model.disconnect() }; Spacer(); Text(model.message).font(.caption) }
             ForEach(model.resources,id: \.self) { Text($0).font(.caption) }
             Divider()
-            HStack { Text("远程桌面"); Spacer(); Button("刷新主机") { model.loadHosts() }.disabled(!model.connected) }
-            ScrollView(.horizontal) { HStack { ForEach(model.hosts) { host in Button(host.label) { model.view(host) }.disabled(!host.ready || !model.connected) } } }
+            HStack { Text("远程桌面"); Spacer(); Button("刷新主机") { model.loadHosts() }.disabled(!model.remoteReady) }
+            ScrollView(.horizontal) { HStack { ForEach(model.hosts) { host in Button(host.label) { model.view(host) }.disabled(!host.ready || !model.remoteReady) } } }
 #if os(macOS)
-            HStack { Toggle("无人值守：保存凭据并在登录后恢复（连接前开启）",isOn:$model.unattended);Button("共享此 Mac") { model.shareDesktop() }.disabled(!model.connected) }
+            HStack { Toggle("无人值守：保存凭据并在登录后恢复（连接前开启）",isOn:$model.unattended);Button("共享此 Mac") { model.shareDesktop() }.disabled(!model.remoteReady) }
 #endif
             ScrollView(.horizontal) {
                 HStack {
@@ -48,9 +48,7 @@ struct ClientView: View {
             do {
                 guard let url=try result.get().first else {return}
                 if uploading {model.upload(url);return}
-                let allowed = url.startAccessingSecurityScopedResource()
-                defer { if allowed { url.stopAccessingSecurityScopedResource() } }
-                model.importSite(try Data(contentsOf:url))
+                model.importSite(from: url)
             } catch { model.message = error.localizedDescription }
         }
         .alert("确认新的站点身份",isPresented:$model.confirmTrust) {

@@ -22,7 +22,7 @@ on:
         default: prerelease
         options: [draft, prerelease, stable]
   push:
-    paths: ['VERSION', 'scripts/build_config.py', 'scripts/ci_metadata.py', 'scripts/stage-release.py', 'scripts/publish-release.py', 'scripts/cmake/**', 'apps/windows/**', 'packages/remote-*/**', 'assets/**', 'scripts/build-windows-client.ps1', 'scripts/build-native.ps1', 'scripts/prepare-native.ps1', 'scripts/package-windows-client.py', 'deploy/windows/**', 'upstream/**', '.github/workflows/build-windows-client.yml']
+    paths: ['VERSION', 'tests/contracts/**', 'tests/tools/**', 'scripts/build_config.py', 'scripts/ci_metadata.py', 'scripts/stage-release.py', 'scripts/publish-release.py', 'scripts/cmake/**', 'apps/windows/**', 'packages/remote-*/**', 'assets/**', 'scripts/build-windows-client.ps1', 'scripts/build-native.ps1', 'scripts/prepare-native.ps1', 'scripts/package-windows-client.py', 'deploy/windows/**', 'upstream/**', '.github/workflows/build-windows-client.yml']
 permissions:
   contents: read
 jobs:

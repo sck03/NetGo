@@ -107,6 +107,10 @@ func (s *Service) Update(ctx context.Context, u model.User) (model.User, error) 
 		if !ok || old.Email != u.Email {
 			return model.ErrNotFound
 		}
+		if old.DeletePending || u.DeletePending {
+			return model.ErrConflict
+		}
+		u.CleanupRetry = old.CleanupRetry
 		for id, v := range st.Users {
 			if id != u.ID && strings.EqualFold(v.Alias, u.Alias) {
 				return model.ErrConflict
@@ -140,36 +144,86 @@ func (s *Service) Update(ctx context.Context, u model.User) (model.User, error) 
 	})
 	return u, e
 }
-func (s *Service) Delete(ctx context.Context, id string) error {
+func (s *Service) Delete(ctx context.Context, id string) (model.DeleteResult, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	// Revoke locally first. If upstream is unavailable, a disabled account remains
-	// visible and can be retried; no network call holds the database write lock.
-	e := s.Sessions.MutateUser(ctx, id, func(st *model.State) error {
+	var exists bool
+	err := s.Sessions.MutateUser(ctx, id, func(st *model.State) error {
 		u, ok := st.Users[id]
-		if !ok {
-			return model.ErrNotFound
+		exists = ok
+		if !ok || u.DeletePending {
+			return nil
 		}
-		if e := protectAdmin(st, u); e != nil {
-			return e
+		if err := protectAdmin(st, u); err != nil {
+			return err
 		}
 		u.Disabled = true
+		u.DeletePending = true
 		st.Users[id] = u
-		if e := st.InvalidateUser(id); e != nil {
-			return e
+		if err := st.InvalidateUser(id); err != nil {
+			return err
 		}
 		st.Record("admin", "user.delete.pending", id)
 		return nil
 	})
-	if e != nil {
-		return e
+	if err != nil {
+		return model.DeleteResult{}, err
 	}
-	if _, e = s.Management.Request(ctx, "DELETE", "/users/"+url.PathEscape(id), nil, nil); e != nil {
+	if !exists {
+		return model.DeleteResult{Deleted: true}, nil
+	}
+	if err = s.cleanup(ctx, id); err != nil {
+		return model.DeleteResult{CleanupPending: true}, nil
+	}
+	return model.DeleteResult{Deleted: true}, nil
+}
+
+func (s *Service) cleanup(ctx context.Context, id string) error {
+	attempt, cancel := context.WithTimeout(ctx, 2*time.Second)
+	defer cancel()
+	var err error
+	if s.Management == nil {
+		err = errors.New("management unavailable")
+	} else {
+		_, err = s.Management.Request(attempt, "DELETE", "/users/"+url.PathEscape(id), nil, nil)
 		var status interface{ HTTPStatus() int }
-		if !errors.As(e, &status) || status.HTTPStatus() != http.StatusNotFound {
-			return e
+		if errors.As(err, &status) && status.HTTPStatus() == http.StatusNotFound {
+			err = nil
 		}
 	}
+	if err == nil {
+		err = s.Sessions.MutateUser(ctx, id, func(st *model.State) error {
+			if u, ok := st.Users[id]; ok && u.DeletePending {
+				delete(st.Users, id)
+				st.Record("system", "user.delete", id)
+			}
+			return nil
+		})
+	}
+	if err == nil {
+		return nil
+	}
+	return errors.Join(err, s.Store.Update(func(st *model.State) error {
+		if u, ok := st.Users[id]; ok && u.DeletePending {
+			u.CleanupRetry.Failed(time.Now().UTC())
+			st.Users[id] = u
+		}
+		return nil
+	}))
+}
 
-	return s.Sessions.MutateUser(ctx, id, func(st *model.State) error { delete(st.Users, id); st.Record("admin", "user.delete", id); return nil })
+func (s *Service) Retry(ctx context.Context) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	items, err := s.Store.PendingUsers(time.Now(), 16)
+	if err != nil {
+		return err
+	}
+	for _, u := range items {
+		if ctx.Err() != nil {
+			return errors.Join(err, ctx.Err())
+		}
+		err = errors.Join(err, s.cleanup(ctx, u.ID))
+	}
+	return err
 }

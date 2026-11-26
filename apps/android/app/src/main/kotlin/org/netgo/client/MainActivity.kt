@@ -90,9 +90,9 @@ class MainActivity : ComponentActivity() {
             OutlinedButton(onClick = { target = ""; NetGoRuntime.disconnect() }) { Text("断开") }
         }
         Text(status.optString("state", "disconnected") + "  " + status.optString("error")); Text(message); HorizontalDivider()
-        OutlinedButton(onClick = { NetGoRuntime.selectedSite = site; NetGoRuntime.refreshHosts() }, enabled = status.optString("state") == "connected") { Text("更新远程主机") }
+        OutlinedButton(onClick = { NetGoRuntime.selectedSite = site; NetGoRuntime.refreshHosts() }, enabled = status.optBoolean("remote_ready")) { Text("更新远程主机") }
         hosts.forEach { host -> OutlinedButton(enabled = host.ready, onClick = { NativeRemote.stopCurrent(); target = host.id }) { Text(host.label) } }
-        LaunchedEffect(site, status.optString("state")) { if (status.optString("state") != "connected") target = "" }
+        LaunchedEffect(site, status.optBoolean("remote_ready")) { if (!status.optBoolean("remote_ready")) target = "" }
         status.optJSONObject("lease")?.optJSONArray("resources")?.let { values ->
             if (values.length() > 0) Text("已授权资源")
             for (index in 0 until values.length()) { val resource = values.getJSONObject(index); Text(resource.optString("name") + " · " + resource.optString("cidr")) }

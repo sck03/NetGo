@@ -30,7 +30,7 @@ struct HostItem: Identifiable { let id: String; let name: String; let status: St
     private var epoch: UInt64 = 0
     private var hostEpoch: UInt64 = 0
     private var refreshing = false
-    private func invalidate() { epoch &+= 1; hostEpoch &+= 1; hosts=[]; resources=[]; stopRemote() }
+    private func invalidate() { epoch &+= 1; hostEpoch &+= 1; hosts=[]; resources=[]; remoteReady=false; stopRemote() }
     private var remoteSuspended=false
     private var nextRemoteAttempt=Date.distantPast
         func stopRemote(suspend:Bool=true) { if suspend {remoteSuspended=true};viewer.stop()
@@ -42,6 +42,7 @@ struct HostItem: Identifiable { let id: String; let name: String; let status: St
     @Published var password = ""
     @Published var message = "未连接"
     @Published var connected = false
+    @Published var remoteReady = false
 	@Published var internet = false
 	@Published var confirmTrust = false
 	private var pendingImport: Data?
@@ -58,7 +59,7 @@ struct HostItem: Identifiable { let id: String; let name: String; let status: St
         if !unattended {stopRemote();if let request {DispatchQueue.global().async {_ = try? request("DELETE","/desktop/unattended","")}}}
     }}
     func shareDesktop() {
-        guard connected,let request else { return };remoteSuspended=false;viewer.stop();let site=selected
+        guard remoteReady,let request else { return };remoteSuspended=false;viewer.stop();let site=selected
         host.start(site:site,unattended:unattended) { method,_,body,_ in
             if method=="LOCAL_CONTEXT" { return try request("GET","/desktop/remote/context?site="+site,"") }
             return try request("POST","/desktop/remote/call",body)
@@ -81,6 +82,35 @@ struct HostItem: Identifiable { let id: String; let name: String; let status: St
         host.changed = { [weak self] text in Task { @MainActor in self?.message=text;if text.contains("系统设置") {self?.remoteSuspended=true} } }
 #endif
         timer = Timer.scheduledTimer(withTimeInterval: 2,repeats: true) { [weak self] _ in Task { @MainActor in self?.refresh() } }
+    }
+    private var importGeneration: UInt64 = 0
+    func importSite(from url: URL) {
+        importGeneration &+= 1
+        let version = importGeneration
+        message = "读取站点文件…"
+        DispatchQueue.global(qos: .userInitiated).async { [weak self] in
+            let result = Result<Data, Error> {
+                let allowed = url.startAccessingSecurityScopedResource()
+                defer { if allowed { url.stopAccessingSecurityScopedResource() } }
+                let file = try FileHandle(forReadingFrom: url)
+                defer { try? file.close() }
+                var data = Data()
+                while let chunk = try file.read(upToCount: min(8192, 65537 - data.count)), !chunk.isEmpty {
+                    data.append(chunk)
+                    guard data.count <= 65536 else {
+                        throw NSError(domain: "NetGo", code: 1, userInfo: [NSLocalizedDescriptionKey: "站点文件不能超过 64 KiB"])
+                    }
+                }
+                return data
+            }
+            Task { @MainActor in
+                guard let self = self, self.importGeneration == version else { return }
+                switch result {
+                case .success(let data): self.importSite(data)
+                case .failure(let error): self.message = error.localizedDescription
+                }
+            }
+        }
     }
     func importSite(_ data: Data, approved: Bool = false) {
         do {
@@ -153,12 +183,13 @@ struct HostItem: Identifiable { let id: String; let name: String; let status: St
                 Task { @MainActor in
                     guard let self=self else{return}; self.refreshing=false; guard version==self.epoch else{return}
                     self.connected=object["state"] as? String == "connected"
+                    self.remoteReady=object["remote_ready"] as? Bool == true
                     self.message=self.connected ? "已连接" : ((object["error"] as? String).flatMap{$0.isEmpty ? nil : $0} ?? "未连接")
                     self.resources=((object["lease"] as? [String:Any])?["resources"] as? [[String:Any]] ?? []).map{($0["name"] as? String ?? "") + " · " + ($0["cidr"] as? String ?? "")}
-                    if !self.connected { self.hostEpoch &+= 1; self.hosts=[]; self.resources=[]; self.stopRemote(suspend:false) }
+                    if !self.remoteReady { self.hostEpoch &+= 1; self.hosts=[]; self.resources=[]; self.stopRemote(suspend:false) }
 #if os(macOS)
                     if self.unattended && !self.remoteSuspended && Date()>=self.nextRemoteAttempt {
-                        if self.connected,object["site_id"] as? String == self.selected,!self.host.isRunning {
+                        if self.remoteReady,object["site_id"] as? String == self.selected,!self.host.isRunning {
                             self.nextRemoteAttempt=Date().addingTimeInterval(30);self.shareDesktop()
                         } else if !self.connected,["failed","disconnected"].contains(object["state"] as? String ?? "") {
                             self.nextRemoteAttempt=Date().addingTimeInterval(30)
@@ -168,11 +199,11 @@ struct HostItem: Identifiable { let id: String; let name: String; let status: St
 #endif
                     if let profiles=profiles {self.synchronizeProfiles(Data(profiles.utf8))}
                 }
-            } catch { Task { @MainActor in guard let self=self else{return};self.refreshing=false;if version==self.epoch {self.connected=false;self.hosts=[];self.resources=[]} } }
+            } catch { Task { @MainActor in guard let self=self else{return};self.refreshing=false;if version==self.epoch {self.connected=false;self.remoteReady=false;self.hosts=[];self.resources=[];self.stopRemote(suspend:false)} } }
         }
     }
     func loadHosts() {
-        guard connected, let request=request else{return}
+        guard remoteReady, let request=request else{return}
         hostEpoch &+= 1; let version=epoch, query=hostEpoch; hosts=[]
         let body=encode(["Site":selected,"Method":"GET","Path":"/netgo/v2/remote","Body":NSNull(),"Idempotency":""])
         DispatchQueue.global().async { [weak self] in
@@ -188,7 +219,7 @@ struct HostItem: Identifiable { let id: String; let name: String; let status: St
         }
     }
     func view(_ host: HostItem) {
-        guard host.ready, connected, let request = request else { return }
+        guard host.ready, remoteReady, let request = request else { return }
         remoteSuspended=true
 #if os(macOS)
         self.host.stop()

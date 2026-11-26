@@ -69,15 +69,15 @@ func TestDeleteFailureIsRevokedAndRetryable(t *testing.T) {
 	up := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) { w.WriteHeader(status) }))
 	defer up.Close()
 	s := Service{Store: db, Sessions: &session.Manager{Store: db, Gate: gate{}}, Management: &netbird.Management{URL: up.URL, Client: up.Client()}}
-	if e = s.Delete(context.Background(), "u"); e == nil {
-		t.Fatal("ignored upstream failure")
+	if result, err := s.Delete(context.Background(), "u"); err != nil || !result.CleanupPending {
+		t.Fatal("missing pending cleanup", result, err)
 	}
 	st, _ := db.View()
-	if !st.Users["u"].Disabled || len(st.Credentials) != 0 {
+	if !st.Users["u"].Disabled || !st.Users["u"].DeletePending || len(st.Credentials) != 0 {
 		t.Fatal("delete failure kept access")
 	}
 	status = http.StatusNotFound
-	if e = s.Delete(context.Background(), "u"); e != nil {
+	if _, e = s.Delete(context.Background(), "u"); e != nil {
 		t.Fatal(e)
 	}
 	st, _ = db.View()

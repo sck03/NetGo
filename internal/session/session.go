@@ -62,8 +62,12 @@ func credentialCurrent(st *model.State, c model.Credential, now time.Time) bool 
 // would let a concurrent credential revocation race with newly installed access.
 // All remote peer/account IO happens before entering this critical section.
 func (m *Manager) update(ctx context.Context, fn func(*model.State) error) error {
+	return m.updateWith(ctx, m.Store.Update, fn)
+}
+
+func (m *Manager) updateWith(ctx context.Context, update func(func(*model.State) error) error, fn func(*model.State) error) error {
 	touched := false
-	e := m.Store.Update(func(st *model.State) error {
+	e := update(func(st *model.State) error {
 		if e := fn(st); e != nil {
 			return e
 		}
@@ -108,14 +112,17 @@ func (m *Manager) Reset(ctx context.Context) error {
 	})
 }
 func (m *Manager) Acquire(ctx context.Context, c model.Credential, peer string, generation uint64, replace bool, key string) (model.Lease, error) {
-	m.mu.Lock()
-	defer m.mu.Unlock()
 	var result model.Lease
 	if key == "" || len(key) > 128 || generation == 0 {
 		return result, errors.New("idempotency key and generation required")
 	}
 	p, e := m.Peers.Verify(ctx, peer)
 	if e != nil {
+		return result, e
+	}
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	if e := ctx.Err(); e != nil {
 		return result, e
 	}
 	now := m.now()
@@ -203,8 +210,6 @@ func (m *Manager) Acquire(ctx context.Context, c model.Credential, peer string, 
 	return result, e
 }
 func (m *Manager) Renew(ctx context.Context, c model.Credential, id string, generation uint64) (model.Lease, error) {
-	m.mu.Lock()
-	defer m.mu.Unlock()
 	var result model.Lease
 	prior, e := m.Store.Lease(id)
 	if e != nil {
@@ -217,8 +222,13 @@ func (m *Manager) Renew(ctx context.Context, c model.Credential, id string, gene
 	if e != nil {
 		return result, e
 	}
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	if e := ctx.Err(); e != nil {
+		return result, e
+	}
 	now := m.now()
-	e = m.update(ctx, func(st *model.State) error {
+	e = m.updateWith(ctx, m.Store.VPNUpdate, func(st *model.State) error {
 		if !credentialCurrent(st, c, m.now()) {
 			return model.ErrUnauthorized
 		}

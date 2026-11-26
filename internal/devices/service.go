@@ -10,6 +10,7 @@ import (
 	"netgo/internal/session"
 	"netgo/internal/store"
 	"sync"
+	"time"
 )
 
 type Management interface {
@@ -21,11 +22,16 @@ type Service struct {
 	Store      *store.Store
 	Sessions   *session.Manager
 	Management Management
+	Now        func() time.Time
 }
 
-type Result struct {
-	Deleted        bool `json:"deleted"`
-	CleanupPending bool `json:"cleanup_pending"`
+type Result = model.DeleteResult
+
+func (s *Service) now() time.Time {
+	if s.Now != nil {
+		return s.Now()
+	}
+	return time.Now().UTC()
 }
 
 // Delete persists revocation before any upstream IO. The tombstone blocks new
@@ -66,7 +72,7 @@ func (s *Service) Delete(ctx context.Context, id string) (Result, error) {
 	if device.ID == "" {
 		return Result{Deleted: true}, nil
 	}
-	if err = s.remove(ctx, device); err != nil {
+	if err = s.cleanup(ctx, device); err != nil {
 		return Result{CleanupPending: true}, nil
 	}
 	return Result{Deleted: true}, nil
@@ -96,14 +102,31 @@ func (s *Service) remove(ctx context.Context, device model.Device) error {
 func (s *Service) Retry(ctx context.Context) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	items, err := s.Store.PendingDevices(16)
+	items, err := s.Store.PendingDevices(s.now(), 16)
 	if err != nil {
 		return err
 	}
 	for _, d := range items {
-		if err := s.remove(ctx, d); err != nil {
-			return err
+		if ctx.Err() != nil {
+			return errors.Join(err, ctx.Err())
 		}
+		err = errors.Join(err, s.cleanup(ctx, d))
 	}
-	return nil
+	return err
+}
+
+func (s *Service) cleanup(ctx context.Context, d model.Device) error {
+	attempt, cancel := context.WithTimeout(ctx, 2*time.Second)
+	defer cancel()
+	err := s.remove(attempt, d)
+	if err == nil {
+		return nil
+	}
+	return errors.Join(err, s.Store.Update(func(st *model.State) error {
+		if current, ok := st.Devices[d.ID]; ok && current.DeletePending && current.PeerID == d.PeerID {
+			current.CleanupRetry.Failed(s.now())
+			st.Devices[d.ID] = current
+		}
+		return nil
+	}))
 }

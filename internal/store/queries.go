@@ -133,18 +133,17 @@ const (
 const allTables = users | resources | devices | leases | credentials | operations | hosts | grants | remoteSessions | remoteOperations
 const remoteTables = users | devices | leases | credentials | hosts | grants | remoteSessions | remoteOperations
 
-func (s *Store) RemoteView() (model.State, error) { return s.view(remoteTables) }
-func (s *Store) RemoteRead(fn func(*model.State) error) error {
-	st, e := s.RemoteView()
-	if e != nil {
-		return e
-	}
-	return fn(&st)
-}
+func (s *Store) RemoteView() (model.State, error)               { return s.view(remoteTables) }
 func (s *Store) RemoteUpdate(fn func(*model.State) error) error { return s.update(remoteTables, fn) }
 func (s *Store) AdminView() (model.State, error)                { return s.view(users | resources | devices | leases) }
 func (s *Store) PolicyView() (model.State, error) {
-	return s.view(users | resources | devices | leases | credentials | hosts | grants | remoteSessions)
+	return s.viewWith(func(tx *sql.Tx) (model.State, error) {
+		st, err := read(tx, users|resources|devices|leases|credentials|hosts|grants)
+		if err == nil {
+			err = readRows(tx, "remote_sessions", st.RemoteSessions, "WHERE state IN ('issued','active')")
+		}
+		return st, err
+	})
 }
 func (s *Store) UserByAlias(alias string) (model.User, error) {
 	var u model.User

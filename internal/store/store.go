@@ -1,4 +1,4 @@
-// Package store owns schema 2. There is intentionally no schema 1 migration or
+// Package store owns schema 3. There is intentionally no earlier-schema migration or
 // dual-write path: a deployment must initialize a new database directory.
 package store
 
@@ -19,7 +19,7 @@ import (
 
 const applicationID = 0x4e474f32
 
-var ErrSchema = errors.New("database_schema_incompatible: initialize a fresh schema-2 database")
+var ErrSchema = errors.New("database_schema_incompatible: initialize a fresh schema-3 database")
 
 type Store struct {
 	mu sync.Mutex
@@ -95,6 +95,10 @@ func (s *Store) Close() error { return s.db.Close() }
 func (s *Store) View() (model.State, error) { return s.view(allTables) }
 
 func (s *Store) view(tables scope) (model.State, error) {
+	return s.viewWith(func(tx *sql.Tx) (model.State, error) { return read(tx, tables) })
+}
+
+func (s *Store) viewWith(load func(*sql.Tx) (model.State, error)) (model.State, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	tx, e := s.db.Begin()
@@ -102,7 +106,7 @@ func (s *Store) view(tables scope) (model.State, error) {
 		return model.State{}, e
 	}
 	defer tx.Rollback()
-	st, e := read(tx, tables)
+	st, e := load(tx)
 	if e == nil {
 		e = tx.Commit()
 	}
@@ -110,7 +114,11 @@ func (s *Store) view(tables scope) (model.State, error) {
 }
 
 func readMap[T any](tx *sql.Tx, table string, target map[string]T) error {
-	rows, e := tx.Query("SELECT id,data FROM " + table)
+	return readRows(tx, table, target, "")
+}
+
+func readRows[T any](tx *sql.Tx, table string, target map[string]T, where string, args ...any) error {
+	rows, e := tx.Query("SELECT id,data FROM "+table+" "+where, args...)
 	if e != nil {
 		return e
 	}
@@ -188,6 +196,10 @@ func saveMap[T any](tx *sql.Tx, table string, before, after map[string]T) error 
 func (s *Store) Update(fn func(*model.State) error) error { return s.update(allTables, fn) }
 
 func (s *Store) update(tables scope, fn func(*model.State) error) error {
+	return s.updateWith(func(tx *sql.Tx) (model.State, error) { return read(tx, tables) }, fn)
+}
+
+func (s *Store) updateWith(load func(*sql.Tx) (model.State, error), fn func(*model.State) error) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	tx, e := s.db.Begin()
@@ -199,7 +211,7 @@ func (s *Store) update(tables scope, fn func(*model.State) error) error {
 	if _, e = tx.Exec("UPDATE metadata SET id=id WHERE id=1"); e != nil {
 		return e
 	}
-	before, e := read(tx, tables)
+	before, e := load(tx)
 	if e != nil {
 		return e
 	}

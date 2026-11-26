@@ -58,10 +58,20 @@ final class MediaPlayer {
         var size = frame.count
         guard CMSampleBufferCreateReady(allocator: kCFAllocatorDefault, dataBuffer: block, formatDescription: format, sampleCount: 1, sampleTimingEntryCount: 1, sampleTimingArray: &timing, sampleSizeEntryCount: 1, sampleSizeArray: &size, sampleBufferOut: &sample) == noErr, let sample = sample else { return false }
         if let attachments = CMSampleBufferGetSampleAttachmentsArray(sample,createIfNecessary: true), let first = (attachments as NSArray).firstObject as? NSMutableDictionary { first[kCMSampleAttachmentKey_DisplayImmediately] = true }
-        return DispatchQueue.main.sync {
-            guard current(version), layer.status != .failed, layer.isReadyForMoreMediaData else {return false}
-            layer.enqueue(sample); return true
+        // Keep the native worker bounded while transient display pressure clears.
+        // Retain this reference frame; dropping compressed frames breaks decoding.
+        for _ in 0..<10 {
+            let result: Int = DispatchQueue.main.sync {
+                guard current(version), layer.status != .failed else { return -1 }
+                guard layer.isReadyForMoreMediaData else { return 0 }
+                layer.enqueue(sample)
+                return 1
+            }
+            if result != 0 { return result > 0 }
+            guard current(version) else { return false }
+            Thread.sleep(forTimeInterval: 0.005)
         }
+        return false
     }
 
     func audio(_ bytes: Data) -> Bool {

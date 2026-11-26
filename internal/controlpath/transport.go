@@ -241,18 +241,6 @@ func (s *Selector) Recover(ctx context.Context) error {
 	}
 	return nil
 }
-func (s *Selector) Dial(ctx context.Context) (net.Conn, error) {
-	c := s.Current()
-	if c.ID == "" {
-		var e error
-		c, e = s.Select(ctx)
-		if e != nil {
-			return nil, e
-		}
-	}
-	return dialControl(ctx, "tcp", c.Address, 3*time.Second)
-}
-
 func (s *Selector) CloseIdleConnections() {
 	s.mu.Lock()
 	defer s.mu.Unlock()

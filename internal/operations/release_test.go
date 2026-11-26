@@ -6,6 +6,7 @@ import (
 	"encoding/hex"
 	"encoding/json"
 	"fmt"
+	"netgo/internal/model"
 	"netgo/internal/site"
 	"os"
 	"path/filepath"
@@ -17,7 +18,7 @@ import (
 func testRelease(t *testing.T, version string) (string, string) {
 	t.Helper()
 	root := t.TempDir()
-	m, _ := json.Marshal(ReleaseManifest{Version: version, Protocol: 2, Schema: 2, OS: "linux", Arch: runtime.GOARCH})
+	m, _ := json.Marshal(ReleaseManifest{Version: version, Protocol: model.Protocol, Schema: model.Schema, OS: "linux", Arch: runtime.GOARCH})
 	_ = os.WriteFile(filepath.Join(root, "release.json"), m, 0644)
 	var sums strings.Builder
 	for _, name := range append(append([]string{}, Products...), "release.json") {

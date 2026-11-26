@@ -34,6 +34,33 @@ func TestRejectOldDatabaseWithoutModification(t *testing.T) {
 		t.Fatal("changed old database", count, e)
 	}
 }
+
+func TestRejectSchemaTwoWithoutMigration(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "schema2.db")
+	db, err := sql.Open("sqlite", path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err = db.Exec("CREATE TABLE metadata(id INTEGER); PRAGMA application_id=1313296178; PRAGMA user_version=2"); err != nil {
+		t.Fatal(err)
+	}
+	db.Close()
+	if s, err := Open(path); !errors.Is(err, ErrSchema) {
+		if s != nil {
+			s.Close()
+		}
+		t.Fatal("accepted schema 2", err)
+	}
+	db, err = sql.Open("sqlite", path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer db.Close()
+	var version int
+	if err = db.QueryRow("PRAGMA user_version").Scan(&version); err != nil || version != 2 {
+		t.Fatal("old database changed", version, err)
+	}
+}
 func TestNonceConsumptionAcrossConnectionsAndRestart(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "db")
 	a, e := Open(path)

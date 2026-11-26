@@ -15,6 +15,8 @@ export function validateHealth(health: any, expectedSite = '') {
 }
 
 export class AdminSession {
+  private readonly onActiveChange: (active: boolean) => void
+  constructor(onActiveChange: (active: boolean) => void = () => {}) { this.onActiveChange = onActiveChange }
   private key: CryptoKeyPair | null = null
   private token = ''
   private refreshToken = ''
@@ -116,6 +118,7 @@ export class AdminSession {
       this.token = result.token
       this.refreshToken = result.refresh_token || ''
       this.expiresAt = Date.parse(result.expires_at)
+      this.onActiveChange(true)
       return result.user
     } catch (error) {
       if (generation === this.generation) this.logout()
@@ -133,5 +136,6 @@ export class AdminSession {
     this.expiresAt = 0
     this.key = null
     this.serverTime = this.observedAt = 0
+    this.onActiveChange(false)
   }
 }

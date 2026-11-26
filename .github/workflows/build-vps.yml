@@ -22,7 +22,7 @@ on:
         default: prerelease
         options: [draft, prerelease, stable]
   push:
-    paths: ['VERSION', 'scripts/build_config.py', 'scripts/linux_arch.py', 'scripts/ci_metadata.py', 'scripts/stage-release.py', 'scripts/publish-release.py', 'scripts/cmake/**', 'install-vps.sh', 'cmd/netgo-vpsctl/**', 'go.mod', 'go.sum', 'deploy/linux/**', 'internal/model/**', 'internal/gateway/**', 'internal/securefile/**', 'internal/node/**', 'internal/platform/**', 'internal/deployment/**', 'internal/site/**', 'deploy/templates/**', 'scripts/runtime_files.py', 'scripts/bootstrap-vps.sh', 'scripts/build-vps.sh', 'scripts/package-vps.py', 'upstream/**', '.github/workflows/build-vps.yml']
+    paths: ['VERSION', 'tests/contracts/**', 'tests/tools/**', 'scripts/build_config.py', 'scripts/linux_arch.py', 'scripts/ci_metadata.py', 'scripts/stage-release.py', 'scripts/publish-release.py', 'scripts/cmake/**', 'install-vps.sh', 'cmd/netgo-vpsctl/**', 'go.mod', 'go.sum', 'deploy/linux/**', 'internal/model/**', 'internal/gateway/**', 'internal/securefile/**', 'internal/node/**', 'internal/platform/**', 'internal/deployment/**', 'internal/site/**', 'deploy/templates/**', 'scripts/runtime_files.py', 'scripts/bootstrap-vps.sh', 'scripts/build-vps.sh', 'scripts/package-vps.py', 'upstream/**', '.github/workflows/build-vps.yml']
 permissions:
   contents: read
 jobs:

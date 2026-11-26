@@ -20,10 +20,11 @@ var schema = []string{
 	`CREATE TABLE remote_sessions(id TEXT PRIMARY KEY NOT NULL, data TEXT NOT NULL CHECK(json_valid(data)), user_id TEXT GENERATED ALWAYS AS(json_extract(data,'$.user_id')) VIRTUAL NOT NULL REFERENCES users(id) DEFERRABLE INITIALLY DEFERRED, host_id TEXT GENERATED ALWAYS AS(json_extract(data,'$.host_id')) VIRTUAL NOT NULL REFERENCES hosts(id) DEFERRABLE INITIALLY DEFERRED, controller_id TEXT GENERATED ALWAYS AS(json_extract(data,'$.controller_id')) VIRTUAL NOT NULL REFERENCES devices(id) DEFERRABLE INITIALLY DEFERRED, state TEXT GENERATED ALWAYS AS(json_extract(data,'$.state')) VIRTUAL NOT NULL CHECK(state IN ('issued','active','closed')))`,
 	`CREATE UNIQUE INDEX remote_host_active ON remote_sessions(host_id) WHERE state IN ('issued','active')`,
 	`CREATE INDEX remote_controller ON remote_sessions(controller_id,state)`,
+	`CREATE INDEX remote_history_time ON remote_sessions(julianday(json_extract(data,'$.created_at')),id) WHERE state='closed'`,
 	`CREATE TABLE remote_operations(id TEXT PRIMARY KEY NOT NULL, data TEXT NOT NULL CHECK(json_valid(data)))`,
 	`CREATE TABLE ticket_nonces(id TEXT PRIMARY KEY NOT NULL CHECK(length(id)=64), expires_ms INTEGER NOT NULL)`,
 	`CREATE INDEX nonce_expiry ON ticket_nonces(expires_ms)`,
 	`CREATE TABLE audit_events(sequence INTEGER PRIMARY KEY AUTOINCREMENT, data TEXT NOT NULL CHECK(json_valid(data)))`,
 	`PRAGMA application_id=1313296178`,
-	`PRAGMA user_version=2`,
+	`PRAGMA user_version=3`,
 }

@@ -45,7 +45,7 @@ object NetGoRuntime {
                     val next = JSONObject(value.status())
                     if (client === value && version == epoch.get()) {
                         status.value = next
-                        if (next.optString("state") != "connected") { hostRequest.incrementAndGet(); hosts.value = emptyList() }
+                        if (!next.optBoolean("remote_ready")) { hostRequest.incrementAndGet(); hosts.value = emptyList() }
                         refreshProfiles(value)
                     }
                 } catch (_: Exception) { if (client === value) { hosts.value = emptyList(); status.value = JSONObject().put("state", "disconnected") } }

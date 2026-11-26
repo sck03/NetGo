@@ -6,6 +6,7 @@ import (
 	"flag"
 	"log/slog"
 	"net/http"
+	"netgo/internal/accounts"
 	"netgo/internal/api"
 	"netgo/internal/devices"
 	"netgo/internal/diagnostics"
@@ -70,13 +71,16 @@ func run() error {
 	}
 	remotes := &remote.Manager{Store: s, SiteID: c.Site.ID, Key: remoteKey, Peers: m}
 	deviceService := &devices.Service{Store: s, Sessions: leases, Management: m}
-	srv := &api.Server{Config: c, Store: s, Auth: auth, Sessions: leases, Remote: remotes, Devices: deviceService, Management: m, Web: webui.Handler("admin"), Reconcile: reconciler.Ensure, Monitor: monitor, Logger: slog.Default()}
+	accountService := &accounts.Service{Store: s, Sessions: leases, Management: m}
+	cleanupDone := make(chan struct{})
+	go func() { defer close(cleanupDone); runCleanup(ctx, deviceService, accountService) }()
+	defer func() { stop(); <-cleanupDone }()
+	srv := &api.Server{Config: c, Store: s, Auth: auth, Sessions: leases, Remote: remotes, Devices: deviceService, Accounts: accountService, Management: m, Web: webui.Handler(), Reconcile: reconciler.Ensure, Monitor: monitor, Logger: slog.Default()}
 	httpServer := &http.Server{Addr: c.Listen, Handler: srv.Handler(), ReadHeaderTimeout: 5 * time.Second, ReadTimeout: 20 * time.Second, WriteTimeout: 30 * time.Second, IdleTimeout: 60 * time.Second}
 	errc := make(chan error, 1)
 	go func() { errc <- httpServer.ListenAndServe() }()
 	ticker := time.NewTicker(5 * time.Second)
 	defer ticker.Stop()
-	var nextCleanup time.Time
 	for {
 		select {
 		case <-ctx.Done():
@@ -95,14 +99,6 @@ func run() error {
 				slog.Error("lease sweep failed")
 			}
 			cancel()
-			if !time.Now().Before(nextCleanup) {
-				cleanup, cancel := context.WithTimeout(ctx, 4*time.Second)
-				if err := deviceService.Retry(cleanup); err != nil {
-					slog.Warn("device cleanup pending")
-				}
-				cancel()
-				nextCleanup = time.Now().Add(time.Minute)
-			}
 		}
 	}
 }

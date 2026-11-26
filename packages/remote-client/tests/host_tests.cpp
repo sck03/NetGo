@@ -46,7 +46,7 @@ struct Fixture {
     Json registration, authorization;
     std::mutex mutex;
     std::atomic_bool live = true, registered = false, mediaOpen = false, completed = false;
-    std::atomic_uint opened = 0, closed = 0, consents = 0, events = 0;
+    std::atomic_uint opened = 0, closed = 0, consents = 0, events = 0, renewals = 0;
     bool denied = false, unattended = false;
     std::string clipboard = "initial", failure;
     std::filesystem::path root;
@@ -116,6 +116,8 @@ struct Fixture {
                            {"capabilities", 59}}}};
     }
     Json control(bool host, const std::string &method, const std::string &path, const char *body) {
+        if (!host && method == "GET" && path.find("/sessions/") != std::string::npos)
+            std::this_thread::sleep_for(std::chrono::milliseconds(60));
         std::lock_guard lock(mutex);
         if (method == "CONTEXT")
             return {{"site_id", "site"},
@@ -142,6 +144,22 @@ struct Fixture {
         }
         if (path.find("consume") != std::string::npos) {
             authorization["session"]["state"] = "active";
+            return authorization;
+        }
+        if (path.find("/renew") != std::string::npos) {
+            auto sequence = authorization.at("session").at("sequence").get<uint64_t>();
+            check(Json::parse(body).at("sequence").get<uint64_t>() == sequence, "renew sequence");
+            auto wire = decode64(authorization.at("ticket").get<std::string>(), 168);
+            auto now = uint64_t(std::chrono::duration_cast<std::chrono::milliseconds>(
+                std::chrono::system_clock::now().time_since_epoch()).count());
+            put(wire.data()+72, ++sequence, 8);
+            put(wire.data()+80, now, 8);
+            put(wire.data()+88, now+30000, 8);
+            sign(siteSeed, wire.data(), 104, wire.data()+104);
+            authorization["ticket"] = encode64(wire.data(), wire.size());
+            authorization["session"]["sequence"] = sequence;
+            authorization["server_unix_ms"] = now;
+            ++renewals;
             return authorization;
         }
         if (method == "DELETE") {
@@ -180,7 +198,6 @@ struct Fixture {
                     {"path", path_text(root / "viewer" / "download.txt")}});
         } else if (action == "download") {
             completed = true;
-            live = false;
         }
     }
 };
@@ -267,8 +284,10 @@ int main() {
             // Every wait is bounded, including test failures; never orphan a host thread.
             std::atomic_bool done = false;
             std::thread timeout([&] {
-                for (unsigned i = 0; i < 1500 && !done; ++i)
+                for (unsigned i = 0; i < 1500 && !done; ++i) {
+                    if (f.completed && f.renewals >= 2) f.live = false;
                     std::this_thread::sleep_for(std::chrono::milliseconds(10));
+                }
                 if (!done)
                     f.live = false;
             });
@@ -329,7 +348,7 @@ int main() {
             if (f.denied)
                 check(!f.completed && f.opened == 0 && result == NG_REMOTE_CLIENT_FAILED, "denied capture");
             else {
-                check(f.completed && f.events == 5 && f.opened == 1, "authenticated exchange");
+                check(f.completed && f.renewals >= 2 && f.events == 5 && f.opened == 1, "authenticated exchange");
                 check(std::filesystem::file_size(f.root / "viewer" / "download.txt") == 30,
                       "download integrity");
             }

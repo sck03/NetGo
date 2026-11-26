@@ -10,7 +10,7 @@ import (
 )
 
 const Protocol = 2
-const Schema = 2
+const Schema = 3
 
 // Version is set by the build scripts through the Go linker; protocol/schema
 // remain fixed independently of the selected release version.
@@ -37,20 +37,22 @@ func Challenge(s string) string {
 }
 
 type User struct {
-	ID           string    `json:"id"`
-	Alias        string    `json:"alias"`
-	Email        string    `json:"email"`
-	Role         string    `json:"role"`
-	Disabled     bool      `json:"disabled"`
-	ExpiresAt    time.Time `json:"expires_at"`
-	MaxDevices   int       `json:"max_devices"`
-	MaxSessions  int       `json:"max_sessions"`
-	Resources    []string  `json:"resources"`
-	AuthRevision uint64    `json:"auth_revision,omitempty"`
+	CleanupRetry
+	DeletePending bool      `json:"delete_pending"`
+	ID            string    `json:"id"`
+	Alias         string    `json:"alias"`
+	Email         string    `json:"email"`
+	Role          string    `json:"role"`
+	Disabled      bool      `json:"disabled"`
+	ExpiresAt     time.Time `json:"expires_at"`
+	MaxDevices    int       `json:"max_devices"`
+	MaxSessions   int       `json:"max_sessions"`
+	Resources     []string  `json:"resources"`
+	AuthRevision  uint64    `json:"auth_revision,omitempty"`
 }
 
 func (u User) Active(now time.Time) bool {
-	return !u.Disabled && (u.ExpiresAt.IsZero() || now.Before(u.ExpiresAt))
+	return !u.Disabled && !u.DeletePending && (u.ExpiresAt.IsZero() || now.Before(u.ExpiresAt))
 }
 
 type Resource struct {
@@ -62,6 +64,7 @@ type Resource struct {
 	Enabled  bool     `json:"enabled"`
 }
 type Device struct {
+	CleanupRetry
 	DeletePending bool      `json:"delete_pending"`
 	ClientType    string    `json:"client_type,omitempty"`
 	ID            string    `json:"id"`
