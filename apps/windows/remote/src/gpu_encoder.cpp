@@ -45,6 +45,7 @@ struct GpuEncoder::Impl {
     ComPtr<IMFDXGIDeviceManager> manager;
     ComPtr<IMFTransform> encoder;
     ComPtr<IMFMediaEventGenerator> events;
+    ComPtr<IMFVideoSampleAllocatorEx> samples;
     Impl(const capture::Surface &s, uint32_t w, uint32_t h, uint32_t rate, uint32_t bitrate)
         : width(w), height(h), fps(rate), sourceWidth(s.width), sourceHeight(s.height), device(s.device) {
         check(CoInitializeEx(nullptr, COINIT_MULTITHREADED), "gpu COM");
@@ -113,6 +114,14 @@ struct GpuEncoder::Impl {
             }
             if (!encoder)
                 throw std::runtime_error("gpu_h264_encoder_unavailable");
+            check(MFCreateVideoSampleAllocatorEx(IID_PPV_ARGS(&samples)), "gpu sample pool");
+            check(samples->SetDirectXManager(manager.Get()), "gpu pool device");
+            ComPtr<IMFAttributes> poolOptions;
+            check(MFCreateAttributes(&poolOptions, 2), "gpu pool options");
+            check(poolOptions->SetUINT32(MF_SA_D3D11_BINDFLAGS, D3D11_BIND_RENDER_TARGET), "gpu pool flags");
+            check(poolOptions->SetUINT32(MF_SA_BUFFERS_PER_SAMPLE, 1), "gpu pool buffers");
+            auto raw = media(MFVideoFormat_NV12, w, h, rate);
+            check(samples->InitializeSampleAllocatorEx(4, 8, poolOptions.Get(), raw.Get()), "gpu pool initialize");
             check(encoder->ProcessMessage(MFT_MESSAGE_NOTIFY_BEGIN_STREAMING, 0), "gpu begin");
             check(encoder->ProcessMessage(MFT_MESSAGE_NOTIFY_START_OF_STREAM, 0), "gpu stream");
             // Desktop Duplication may not produce another surface for a static screen.
@@ -138,6 +147,8 @@ struct GpuEncoder::Impl {
         }
         events.Reset();
         encoder.Reset();
+        if (samples) samples->UninitializeSampleAllocator();
+        samples.Reset();
         manager.Reset();
         processor.Reset();
         enumerator.Reset();
@@ -230,25 +241,37 @@ struct GpuEncoder::Impl {
             return result;
         if (s.device != device.Get() || s.width != sourceWidth || s.height != sourceHeight)
             throw std::runtime_error("gpu_display_changed");
-        // A fresh GPU surface is owned by each IMF sample until the asynchronous MFT
-        // releases it. No texture is overwritten while the encoder may still read it.
-        D3D11_TEXTURE2D_DESC desc{};
-        desc.Width = width;
-        desc.Height = height;
-        desc.MipLevels = desc.ArraySize = 1;
-        desc.Format = DXGI_FORMAT_NV12;
-        desc.SampleDesc.Count = 1;
-        desc.Usage = D3D11_USAGE_DEFAULT;
-        desc.BindFlags = D3D11_BIND_RENDER_TARGET;
+        // The MF allocator recycles only released samples. At most eight NV12
+        // surfaces exist, including those retained by the asynchronous encoder.
+        ComPtr<IMFSample> sample;
+        const auto allocated = samples->AllocateSample(&sample);
+        if (allocated == MF_E_SAMPLEALLOCATOR_EMPTY) return result;
+        check(allocated, "gpu pooled sample");
+        ComPtr<IMFMediaBuffer> buffer;
+        check(sample->GetBufferByIndex(0, &buffer), "gpu sample buffer");
+        ComPtr<IMFDXGIBuffer> surface;
+        check(buffer.As(&surface), "gpu sample DXGI buffer");
         ComPtr<ID3D11Texture2D> target;
-        check(device->CreateTexture2D(&desc, nullptr, &target), "gpu NV12 surface");
+        check(surface->GetResource(IID_PPV_ARGS(&target)), "gpu NV12 surface");
+        UINT subresource = 0;
+        check(surface->GetSubresourceIndex(&subresource), "gpu sample subresource");
+        D3D11_TEXTURE2D_DESC description{};
+        target->GetDesc(&description);
         D3D11_VIDEO_PROCESSOR_INPUT_VIEW_DESC id{};
         id.ViewDimension = D3D11_VPIV_DIMENSION_TEXTURE2D;
         ComPtr<ID3D11VideoProcessorInputView> input;
         check(video->CreateVideoProcessorInputView(s.texture, enumerator.Get(), &id, &input),
               "gpu input view");
         D3D11_VIDEO_PROCESSOR_OUTPUT_VIEW_DESC od{};
-        od.ViewDimension = D3D11_VPOV_DIMENSION_TEXTURE2D;
+        if (description.ArraySize > 1) {
+            od.ViewDimension = D3D11_VPOV_DIMENSION_TEXTURE2DARRAY;
+            od.Texture2DArray.MipSlice = subresource % description.MipLevels;
+            od.Texture2DArray.FirstArraySlice = subresource / description.MipLevels;
+            od.Texture2DArray.ArraySize = 1;
+        } else {
+            od.ViewDimension = D3D11_VPOV_DIMENSION_TEXTURE2D;
+            od.Texture2D.MipSlice = subresource;
+        }
         ComPtr<ID3D11VideoProcessorOutputView> output;
         check(video->CreateVideoProcessorOutputView(target.Get(), enumerator.Get(), &od, &output),
               "gpu output view");
@@ -261,14 +284,8 @@ struct GpuEncoder::Impl {
         stream.pInputSurface = input.Get();
         check(context->VideoProcessorBlt(processor.Get(), output.Get(), 0, 1, &stream),
               "gpu color conversion");
-        ComPtr<IMFMediaBuffer> buffer;
-        check(MFCreateDXGISurfaceBuffer(__uuidof(ID3D11Texture2D), target.Get(), 0, FALSE, &buffer),
-              "gpu sample surface");
-        ComPtr<IMFSample> sample;
-        check(MFCreateSample(&sample), "gpu input sample");
-        sample->AddBuffer(buffer.Get());
-        sample->SetSampleTime(stamp);
-        sample->SetSampleDuration(10000000 / fps);
+        check(sample->SetSampleTime(stamp), "gpu sample timestamp");
+        check(sample->SetSampleDuration(10000000 / fps), "gpu sample duration");
         check(encoder->ProcessInput(0, sample.Get(), 0), "gpu encode");
         --need;
         ++outstanding;

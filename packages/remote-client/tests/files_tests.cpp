@@ -1,5 +1,7 @@
 #include "remote_files.hpp"
 #include "remote_exchange.hpp"
+#include "remote_commands.hpp"
+#include <future>
 #include <openssl/evp.h>
 #include <fstream>
 #include <iostream>
@@ -70,12 +72,53 @@ void runCrashedUploader(const fs::path &root) {
 }
 int main(int argc, char **argv) {
     if (argc == 3 && std::string(argv[1]) == "--crash-upload") crashUpload(utf8_path(argv[2]));
+    {
+        std::promise<void> entered, release;
+        auto unblock = release.get_future().share();
+        CommandWorker commands([&](const Json& request, const std::function<bool()>&) {
+            if (request.at("id") == 1u) { entered.set_value(); unblock.wait(); }
+            return Json{{"done",true}};
+        }, [] {});
+        check(commands.submit({{"id",1u}}), "command rejected");
+        entered.get_future().wait();
+        const bool nonblocking = commands.take().is_null();
+        for (unsigned id=2;id<=8;++id) check(commands.submit({{"id",id}}), "bounded command capacity lost");
+        const bool bounded = !commands.submit({{"id",9u}});
+        release.set_value();
+        check(nonblocking && bounded, "slow IO blocks media or queue is unbounded");
+    }
+    {
+        CommandWorker commands([](const Json&, const std::function<bool()>&) {
+            return Json{{"done", true}};
+        }, [] {});
+        check(!commands.submit({{"action", "file.list"}}), "missing command id accepted");
+        check(commands.submit({{"id", 1u}, {"action", 7}}), "malformed action was not queued");
+        check(commands.submit({{"id", 2u}, {"action", "file.list"}}), "follow-up command rejected");
+        const auto deadline = std::chrono::steady_clock::now() + std::chrono::seconds(2);
+        unsigned received = 0;
+        while (received < 2 && std::chrono::steady_clock::now() < deadline) {
+            auto response = commands.take();
+            if (response.is_null()) { std::this_thread::sleep_for(std::chrono::milliseconds(1)); continue; }
+            check(response.at("id") == ++received, "command result order changed");
+            check(received == 1 ? response.contains("error") : response.at("result").value("done", false),
+                  "malformed action terminated the worker");
+        }
+        check(received == 2, "command worker did not recover");
+    }
     auto root = fs::temp_directory_path() /
                 fs::path("netgo-exchange-test-" +
                          std::to_string(std::chrono::steady_clock::now().time_since_epoch().count()));
     try {
         fs::create_directories(root / "remote");
         fs::create_directories(root / "local");
+        {
+            Files files(root / "remote");
+            auto token = files.begin("revoked-at-commit.bin", 1);
+            files.write(token, 0, {42});
+            denied([&] { files.commit(token, hash({42}), [] { return false; }); });
+            files.cancel();
+            check(!fs::exists(root / "remote/revoked-at-commit.bin"), "revoked commit published a file");
+        }
         const auto interrupted = root / "restart";
         runCrashedUploader(interrupted);
         size_t partials = 0;

@@ -8,7 +8,7 @@
 #include "ui.hpp"
 #include "ui_worker.hpp"
 #include "ui_preferences.hpp"
-#include "startup.hpp"
+#include "remote_process.hpp"
 
 using namespace netgo;
 namespace {
@@ -83,6 +83,7 @@ std::atomic_bool polling = false;
 UINT taskbarCreated = 0;
 std::string lastResources;
 UiWorker pump;
+RemoteProcess remoteProcess;
 std::wstring text(HWND h) {
     int n = GetWindowTextLengthW(h);
     std::wstring s(n + 1, L'\0');
@@ -274,24 +275,15 @@ void logsDialog(const Json &events) {
         value = L"暂无连接记录。";
     set(LogText, value);
 }
-std::string unattendedSite() {
-    try {
-        return Json::parse(readFile(dataRoot() / L".remote-unattended", 4096)).value("site", "");
-    } catch (...) {
-        return {};
-    }
-}
 void launchUnattended() {
-    auto site = unattendedSite();
+    auto site = UiPreferences::load().unattendedSite;
     if (site.empty() || site != currentStatus.value("site_id", "") ||
         FindWindowW(L"NetGoRemoteWindow", nullptr))
         return;
-    auto binary = executableDir() / L"NetGo.exe";
-    auto args = L"--remote --site " + wide(site) + L" --host";
-    ShellExecuteW(window, L"open", binary.c_str(), args.c_str(), executableDir().c_str(), SW_SHOWMINIMIZED);
+    remoteProcess.launch(site, true);
 }
 void persist() {
-    preferences.save();
+    preferences = UiPreferences::update([](auto& next) { next.selected = chosen; });
 }
 void tray(bool add) {
     NOTIFYICONDATAW n{};
@@ -520,18 +512,12 @@ void command(int id) {
     case MenuRemote: {
         if (!currentStatus.value("remote_ready", false) || chosen != currentStatus.value("site_id", ""))
             throw Error("remote_site_disconnected");
-        auto binary = executableDir() / L"NetGo.exe";
-        auto parameters = L"--remote --site " + wide(chosen);
-        if (reinterpret_cast<INT_PTR>(ShellExecuteW(window, L"open", binary.c_str(), parameters.c_str(),
-                                                    executableDir().c_str(), SW_SHOWNORMAL)) <= 32)
-            throw Error("remote_program_missing");
+        remoteProcess.launch(chosen, false);
         break;
     }
     case MenuAutoStart: {
         bool enabled = !preferences.startup;
-        startup(enabled);
-        preferences.startup = enabled;
-        persist();
+        preferences = UiPreferences::update([&](auto& next) { next.startup = enabled; });
         CheckMenuItem(GetMenu(window), MenuAutoStart, MF_BYCOMMAND | (enabled ? MF_CHECKED : MF_UNCHECKED));
         break;
     }
@@ -540,21 +526,20 @@ void command(int id) {
                          preferences.autoConnectSite == chosen);
         if (enabled && (!selected() || !saved))
             throw Error("auto_connect_requires_saved_password");
-        preferences.autoConnect = enabled;
-        preferences.autoConnectSite = enabled ? chosen : "";
-        persist();
+        preferences = UiPreferences::update([&](auto& next) {
+            next.autoConnect = enabled;
+            next.autoConnectSite = enabled ? chosen : "";
+        });
         break;
     }
     case MenuTray: {
         bool enabled = !preferences.closeToTray;
-        preferences.closeToTray = enabled;
-        persist();
+        preferences = UiPreferences::update([&](auto& next) { next.closeToTray = enabled; });
         CheckMenuItem(GetMenu(window), MenuTray, MF_BYCOMMAND | (enabled ? MF_CHECKED : MF_UNCHECKED));
         break;
     }
     case MenuMinimizeTray: {
-        preferences.minimizeToTray = !preferences.minimizeToTray;
-        persist();
+        preferences = UiPreferences::update([](auto& next) { next.minimizeToTray = !next.minimizeToTray; });
         break;
     }
     case MenuAbout:
@@ -579,6 +564,7 @@ void command(int id) {
     }
     case MenuExit:
         exiting = true;
+        remoteProcess.stop();
         EnableWindow(window, FALSE);
         submit({{"action", "shutdown"}});
         break;
@@ -657,7 +643,7 @@ void createUI() {
     AppendMenuW(options, MF_STRING | (preferences.startup ? MF_CHECKED : 0), MenuAutoStart,
                 L"登录 Windows 后启动");
     AppendMenuW(options, MF_STRING | (preferences.autoConnect ? MF_CHECKED : 0),
-                MenuAutoConnect, L"启动后使用已保存凭据连接");
+                MenuAutoConnect, L"使用已保存凭据自动连接与恢复");
     AppendMenuW(options, MF_STRING | (preferences.closeToTray ? MF_CHECKED : 0), MenuTray,
                 L"关闭窗口时保留托盘");
     AppendMenuW(options, MF_STRING, MenuMinimizeTray, L"最小化到托盘");
@@ -725,6 +711,10 @@ void createUI() {
 }
 LRESULT CALLBACK proc(HWND h, UINT m, WPARAM w, LPARAM l) {
     try {
+        if (m == UiPreferences::changedMessage()) {
+            preferences = UiPreferences::load();
+            return 0;
+        }
         if (taskbarCreated && m == taskbarCreated) {
             tray(true);
             return 0;
@@ -811,7 +801,10 @@ LRESULT CALLBACK proc(HWND h, UINT m, WPARAM w, LPARAM l) {
             }
             break;
         case WM_INITMENUPOPUP: {
+            preferences = UiPreferences::load();
             auto menu = GetMenu(h);
+            CheckMenuItem(menu, MenuAutoStart, MF_BYCOMMAND | (preferences.startup ? MF_CHECKED : MF_UNCHECKED));
+            CheckMenuItem(menu, MenuTray, MF_BYCOMMAND | (preferences.closeToTray ? MF_CHECKED : MF_UNCHECKED));
             for (int id : {MenuNew, MenuImport, MenuEdit, MenuAdvanced, MenuDelete, MenuForget})
                 EnableMenuItem(menu, id,
                                MF_BYCOMMAND |
@@ -1000,11 +993,6 @@ int desktopMain(HINSTANCE instance, PWSTR args, int show) {
         WSAStartup(MAKEWORD(2, 2), &data);
         preferences = UiPreferences::load();
         chosen = preferences.selected;
-        auto remoteSite = unattendedSite();
-        if (!remoteSite.empty()) {
-            preferences.autoConnect = true;
-            preferences.autoConnectSite = remoteSite;
-        }
         if (preferences.autoConnect) chosen = preferences.autoConnectSite;
         launchAgent();
         WNDCLASSW c{};

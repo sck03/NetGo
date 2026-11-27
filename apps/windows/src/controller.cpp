@@ -1,9 +1,16 @@
 #include "connection.hpp"
+#include "ui_preferences.hpp"
+#include <algorithm>
 #include <openssl/rand.h>
 #include <regex>
 #include <shared_mutex>
 
 namespace netgo {
+bool recoverableConnectionError(const std::string& error) {
+ static constexpr const char* retryable[] = {"lease_expired", "control_timeout", "control_unreachable",
+  "control_dns_failed", "no_trusted_control_entry", "engine_connect_timeout", "engine_recovering"};
+ return std::find(std::begin(retryable), std::end(retryable), error) != std::end(retryable);
+}
 void Controller::closeRemote(){
  std::lock_guard lock(mutex_);remoteReady_=false;remoteContext_=Json::object();
  for(auto& job:remoteJobs_)job->result.set_value({{"error","remote_site_disconnected"}});
@@ -57,11 +64,7 @@ void Controller::importProfile(const Json& p,bool replaceTrust) {
   try{validateProfileUpdate(old,p);}catch(const Error&){if(!replaceTrust||old.at("ID")!=p.at("ID")||old.at("Protocol")!=p.at("Protocol")||p.value("ConfigRevision",uint64_t(0))<=old.value("ConfigRevision",uint64_t(0)))throw;}
   if(profileTrustIdentity(old)!=profileTrustIdentity(p)){
    credentialDelete("password/"+id);
-   auto marker=root_/L".remote-unattended";
-   if(std::filesystem::exists(marker)){
-    auto settings=Json::parse(readFile(marker,4096),nullptr,false);
-    if(settings.is_object()&&settings.value("site","")==id)atomicFile(marker,Json({{"site",""}}).dump());
-   }
+   UiPreferences::update([&](auto& settings) { settings.forgetSite(id); }, root_);
   }
  }atomicFile(file,p.dump(2));
 }
@@ -95,11 +98,44 @@ void Controller::connect(const Json& r) {
  disconnectLocked();cancel_=false;uint64_t gen;
  {std::lock_guard lock(mutex_);gen=++generation_;atomicFile(root_/L".generation",std::to_string(gen));status_={{"generation",gen},{"state","probing"},{"site_id",id}};}
  worker_=std::thread([this,gen,p,alias,password=std::move(password),remember,replace=r.value("replace",false),internet=r.value("internet",false)]() mutable{
-  try{run(gen,p,alias,std::move(password),replace,remember,internet);}
-  catch(const std::exception& e){
-   std::string error=e.what();if(!std::regex_match(error,std::regex(R"(^[a-zA-Z0-9_]{1,80}$)")))error="connection_failed";
-   if(!cancel_)state(gen,"failed",cleanupFailed_?"engine_cleanup_failed":error);
-  }wipe(password);
+  unsigned retries = 0;
+  while (!cancel_) {
+   try { run(gen,p,alias,std::move(password),replace,remember,internet); break; }
+   catch (const std::exception& e) {
+    wipe(password);
+    std::string error=e.what();if(!std::regex_match(error,std::regex(R"(^[a-zA-Z0-9_]{1,80}$)")))error="connection_failed";
+    if (cancel_) break;
+    if (cleanupFailed_) error = "engine_cleanup_failed";
+    const auto allowed = [&] {
+     auto settings = UiPreferences::load(root_);
+     return settings.autoConnect && settings.autoConnectSite == p.at("ID").get<std::string>();
+    };
+    if (!recoverableConnectionError(error) || !allowed()) { state(gen,"failed",error); break; }
+    state(gen,"recovering",error);
+    const unsigned seconds = std::min(30u, 1u << std::min(retries++, 5u));
+    for (unsigned i=0; i<seconds*5 && !cancel_; ++i) Sleep(200);
+    if (cancel_) break;
+    if (!allowed()) { state(gen,"failed",error); break; }
+    try {
+     auto latest = Json::parse(readFile(root_/wide(p.at("ID").get<std::string>()+".json")));
+     validateProfileUpdate(p, latest);
+     p = std::move(latest);
+     auto saved = rememberedLogin(p);
+     if (!saved.contains("password")) { state(gen,"failed","credentials_required"); break; }
+     alias = saved.at("alias").get<std::string>();
+     password = std::move(saved["password"].get_ref<std::string&>());
+     // Recovery is a new authorization, never permission to replace another device.
+     replace = false;
+     remember = true;
+     std::lock_guard lock(mutex_);
+     if (cancel_ || gen != generation_) break;
+     gen = ++generation_;
+     atomicFile(root_/L".generation",std::to_string(gen));
+     status_={{"generation",gen},{"state","probing"},{"site_id",p.at("ID")}};
+    } catch (...) { state(gen,"failed","credentials_required"); break; }
+   }
+  }
+  wipe(password);
  });
  wipe(password);
 }
@@ -111,7 +147,9 @@ void Controller::run(uint64_t gen,Json p,std::string alias,std::string password,
  auto check=[&]{if(cancel_)throw Error("cancelled");};
  auto engine=[&](const std::string& action,const Json& fields=Json::object()){
   if(!engineEnabled_)throw Error("engine_disabled_in_test");
-  check();auto profile=p;profile["ID"]=scope;Json request={{"action",action},{"profile",profile},{"internet",internet}};request.update(fields);return engineCall(request,cancel_);
+  check();auto profile=p;profile["ID"]=scope;Json request={{"action",action},{"profile",profile},{"internet",internet}};request.update(fields);
+  if (action == "routes") request["resources"] = engineRouteResources(fields.at("resources"));
+  return engineCall(request,cancel_);
  };
  auto cleanup=[&]{
   remoteStop=true;
@@ -267,6 +305,7 @@ Json Controller::dispatch(const Json& r) {
     }
    }
    credentialDelete("password/"+id);
+   UiPreferences::update([&](auto& settings) { settings.forgetSite(id); }, root_);
    if(action=="delete"){for(const auto& target:credentialTargets("device/"+accountPrefix(id)))credentialDelete(target);std::filesystem::remove(root_/wide(id+".json"));}
    return {{"done",true}};
   }

@@ -49,7 +49,8 @@ public:
  Json call(const Json& request,const std::atomic_bool& cancel) {
   if(cancel)throw Error("cancelled");
   std::string b=request.dump()+"\n";DWORD written=0;
-  if(b.size()>65536||!WriteFile(input,b.data(),DWORD(b.size()),&written,nullptr)||written!=b.size()){
+  if(b.size()>maxEngineRequest){wipe(b);throw Error("engine_request_too_large");}
+  if(!WriteFile(input,b.data(),DWORD(b.size()),&written,nullptr)||written!=b.size()){
    wipe(b);throw Error("engine_input_failed");
   }
   wipe(b);

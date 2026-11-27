@@ -1,4 +1,6 @@
 #include "remote_runtime.hpp"
+#include "ui_preferences.hpp"
+#include "remote_process.hpp"
 #include "display_layout.hpp"
 #include <shellapi.h>
 #include <commctrl.h>
@@ -183,20 +185,13 @@ void saveUnattended(bool enabled) {
         auto saved = pipeCall({{"action", "credential-info"}, {"site", site}});
         if (!saved.value("remembered", false))
             throw Error("请先在主界面勾选记住密码并成功连接，再开启登录恢复");
-        HKEY key = nullptr;
-        if (RegCreateKeyExW(HKEY_CURRENT_USER, L"Software\\Microsoft\\Windows\\CurrentVersion\\Run", 0,
-                            nullptr, 0, KEY_SET_VALUE, nullptr, &key, nullptr) != ERROR_SUCCESS)
-            throw Error("startup_setting_failed");
-        auto command = L"\"" + (executableDir() / L"NetGo.exe").wstring() + L"\" --tray";
-        auto result =
-            RegSetValueExW(key, L"NetGoNative", 0, REG_SZ, reinterpret_cast<const BYTE *>(command.c_str()),
-                           DWORD((command.size() + 1) * sizeof(wchar_t)));
-        RegCloseKey(key);
-        if (result != ERROR_SUCCESS)
-            throw Error("startup_setting_failed");
     }
-    secureDirectory(dataRoot());
-    atomicFile(dataRoot() / L".remote-unattended", Json({{"site", enabled ? site : ""}}).dump());
+    UiPreferences::update([&](auto& next) {
+        if (enabled) {
+            next.startup = next.autoConnect = true;
+            next.autoConnectSite = next.unattendedSite = site;
+        } else if (next.unattendedSite == site) next.unattendedSite.clear();
+    });
     autoHosting = enabled;
 }
 void stop() {
@@ -438,6 +433,21 @@ void exchangeMenu() {
     }
 }
 LRESULT CALLBACK proc(HWND h, UINT m, WPARAM w, LPARAM l) {
+    if (m == remoteShutdownMessage()) {
+        // Application exit preserves the user's next-login preference.
+        autoHosting = false;
+        PostMessageW(h, WM_CLOSE, 0, 0);
+        return 0;
+    }
+    if (m == UiPreferences::changedMessage()) {
+        const bool enabled = UiPreferences::load().unattendedSite == site;
+        SendMessageW(unattendedOption, BM_SETCHECK, enabled ? BST_CHECKED : BST_UNCHECKED, 0);
+        if (autoHosting && !enabled) {
+            autoHosting = false;
+            if (busy && !viewing) stop();
+        }
+        return 0;
+    }
     switch (m) {
     case WM_CREATE: {
         window = h;
@@ -663,6 +673,17 @@ LRESULT CALLBACK proc(HWND h, UINT m, WPARAM w, LPARAM l) {
         EndPaint(h, &paint);
         return 0;
     }
+    case WM_SETCURSOR:
+        if (LOWORD(l) == HTCLIENT && inputEnabled()) {
+            POINT point{};
+            GetCursorPos(&point);
+            ScreenToClient(h, &point);
+            if (desktop::layout::map(imageRect(), point.x, point.y)) {
+                SetCursor(nullptr);
+                return TRUE;
+            }
+        }
+        break;
     case WM_MOUSEMOVE:
         if (inputEnabled()) {
             auto p = desktop::layout::map(imageRect(), GET_X_LPARAM(l), GET_Y_LPARAM(l), GetCapture() == h);
@@ -826,12 +847,7 @@ int remoteMain(HINSTANCE instance, int show, const std::wstring &siteValue, bool
             throw Error("remote_window_failed");
         ShowWindow(window, show);
         SetTimer(window, 1, 30000, nullptr);
-        bool enabled = false;
-        try {
-            enabled =
-                Json::parse(readFile(dataRoot() / L".remote-unattended", 4096)).value("site", "") == site;
-        } catch (...) {
-        }
+        const bool enabled = UiPreferences::load().unattendedSite == site;
         if (enabled)
             SendMessageW(unattendedOption, BM_SETCHECK, BST_CHECKED, 0);
         if (autoHost && enabled)

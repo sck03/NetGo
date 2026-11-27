@@ -56,12 +56,12 @@ func TestVPNRenewUpdatesOnlyTargetAndKeepsGateMembership(t *testing.T) {
 		l.ExpiresAt = l.ExpiresAt.Add(time.Minute)
 		st.Leases["0"] = l
 		return nil
-	}, func(leases []model.Lease) error {
+	}, RenewalGate{Apply: func(leases []model.Lease) error {
 		if len(leases) != 2 {
 			t.Fatal("gate membership lost", leases)
 		}
 		return nil
-	})
+	}})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -84,7 +84,7 @@ func TestVPNRenewRollsBackGateFailure(t *testing.T) {
 		l.ExpiresAt = l.ExpiresAt.Add(time.Second)
 		st.Leases["0"] = l
 		return nil
-	}, func([]model.Lease) error { return failure })
+	}, RenewalGate{Apply: func([]model.Lease) error { return failure }})
 	if !errors.Is(err, failure) {
 		t.Fatal(err)
 	}
@@ -101,7 +101,7 @@ func BenchmarkVPNRenewSnapshot(b *testing.B) {
 		update func(func(*model.State) error) error
 	}{
 		{"FullState", s.Update}, {"Targeted", func(fn func(*model.State) error) error {
-			return s.VPNRenew(c, "0", time.Now(), fn, func([]model.Lease) error { return nil })
+			return s.VPNRenew(c, "0", time.Now(), fn, RenewalGate{Refresh: func(model.Lease) (bool, error) { return true, nil }})
 		}},
 	} {
 		b.Run(tc.name, func(b *testing.B) {
@@ -146,7 +146,7 @@ func BenchmarkVPNRenewActive(b *testing.B) {
 					lease.ExpiresAt = lease.ExpiresAt.Add(time.Nanosecond)
 					st.Leases["0"] = lease
 					return nil
-				}, func([]model.Lease) error { return nil })
+				}, RenewalGate{Refresh: func(model.Lease) (bool, error) { return true, nil }})
 				if err != nil {
 					b.Fatal(err)
 				}

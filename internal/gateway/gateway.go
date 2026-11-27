@@ -22,6 +22,12 @@ import (
 type Gate interface {
 	Apply(context.Context, []model.Lease) error
 }
+
+// Renewer can extend an installed, unchanged membership. False requests a
+// fenced full apply (restart, expiry, policy change or periodic repair).
+type Renewer interface {
+	Renew(context.Context, model.Lease) (bool, error)
+}
 type NFT struct {
 	mu                               sync.Mutex
 	Interface, LANInterface, Overlay string
@@ -35,6 +41,7 @@ type NFT struct {
 	pending                          map[string]bool
 	lastFull                         time.Time
 	configuration                    string
+	deadlines                        map[string]time.Time
 }
 
 func (n *NFT) Apply(ctx context.Context, leases []model.Lease) error {
@@ -42,26 +49,10 @@ func (n *NFT) Apply(ctx context.Context, leases []model.Lease) error {
 	defer n.mu.Unlock()
 	var e error
 	// Refuse to overwrite an unowned table or operate beside flow offload.
-	if n.Inspect != nil {
-		if e = n.Inspect(ctx); e != nil {
-			return e
-		}
-	} else if n.Run == nil {
-		if e = Inspect(ctx, n.Interface, n.LANInterface); e != nil {
-			return e
-		}
+	if e = n.inspect(ctx); e != nil {
+		return e
 	}
-	apply := func(text string) error {
-		if n.Run != nil {
-			return n.Run(ctx, text)
-		}
-		cmd := exec.CommandContext(ctx, "nft", "-f", "-")
-		cmd.Stdin = strings.NewReader(text)
-		if err := cmd.Run(); err != nil {
-			return fmt.Errorf("nft apply failed: %w", err)
-		}
-		return nil
-	}
+	apply := func(text string) error { return n.apply(ctx, text) }
 	now := n.now()
 	next, e := leaseMemberships(leases, now)
 	if e != nil {
@@ -77,6 +68,7 @@ func (n *NFT) Apply(ctx context.Context, leases []model.Lease) error {
 			n.lastFull = time.Time{}
 			return err
 		}
+		n.rememberDeadlines(leases)
 		return nil
 	}
 	script, e := RenderBypass(n.Interface, n.LANInterface, n.Overlay, n.LocalCIDRs, n.Bypass, leases, now)
@@ -145,7 +137,37 @@ func (n *NFT) Apply(ctx context.Context, leases []model.Lease) error {
 	n.active = next
 	n.lastFull = now
 	n.configuration = string(config)
+	n.rememberDeadlines(leases)
 	return nil
+}
+
+func (n *NFT) inspect(ctx context.Context) error {
+	if n.Inspect != nil {
+		return n.Inspect(ctx)
+	}
+	if n.Run == nil {
+		return Inspect(ctx, n.Interface, n.LANInterface)
+	}
+	return nil
+}
+
+func (n *NFT) apply(ctx context.Context, text string) error {
+	if n.Run != nil {
+		return n.Run(ctx, text)
+	}
+	cmd := exec.CommandContext(ctx, "nft", "-f", "-")
+	cmd.Stdin = strings.NewReader(text)
+	if err := cmd.Run(); err != nil {
+		return fmt.Errorf("nft apply failed: %w", err)
+	}
+	return nil
+}
+
+func (n *NFT) rememberDeadlines(leases []model.Lease) {
+	n.deadlines = make(map[string]time.Time, len(leases))
+	for _, lease := range leases {
+		n.deadlines[lease.IP] = lease.ExpiresAt
+	}
 }
 
 const Owner = "NetGo lease gate v1"

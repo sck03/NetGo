@@ -130,7 +130,16 @@ Exchange::Json Exchange::next(uint32_t caps) {
         return send({{"action", "file.cancel"}});
     }
     if (ready_.is_null() && !active_.is_null() && !remoteToken_.empty() && !dataDone_) {
-        if (active_.at("action") == "upload") advanceUpload();
+        if (active_.at("action") == "upload") {
+            try { advanceUpload(); }
+            catch (const std::exception& error) {
+                // Drain outstanding acknowledgements, then cancel only the file.
+                // The viewer, input and authorization loop remain alive.
+                failure_ = error.what();
+                cancelling_ = true;
+                return {};
+            }
+        }
         else if (active_.at("action") == "download") {
             ready_ = {{"action", "file.read"}, {"token", remoteToken_}, {"offset", sent_}};
             sent_ += std::min<std::uint64_t>(file_chunk, size_ - sent_);

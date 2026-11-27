@@ -1,4 +1,5 @@
 #include "connection.hpp"
+#include <set>
 #include <iphlpapi.h>
 #include <algorithm>
 
@@ -34,6 +35,13 @@ Json selectedResources(const Json& resources,bool internet){
  }selected.push_back(r);}
  if(internet&&!granted)throw Error("internet_forbidden");
  return selected;
+}
+Json engineRouteResources(const Json& resources) {
+ std::set<std::string> cidrs;
+ for (const auto& resource : resources) cidrs.insert(resource.at("cidr").get<std::string>());
+ Json routes = Json::array();
+ for (const auto& cidr : cidrs) routes.push_back({{"cidr", cidr}});
+ return routes;
 }
 Json safeDiagnostic(const Json& status,const Json& logs) {
  Json safe={{"version",appVersion},{"platform","Windows native C++"},{"state",status.value("state","disconnected")},{"error",status.value("error","")},{"control",status.value("control","")},{"generation",status.value("generation",uint64_t(0))}};

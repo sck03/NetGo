@@ -7,6 +7,7 @@
 #include "remote_transport.hpp"
 #include "remote_input.hpp"
 #include "remote_files.hpp"
+#include "remote_commands.hpp"
 #include <openssl/evp.h>
 #include <openssl/rand.h>
 #include <openssl/crypto.h>
@@ -229,14 +230,18 @@ Message receive(Connection &c, Kind kind, const Continue &allowed) {
     }
     throw std::runtime_error("remote_handshake_timeout");
 }
-Json command(ng_remote_host &h, Gate &gate, Files *files, const Json &req) {
-    const auto action = req.at("action").get<std::string>();
-    const auto cap = action.rfind("clipboard.", 0) == 0 ? NG_REMOTE_CLIPBOARD
+uint32_t commandCapability(const std::string& action) {
+    return action.rfind("clipboard.", 0) == 0 ? NG_REMOTE_CLIPBOARD
                      : action == "file.begin" || action == "file.write" || action == "file.commit"
                          ? NG_REMOTE_UPLOAD
                      : action == "file.cancel" ? NG_REMOTE_VIEW
                                                : NG_REMOTE_DOWNLOAD;
-    require(gate.check(cap), "remote_command_forbidden");
+}
+Json command(ng_remote_host &h, Gate &gate, Files *files, const Json &req, const Continue& active) {
+    const auto action = req.at("action").get<std::string>();
+    const auto cap = commandCapability(action);
+    auto allowed = [&] { return active() && gate.check(cap); };
+    require(allowed(), "remote_command_forbidden");
     if (action == "clipboard.get" || action == "clipboard.set") {
         require(h.o.clipboard, "remote_clipboard_unavailable");
         auto text = req.value("text", std::string());
@@ -258,7 +263,7 @@ Json command(ng_remote_host &h, Gate &gate, Files *files, const Json &req) {
         return {{"offset",
                  files->write(req.at("token"), req.at("offset"), decode64(req.at("data"), file_chunk))}};
     if (action == "file.commit") {
-        files->commit(req.at("token"), req.at("sha256"));
+        files->commit(req.at("token"), req.at("sha256"), allowed);
         return {{"done", true}};
     }
     if (action == "file.open")
@@ -376,6 +381,12 @@ void run(ng_remote_host &h) {
                 std::unique_ptr<Files> files;
                 if (h.o.capabilities & (NG_REMOTE_UPLOAD | NG_REMOTE_DOWNLOAD))
                     files = std::make_unique<Files>(utf8_path(h.directory));
+                CommandWorker commandWorker([&](const Json& request, const Continue& running) {
+                    auto authorized = [&] { return running() && monitor.authorized() && gate.check(); };
+                    auto result = command(h, gate, files.get(), request, authorized);
+                    require(authorized(), "remote_closed");
+                    return result;
+                }, [&] { if (files) files->cancel(); });
                 connection->send(message(Kind::accepted, {{"width", w},
                                                           {"height", height},
                                                           {"fps", fps},
@@ -407,13 +418,25 @@ void run(ng_remote_host &h) {
                             require(h.o.input(h.o.context, release, sizeof(release)-1) == 0, "remote_input_unavailable");
                         }
                         if (files && ((hadUpload && !gate.check(NG_REMOTE_UPLOAD)) ||
-                                      (hadDownload && !gate.check(NG_REMOTE_DOWNLOAD)))) files->cancel();
+                                      (hadDownload && !gate.check(NG_REMOTE_DOWNLOAD)))) commandWorker.cancel();
                     }
                     if (files && monotonic_time_ms() - lastCommand > 30000) {
-                        files->cancel();
+                        commandWorker.cancel();
                         lastCommand = monotonic_time_ms();
                     }
                     connection->flush();
+                    if (!connection->outputPending()) {
+                        auto response = commandWorker.take();
+                        if (!response.is_null()) {
+                            require(monitor.authorized() && gate.check(), "remote_closed");
+                            if (!gate.check(commandCapability(response.at("_action")))) {
+                                response.erase("result");
+                                response["error"] = "remote_command_forbidden";
+                            }
+                            response.erase("_action");
+                            connection->enqueue(message(Kind::response, response));
+                        }
+                    }
                     Message m;
                     if (connection->receive(m, 0)) {
                         if (m.kind == Kind::close)
@@ -440,17 +463,8 @@ void run(ng_remote_host &h) {
                             }
                             require(++commands <= 256, "remote_command_rate_exceeded");
                             auto req = json(m);
-                            Json response = {{"id", req.at("id")}};
-                            try {
-                                require(monitor.authorized(), "remote_closed");
-                                response["result"] = command(h, gate, files.get(), req);
-                            } catch (const std::exception &e) {
-                                if (files)
-                                    files->cancel();
-                                response["error"] = e.what();
-                            }
-                            require(monitor.authorized() && gate.check(), "remote_closed");
-                            connection->enqueue(message(Kind::response, response));
+                            require(req.contains("id") && req.at("id").is_number_unsigned(), "remote_invalid_command");
+                            require(commandWorker.submit(std::move(req)), "remote_command_busy");
                         } else
                             throw std::runtime_error("remote_unexpected_message");
                     }
@@ -464,8 +478,8 @@ void run(ng_remote_host &h) {
                                 size <= buffer.size(),
                             "remote_capture_failed");
                     if (size) {
-                        require(kind == 5 || (kind == 10 && gate.check(NG_REMOTE_AUDIO)),
-                                "remote_invalid_media");
+                        require(kind == 5 || kind == 10, "remote_invalid_media");
+                        if (kind == 10 && !gate.check(NG_REMOTE_AUDIO)) continue;
                         require(monitor.authorized() && gate.check(), "remote_closed");
                         connection->enqueue(
                             {static_cast<Kind>(kind), Bytes(buffer.begin(), buffer.begin() + size)});

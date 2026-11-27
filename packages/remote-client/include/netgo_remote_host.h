@@ -14,6 +14,7 @@ typedef struct ng_remote_host_options {
     const char *site_id, *name, *platform, *exchange_directory;
     uint32_t capabilities, unattended;
     void *context;
+    /* Queried by the run, control and command threads; must be thread-safe. */
     int32_t (*active)(void *);
     int32_t (*control)(void *, const char *, const char *, const char *, const char *, char *, size_t,
                        size_t *);
@@ -24,10 +25,14 @@ typedef struct ng_remote_host_options {
     int32_t (*poll)(void *, uint32_t *, uint8_t *, size_t, size_t *);
     int32_t (*input)(void *, const char *, size_t);
     void (*close)(void *);
+    /* Runs on the bounded command worker, concurrently with media callbacks.
+     * UI work must be marshalled to the platform UI thread. */
     int32_t (*clipboard)(void *, int32_t, const char *, size_t, char *, size_t, size_t *);
     void (*status)(void *, const char *);
 } ng_remote_host_options;
 int32_t ng_remote_host_create(const ng_remote_host_options *, ng_remote_host **);
+/* run joins all workers before returning. cancel requests shutdown; destroy
+ * must be called only after run returns and no callbacks remain in flight. */
 int32_t ng_remote_host_run(ng_remote_host *);
 void ng_remote_host_cancel(ng_remote_host *);
 void ng_remote_host_destroy(ng_remote_host *);

@@ -19,6 +19,24 @@ int main(int argc,char** argv){
    auto valid=UiPreferences::decode(Json{{"selected","site"},{"auto_connect",true},{"auto_connect_site","site"},{"minimize_to_tray",true}});
    require(valid.autoConnect&&valid.autoConnectSite=="site"&&valid.minimizeToTray,"typed preferences lost configured site");
    require(!UiPreferences::decode(Json::array()).autoConnect,"non-object preferences enabled auto-connect");
+   auto unattended=UiPreferences::decode(Json{{"startup",true},{"auto_connect",true},{"auto_connect_site","site"},{"unattended_site","site"}});
+   require(unattended.unattendedSite=="site","unattended preference lost");
+   unattended.autoConnect=false;unattended.normalize();
+   require(unattended.unattendedSite.empty()&&unattended.autoConnectSite.empty(),"disabled auto-connect retained unattended recovery");
+   require(UiPreferences::decode(Json{{"unattended_site","site"}}).unattendedSite.empty(),"orphan unattended preference enabled login");
+   require(recoverableConnectionError("lease_expired")&&!recoverableConnectionError("forbidden")&&!recoverableConnectionError("session_conflict"),"recovery bypassed terminal authorization failure");
+  }
+  {
+   Json resources=Json::array();
+   for(int i=1;i<=192;++i){
+    Json ports=Json::array();for(int port=50000;port<50064;++port)ports.push_back(port);
+    resources.push_back({{"id",std::string(40,'a')+std::to_string(i)},{"name",std::string(64,'n')},{"cidr","192.168.19."+std::to_string(i)+"/32"},{"ports",ports},{"enabled",true},{"protocol","tcp"}});
+   }
+   require(resources.dump().size()>65536,"capacity regression fixture too small");
+   resources.push_back(resources.front());
+   auto routes=engineRouteResources(resources);
+   require(routes.size()==192&&routes.front().size()==1,"route projection failed to deduplicate or retained unused fields");
+   require(Json({{"profile",profile()},{"resources",routes}}).dump().size()<maxEngineRequest,"legal resource policy exceeds engine frame");
   }
   {
    auto original=profile();auto changed=original;
@@ -193,6 +211,14 @@ int main(int argc,char** argv){
   }
   rejects([]{decodeHttp("HTTP/1.1 200 OK\r\nTransfer-Encoding: chunked\r\n\r\n2\r\n{}\r\n0\r\n");},"missing chunk terminator");
   require(decodeHttp("HTTP/1.1 200 OK\r\nTransfer-Encoding: chunked\r\n\r\n2\r\n{}\r\n0\r\nX-Trace: done\r\n\r\n").body=="{}","legal chunk trailer");
+  for(const std::string wire:{"HTTP/1.1 200 OK\r\nContent-Length: 2\r\n\r\n{}",
+      "HTTP/1.1 200 OK\r\nTransfer-Encoding: chunked\r\n\r\n1\r\n{\r\n1\r\n}\r\n0\r\nX: y\r\n\r\n"}){
+   for(size_t split=1;split<=wire.size();++split){
+    HttpResponseReader reader;
+    for(size_t at=0;at<wire.size();at+=split)reader.append(wire.data()+at,std::min(split,wire.size()-at));
+    require(reader.complete()&&reader.reusable()&&reader.finish(false).body=="{}","fragmented HTTP changed framing");
+   }
+  }
   auto target="test/"+randomID();credentialWrite(target,"native-fixture");require(credentialRead(target)=="native-fixture","Credential Manager roundtrip");credentialDelete(target);require(credentialRead(target).empty(),"credential deletion");
   auto prefix="test/"+randomID()+"/";credentialWrite(prefix+"a","fixture-a");credentialWrite(prefix+"b","fixture-b");
   require(credentialTargets(prefix).size()==2,"account credential enumeration");for(const auto& name:credentialTargets(prefix))credentialDelete(name);require(credentialTargets(prefix).empty(),"account credential cleanup");

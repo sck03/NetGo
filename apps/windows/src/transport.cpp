@@ -6,9 +6,7 @@
 #include <openssl/pem.h>
 #include <openssl/x509v3.h>
 #include <algorithm>
-#include <cctype>
 #include <regex>
-#include <sstream>
 #include <condition_variable>
 #include <bit>
 
@@ -21,7 +19,6 @@ struct Transport::Link {
  void reset(){tls.reset();if(socket!=INVALID_SOCKET){closesocket(socket);socket=INVALID_SOCKET;}}
  ~Link(){reset();}
 };
-static std::string lower(std::string s){for(char& c:s)c=char(std::tolower(static_cast<unsigned char>(c)));return s;}
 static bool protectControlSocket(SOCKET socket,const sockaddr* target,const std::string& gatewayIP){
  sockaddr_in gateway{};gateway.sin_family=AF_INET;
  if(InetPtonA(AF_INET,gatewayIP.c_str(),&gateway.sin_addr)!=1)return true;
@@ -45,6 +42,51 @@ static bool protectControlSocket(SOCKET socket,const sockaddr* target,const std:
  if(!selected)return true; // Before VPN startup there may be no separate VPN interface.
  DWORD index=target->sa_family==AF_INET?htonl(selected):selected;
  return setsockopt(socket,target->sa_family==AF_INET?IPPROTO_IP:IPPROTO_IPV6,target->sa_family==AF_INET?IP_UNICAST_IF:IPV6_UNICAST_IF,reinterpret_cast<const char*>(&index),sizeof(index))==0;
+}
+// Race bounded, staggered address attempts. A blackholed first A/AAAA record
+// cannot consume the complete request budget before the next address is tried.
+static SOCKET connectControl(ADDRINFOEXW* addresses, const std::string& gateway,
+                             const std::function<void()>& check) {
+ struct Attempt { SOCKET socket; Clock::time_point expires; };
+ struct Attempts {
+  std::vector<Attempt> values;
+  ~Attempts(){for(const auto& a:values)if(a.socket!=INVALID_SOCKET)closesocket(a.socket);}
+ } pending;
+ auto next=addresses;
+ auto launchAt=Clock::now();
+ for(;;){
+  check();
+  while(next && pending.values.size()<8 && (pending.values.empty() || Clock::now()>=launchAt)){
+   auto address=next;next=next->ai_next;
+   SOCKET socket=::socket(address->ai_family,address->ai_socktype,address->ai_protocol);
+   if(socket==INVALID_SOCKET)continue;
+   u_long nonblock=1;
+   if(!protectControlSocket(socket,address->ai_addr,gateway)||ioctlsocket(socket,FIONBIO,&nonblock)){
+    closesocket(socket);continue;
+   }
+   const auto result=::connect(socket,address->ai_addr,int(address->ai_addrlen));
+   if(result==SOCKET_ERROR&&WSAGetLastError()!=WSAEWOULDBLOCK){closesocket(socket);continue;}
+   pending.values.push_back({socket,Clock::now()+std::chrono::seconds(2)});
+   launchAt=Clock::now()+std::chrono::milliseconds(200);
+  }
+  if(pending.values.empty()){if(!next)throw Error("control_unreachable");continue;}
+  fd_set writable,failed;FD_ZERO(&writable);FD_ZERO(&failed);
+  for(const auto& attempt:pending.values){FD_SET(attempt.socket,&writable);FD_SET(attempt.socket,&failed);}
+  timeval wait{0,25000};
+  if(select(0,nullptr,&writable,&failed,&wait)<0)throw Error("control_unreachable");
+  check();
+  for(auto i=pending.values.begin();i!=pending.values.end();){
+   const bool ready=FD_ISSET(i->socket,&writable)||FD_ISSET(i->socket,&failed);
+   if(ready){
+    int error=0,length=sizeof(error);
+    if(getsockopt(i->socket,SOL_SOCKET,SO_ERROR,reinterpret_cast<char*>(&error),&length)==0&&!error){
+     const auto winner=i->socket;i->socket=INVALID_SOCKET;return winner;
+    }
+   }
+   if(ready||Clock::now()>=i->expires){closesocket(i->socket);i=pending.values.erase(i);}
+   else ++i;
+  }
+ }
 }
 static void windowsRoots(X509_STORE* store) {
  for(DWORD location:{DWORD(CERT_SYSTEM_STORE_CURRENT_USER),DWORD(CERT_SYSTEM_STORE_LOCAL_MACHINE)}) {
@@ -123,21 +165,7 @@ Json Transport::requestAt(size_t index,const std::string& method,const std::stri
  std::unique_ptr<ADDRINFOEXW,decltype(&FreeAddrInfoExW)> addrs(list,FreeAddrInfoExW);
  check();
  if(resolved!=0)throw Error("control_dns_failed");
- SOCKET raw=INVALID_SOCKET;
- for(auto a=list;a;a=a->ai_next) {
-  check();
-  SOCKET candidate=socket(a->ai_family,a->ai_socktype,a->ai_protocol);if(candidate==INVALID_SOCKET)continue;
-  if(!protectControlSocket(candidate,a->ai_addr,profile_.value("GatewayIP",""))){closesocket(candidate);continue;}
-  u_long nonblock=1;ioctlsocket(candidate,FIONBIO,&nonblock);int e=::connect(candidate,a->ai_addr,int(a->ai_addrlen));
-  if(e==SOCKET_ERROR&&WSAGetLastError()!=WSAEWOULDBLOCK){closesocket(candidate);continue;}
-  try {
-   waitSocket(candidate,false);
-   int error=0,len=sizeof(error);getsockopt(candidate,SOL_SOCKET,SO_ERROR,reinterpret_cast<char*>(&error),&len);
-   if(!error){raw=candidate;break;}
-  }catch(...){closesocket(candidate);check();continue;}
-  closesocket(candidate);
- }
- if(raw==INVALID_SOCKET)throw Error("control_unreachable");
+ SOCKET raw=connectControl(list,profile_.value("GatewayIP",""),check);
  link.socket=raw;
  std::unique_ptr<SSL,decltype(&SSL_free)> tls(SSL_new(context_.get()),SSL_free);auto host=originHost(profile_.at("Origin"));
  if(!tls||SSL_set_fd(tls.get(),int(raw))!=1||SSL_set_tlsext_host_name(tls.get(),host.c_str())!=1)throw Error("tls_initialization_failed");
@@ -160,7 +188,7 @@ Json Transport::requestAt(size_t index,const std::string& method,const std::stri
   }
  }catch(...){wipe(req);throw;}
  wipe(req);
- std::string rawResponse;char buffer[8192];bool framed=false,closed=false;
+ HttpResponseReader responseReader;char buffer[8192];bool closed=false;
  while(Clock::now()<deadline){
   check();
   int count=SSL_read(tls,buffer,sizeof(buffer));
@@ -169,20 +197,12 @@ Json Transport::requestAt(size_t index,const std::string& method,const std::stri
    if(error==SSL_ERROR_ZERO_RETURN||(error==SSL_ERROR_SYSCALL&&count==0)){closed=true;break;}
    waitTLS(error);continue;
   }
-  rawResponse.append(buffer,count);
-  if(rawResponse.size()>4*maxJson+32768)throw Error("http_response_too_large");
-  auto end=rawResponse.find("\r\n\r\n");
-  if(end!=std::string::npos){
-   auto header=lower(rawResponse.substr(0,end));
-   if(header.find("content-length:")!=std::string::npos||header.find("transfer-encoding:")!=std::string::npos){
-    try{decodeHttp(rawResponse);framed=true;break;}catch(const std::exception&){}
-   }
-  }
+  responseReader.append(buffer,count);
+  if(responseReader.complete())break;
  }
- if(!framed&&!closed)throw Error("control_timeout");
- auto response=decodeHttp(rawResponse);
- auto header=lower(rawResponse.substr(0,rawResponse.find("\r\n\r\n")));
- failure.reusable=framed&&!closed&&header.starts_with("http/1.1")&&header.find("connection: close")==std::string::npos;
+ if(!responseReader.complete()&&!closed)throw Error("control_timeout");
+ failure.reusable=responseReader.reusable()&&!closed;
+ auto response=responseReader.finish(closed);
  link.used=Clock::now();
  if(response.status<200||response.status>=300) {
   auto v=Json::parse(response.body,nullptr,false);std::string e=v.is_object()?v.value("error","remote_rejected"):"remote_rejected";

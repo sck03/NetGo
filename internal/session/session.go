@@ -22,15 +22,16 @@ type Peers interface {
 	Verify(context.Context, string) (Binding, error)
 }
 type Manager struct {
-	mu        sync.Mutex
-	Store     *store.Store
-	Gate      gateway.Gate
-	Peers     Peers
-	TTL       time.Duration
-	Now       func() time.Time
-	applied   []model.Lease
-	lastApply time.Time
-	stopped   bool
+	mu           sync.Mutex
+	Store        *store.Store
+	Gate         gateway.Gate
+	Peers        Peers
+	TTL          time.Duration
+	Now          func() time.Time
+	applied      []model.Lease
+	appliedBytes int
+	lastApply    time.Time
+	stopped      bool
 }
 
 func (m *Manager) now() time.Time {
@@ -88,8 +89,7 @@ func (m *Manager) commit(ctx context.Context, fn func(*model.State) error) error
 		if e := m.Gate.Apply(ctx, leases); e != nil {
 			return e
 		}
-		m.applied = leases
-		m.lastApply = m.now()
+		m.rememberApplied(leases)
 		return nil
 	})
 	if e != nil && touched {
@@ -246,7 +246,12 @@ func (m *Manager) Renew(ctx context.Context, c model.Credential, id string, gene
 		st.Leases[id] = l
 		result = l
 		return nil
-	}, func(leases []model.Lease) error {
+	}, store.RenewalGate{Refresh: func(next model.Lease) (bool, error) {
+		handled, err := m.refreshLease(ctx, next)
+		// Capacity rejection did not touch the gate. Any other error may have.
+		touched = handled || (err != nil && !errors.Is(err, gateway.ErrCapacity))
+		return handled, err
+	}, Apply: func(leases []model.Lease) error {
 		if err := gateway.ValidateCapacity(leases); err != nil {
 			return err
 		}
@@ -255,9 +260,9 @@ func (m *Manager) Renew(ctx context.Context, c model.Credential, id string, gene
 		if err := m.Gate.Apply(ctx, leases); err != nil {
 			return err
 		}
-		m.applied, m.lastApply = leases, m.now()
+		m.rememberApplied(leases)
 		return nil
-	})
+	}})
 	if e != nil && touched {
 		e = errors.Join(e, m.failClosed())
 	}

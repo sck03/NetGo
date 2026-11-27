@@ -9,6 +9,8 @@ if ((Get-Item -LiteralPath $taskRoot -Force).Attributes -band [IO.FileAttributes
     throw 'Cleanup workspace must not be a junction or symlink'
 }
 $taskPrefix = $taskRoot.TrimEnd('\', '/') + [IO.Path]::DirectorySeparatorChar
+$tracked = @(& git -C $taskRoot ls-files)
+if ($LASTEXITCODE -ne 0) { throw 'Cannot verify tracked project files' }
 $taskTargets = @(
     'node_modules', 'dist', '.cache/native-build', '.cache/review',
     '.cache/toolchain/go-build', '.cache/toolchain/go', '.cache/toolchain/npm-cache',
@@ -18,15 +20,19 @@ $taskTargets = @(
     'apps/android/.gradle', 'apps/android/.kotlin', 'apps/android/.cxx',
     'apps/android/build', 'apps/android/app/build', 'apps/android/app/.cxx',
     'apps/android/app/libs/netgo-mobile.aar', 'apps/android/app/libs/netgo-mobile-sources.jar',
-    'scripts/__pycache__', 'tests/tools/__pycache__'
+    'scripts/__pycache__', 'tests/tools/__pycache__', 'tests/__pycache__',
+    'apps/windows/tests/__pycache__', 'apps/ui/.cache'
 )
 if ($IncludeTestData) {
     # Generated installer fixtures; these are not installed station data.
     $taskTargets += @('.cache/installer-lab', '.cache/cleanup-before.json', '.cache/cleanup-after.json',
         '.cache/cleanup-plan.json', '.cache/cleanup-recycled.json', '.cache/cleanup-measurement.json',
-        '.cache/audit-probes', '.cache/audit-relay-probe')
+        '.cache/audit-probes', '.cache/audit-relay-probe', '.cache/windows-project')
     $reportRoot = Join-Path $taskRoot '.cache'
     if (Test-Path -LiteralPath $reportRoot) {
+        Get-ChildItem -LiteralPath $reportRoot -Directory | Where-Object {
+            $_.Name -match '^(review-[0-9]{8}-(native|linux|python|web)|upstream-verified-[a-f0-9]{16})$'
+        } | ForEach-Object { $taskTargets += '.cache/' + $_.Name }
         Get-ChildItem -LiteralPath $reportRoot -File | Where-Object { $_.Name -match '^(audit|refactor)-[a-z0-9-]+[.](txt|log)$' } | ForEach-Object {
             $taskTargets += '.cache/' + $_.Name
         }
@@ -59,16 +65,16 @@ $taskTargets = @($taskTargets | Sort-Object -Unique | Where-Object {
     }).Count
 })
 
-function Get-TaskTarget([string]$Relative) {
+function Get-TaskTarget([string]$Relative, [bool]$CheckRepository = $true) {
+    $trackedPrefix = $Relative.Replace('\', '/').TrimEnd('/') + '/'
+    if ($tracked | Where-Object { $_ -eq $Relative -or $_.StartsWith($trackedPrefix) }) {
+        throw "Cleanup target contains tracked source: $Relative"
+    }
     $target = [IO.Path]::GetFullPath((Join-Path $taskRoot $Relative))
     if (-not $target.StartsWith($taskPrefix, [StringComparison]::OrdinalIgnoreCase)) {
         throw "Cleanup target outside workspace: $Relative"
     }
     if (-not (Test-Path -LiteralPath $target)) { return }
-    if ($Relative.Replace('\', '/') -eq '.tools/openssl-source' -and (Test-Path -LiteralPath (Join-Path $target '.git'))) {
-        $changed = @(git -C $target status --porcelain --untracked-files=normal)
-        if ($LASTEXITCODE -ne 0 -or $changed.Count) { throw "OpenSSL source contains uncommitted work: $target" }
-    }
     # Refuse junctions/symlinks at the target, in its parents, or below it.
     $current = Get-Item -LiteralPath $target -Force
     while ($current -and $current.FullName -ne $taskRoot) {
@@ -83,14 +89,48 @@ function Get-TaskTarget([string]$Relative) {
             if (-not $_.PSIsContainer) { $bytes += $_.Length }
         }
     } else { $bytes = $item.Length }
+    # Empty directory remnants reclaim no file bytes; leave them alone.
+    if ($item.PSIsContainer -and $bytes -eq 0) { return }
+    if ($CheckRepository -and $Relative.Replace('\', '/') -eq '.tools/openssl-source' -and (Test-Path -LiteralPath (Join-Path $target '.git'))) {
+        $changed = @(git -C $target status --porcelain --untracked-files=normal)
+        if ($LASTEXITCODE -ne 0 -or $changed.Count) { throw "OpenSSL source contains uncommitted work: $target" }
+    }
     [PSCustomObject]@{ Path = $target; Bytes = [long]$bytes }
 }
 
 $taskPlan = @($taskTargets | ForEach-Object { Get-TaskTarget $_ })
 if ($Apply) {
+    # CIM omits image paths for some elevated/test processes. Limited-query
+    # access still identifies them without requesting debug privileges.
+    if (-not ('NetGoCleanup.ProcessImage' -as [type])) {
+        Add-Type -TypeDefinition @'
+using System;
+using System.Runtime.InteropServices;
+using System.Text;
+namespace NetGoCleanup {
+    public static class ProcessImage {
+        [DllImport("kernel32.dll")] static extern IntPtr OpenProcess(uint access, bool inherit, uint id);
+        [DllImport("kernel32.dll", CharSet = CharSet.Unicode)] static extern bool QueryFullProcessImageName(IntPtr process, uint flags, StringBuilder path, ref uint size);
+        [DllImport("kernel32.dll")] static extern bool CloseHandle(IntPtr process);
+        public static string Read(uint id) {
+            var process = OpenProcess(0x1000, false, id);
+            if (process == IntPtr.Zero) return "";
+            try {
+                var path = new StringBuilder(32768); uint size = 32768;
+                return QueryFullProcessImageName(process, 0, path, ref size) ? path.ToString() : "";
+            } finally { CloseHandle(process); }
+        }
+    }
+}
+'@
+    }
     # Java and Node may live outside the workspace while holding build outputs.
     $taskProcesses = @(Get-CimInstance Win32_Process | Where-Object {
         $_.ProcessId -ne $PID -and $_.Name -match '^(go|compile|link|gofmt|gcc|g[+][+]|clang.*|java|node|ninja|cmake|NetGo|netbird)[.]exe$'
+    } | ForEach-Object {
+        $image = $_.ExecutablePath
+        if (-not $image) { $image = [NetGoCleanup.ProcessImage]::Read($_.ProcessId) }
+        [PSCustomObject]@{ Name = $_.Name; ProcessId = $_.ProcessId; ExecutablePath = $image; CommandLine = $_.CommandLine }
     })
     foreach ($item in $taskPlan) {
         foreach ($process in $taskProcesses) {
@@ -102,7 +142,9 @@ if ($Apply) {
     }
     foreach ($item in $taskPlan) {
         for ($attempt = 0; $attempt -lt 3; $attempt++) {
-            $checked = Get-TaskTarget ([IO.Path]::GetRelativePath($taskRoot, $item.Path))
+            # A partial removal may already have deleted the nested .git data;
+            # only the first attempt can meaningfully inspect that repository.
+            $checked = Get-TaskTarget ([IO.Path]::GetRelativePath($taskRoot, $item.Path)) ($attempt -eq 0)
             if (-not $checked) { break }
             $removalErrors = @()
             # Windows may briefly retain empty directories after deleting their

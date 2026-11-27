@@ -9,11 +9,16 @@ import (
 	"time"
 )
 
-// VPNRenew loads only the requesting identity and resource policy. The callback
-// may change this lease's expiry/resources, not its identity. The gate receives
-// the full authorized membership under the same SQL write fence; a failure rolls
-// back the single-row update. Renewal cannot change the remote route projection.
-func (s *Store) VPNRenew(c model.Credential, id string, now time.Time, renew func(*model.State) error, gate func([]model.Lease) error) error {
+// RenewalGate keeps an unchanged lease on the bounded refresh path. Returning
+// false requests the current full membership under the same transaction fence.
+type RenewalGate struct {
+	Refresh func(model.Lease) (bool, error)
+	Apply   func([]model.Lease) error
+}
+
+// VPNRenew loads the requesting identity and resources. Neither external gate
+// path may escape the write fence; an apply or commit failure rolls back the row.
+func (s *Store) VPNRenew(c model.Credential, id string, now time.Time, renew func(*model.State) error, gate RenewalGate) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	tx, err := s.db.Begin()
@@ -80,11 +85,20 @@ func (s *Store) VPNRenew(c model.Credential, id string, now time.Time, renew fun
 	if _, err = tx.Exec("UPDATE vpn_leases SET data=? WHERE id=?", string(raw), id); err != nil {
 		return err
 	}
+	if gate.Refresh != nil {
+		handled, err := gate.Refresh(next)
+		if err != nil {
+			return err
+		}
+		if handled {
+			return tx.Commit()
+		}
+	}
 	leases, err := gateMembership(tx, now)
 	if err != nil {
 		return err
 	}
-	if err = gate(leases); err != nil {
+	if err = gate.Apply(leases); err != nil {
 		return err
 	}
 	return tx.Commit()

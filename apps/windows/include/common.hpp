@@ -23,6 +23,8 @@ using Json = nlohmann::json;
 using Clock = std::chrono::steady_clock;
 inline constexpr size_t maxJson = 1024 * 1024;
 inline constexpr size_t maxResponseJson = 4 * maxJson;
+// A bounded profile plus a projected route policy; mirrored by netgo-rpc.
+inline constexpr size_t maxEngineRequest = 2 * maxJson;
 struct Error : std::runtime_error { using std::runtime_error::runtime_error; };
 struct Handle {
  HANDLE value = nullptr;

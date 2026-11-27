@@ -1,4 +1,5 @@
 #include "desktop_capture.hpp"
+#include "cursor_surface.hpp"
 
 #include <windows.h>
 #include <d3d11.h>
@@ -47,8 +48,12 @@ struct DesktopCapture::Impl {
     std::wstring name;
     HRESULT error{S_OK};
     bool in_callback{};
+    bool separatePointer{};
+    CursorSurface cursor;
 
     void release() noexcept {
+        cursor.reset();
+        separatePointer = false;
         duplication.Reset();
         context.Reset();
         device.Reset();
@@ -167,9 +172,19 @@ Result DesktopCapture::next(Sink sink, void *context, std::uint32_t timeout_ms) 
             descriptor.ArraySize != 1) {
             hr = DXGI_ERROR_UNSUPPORTED;
         } else {
+            if (info.LastMouseUpdateTime.QuadPart) state.separatePointer = info.PointerPosition.Visible;
+            ID3D11Texture2D* presented = texture.Get();
+            hr = state.cursor.compose(state.device.Get(), state.context.Get(), texture.Get(),
+                                      state.output.DesktopCoordinates, state.separatePointer, &presented);
+            if (FAILED(hr)) {
+                resource.Reset();
+                texture.Reset();
+                state.duplication->ReleaseFrame();
+                return state.fail(hr);
+            }
             Surface frame{state.device.Get(),
                           state.context.Get(),
-                          texture.Get(),
+                          presented,
                           descriptor.Width,
                           descriptor.Height,
                           state.output.DesktopCoordinates.left,

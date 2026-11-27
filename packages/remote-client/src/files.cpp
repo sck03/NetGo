@@ -334,7 +334,7 @@ std::uint64_t Files::write(const std::string &token, std::uint64_t offset, const
     p.offset += data.size();
     return p.offset;
 }
-void Files::commit(const std::string &token, const std::string &sha) {
+void Files::commit(const std::string &token, const std::string &sha, const std::function<bool()>& allowed) {
     auto &p = *impl_;
     require(p.file != invalid && p.uploading && token == p.token && p.offset == p.size,
             "remote_incomplete_file");
@@ -343,10 +343,12 @@ void Files::commit(const std::string &token, const std::string &sha) {
     require(FlushFileBuffers(p.file), "remote_file_flush_failed");
     closeFile(p.file);
     p.file = invalid;
+    require(!allowed || allowed(), "remote_command_forbidden");
     require(MoveFileW((p.root / utf8_path(p.temp)).c_str(), (p.root / utf8_path(p.name)).c_str()),
             "remote_file_exists");
 #else
     require(!fsync(p.file), "remote_file_flush_failed");
+    require(!allowed || allowed(), "remote_command_forbidden");
     require(!linkat(p.directory, p.temp.c_str(), p.directory, p.name.c_str(), 0), "remote_file_exists");
     p.remove(p.temp);
     require(!fsync(p.directory), "remote_file_flush_failed");

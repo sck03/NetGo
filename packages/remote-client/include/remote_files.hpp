@@ -2,6 +2,7 @@
 #include <cstdint>
 #include <filesystem>
 #include <memory>
+#include <functional>
 #include <string>
 #include <vector>
 #include <nlohmann/json.hpp>
@@ -21,7 +22,8 @@ class Files {
     nlohmann::json list();
     std::string begin(const std::string &name, std::uint64_t size);
     std::uint64_t write(const std::string &token, std::uint64_t offset, const std::vector<uint8_t> &);
-    void commit(const std::string &token, const std::string &sha256);
+    void commit(const std::string &token, const std::string &sha256,
+                const std::function<bool()>& allowed = {});
     nlohmann::json open(const std::string &name);
     nlohmann::json read(const std::string &token, std::uint64_t offset);
     void cancel() noexcept;

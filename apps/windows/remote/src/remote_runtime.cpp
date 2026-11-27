@@ -322,6 +322,7 @@ void host(const std::string &site, Callbacks cb) {
         Clock::time_point next;
         Clock::time_point captureLost{};
         bool captureReady = true;
+        bool audioUnavailable = false;
     };
     Host h{site, std::move(cb), {}, {}, {}, {}};
     auto exchange = dataRoot() / L"Exchange";
@@ -383,6 +384,7 @@ void host(const std::string &site, Callbacks cb) {
             h.source = std::make_unique<capture::DesktopCapture>();
             h.captureLost = {};
             h.captureReady = true;
+            h.audioUnavailable = false;
             if (h.source->open() != capture::Result::frame)
                 return -1;
             auto end = Clock::now() + std::chrono::seconds(3);
@@ -393,8 +395,10 @@ void host(const std::string &site, Callbacks cb) {
             }
             if (!h.capture->frame.width)
                 return -1;
-            if (caps & NG_REMOTE_AUDIO)
-                h.audio = std::make_unique<audio::Stream>(true);
+            if (caps & NG_REMOTE_AUDIO) {
+                try { h.audio = std::make_unique<audio::Stream>(true); }
+                catch (...) { h.audio.reset(); h.audioUnavailable = true; }
+            }
             *w = h.capture->frame.width;
             *height = h.capture->frame.height;
             *rate = fps;
@@ -436,10 +440,16 @@ void host(const std::string &site, Callbacks cb) {
                         throw Error(h.capture->error);
                 }
                 if (h.audio) {
+                    try {
                     for (auto &packet : h.audio->capture()) {
                         if (h.capture->packets.size() >= 8)
                             throw Error("remote_audio_backpressure");
                         h.capture->packets.push_back({remote::Kind::audio, std::move(packet)});
+                    }
+                    } catch (...) {
+                        h.audio.reset();
+                        h.audioUnavailable = true;
+                        h.cb.status("音频设备不可用，继续共享画面");
                     }
                 }
             }
@@ -495,7 +505,9 @@ void host(const std::string &site, Callbacks cb) {
         else if (text == "remote_host_unattended")
             text = "无人值守已开启；仅接受站点授权账号，停止或关闭窗口可撤销";
         else if (text == "remote_host_connected")
-            text = "正在共享桌面；文件交换目录：" + remote::path_text(dataRoot() / L"Exchange");
+            text = std::string(h.audioUnavailable ? "音频设备不可用，继续共享画面；文件交换目录："
+                                                 : "正在共享桌面；文件交换目录：") +
+                   remote::path_text(dataRoot() / L"Exchange");
         else if (text == "remote_host_stopped")
             text = "桌面共享已停止";
         h.cb.status(text);
@@ -514,6 +526,7 @@ void view(const std::string &site, const std::string &hostID, uint32_t capabilit
         ng_remote_client *client = nullptr;
         std::unique_ptr<video::Codec> decoder;
         std::unique_ptr<audio::Stream> sound;
+        uint32_t capabilities = 0;
     };
     Bridge bridge{site, std::move(cb), nullptr, {}, {}};
     ng_remote_client_options options{};
@@ -612,8 +625,11 @@ void view(const std::string &site, const std::string &hostID, uint32_t capabilit
         try {
             auto &b = *static_cast<Bridge *>(p);
             b.decoder = std::make_unique<video::Codec>(video::Codec::Mode::decode, w, h, rate);
-            if (caps & NG_REMOTE_AUDIO)
-                b.sound = std::make_unique<audio::Stream>(false);
+            b.capabilities = caps;
+            if (caps & NG_REMOTE_AUDIO) {
+                try { b.sound = std::make_unique<audio::Stream>(false); }
+                catch (...) { b.sound.reset(); }
+            }
             if (b.cb.permissions)
                 b.cb.permissions(caps);
             return 0;
@@ -623,10 +639,14 @@ void view(const std::string &site, const std::string &hostID, uint32_t capabilit
     };
     options.audio = [](void *p, const uint8_t *bytes, size_t size) -> int32_t {
         try {
-            static_cast<Bridge *>(p)->sound->play(bytes, size);
+            auto& b = *static_cast<Bridge *>(p);
+            if (b.sound) b.sound->play(bytes, size);
             return 0;
         } catch (...) {
-            return -1;
+            auto& b = *static_cast<Bridge *>(p);
+            b.sound.reset();
+            try { b.cb.status("音频设备不可用，继续显示画面"); } catch (...) {}
+            return 0;
         }
     };
     options.video = [](void *p, const uint8_t *bytes, size_t size, int64_t stamp) -> int32_t {
@@ -644,7 +664,9 @@ void view(const std::string &site, const std::string &hostID, uint32_t capabilit
         try {
             std::string text = code;
             if (text == "remote_connected")
-                text = "已连接；点击“停止”结束远程桌面";
+                text = (b.capabilities & NG_REMOTE_AUDIO) && !b.sound
+                    ? "已连接；音频设备不可用，继续显示画面"
+                    : "已连接；点击“停止”结束远程桌面";
             else if (text == "remote_waiting_consent")
                 text = "等待对方确认…";
             else if (text == "remote_clock_invalid" || text == "remote_generation_invalid")

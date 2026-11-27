@@ -210,7 +210,7 @@ new file mode 100644
 index 0000000..84ecd5b
 --- /dev/null
 +++ b/client/cmd/netgo_rpc.go
-@@ -0,0 +1,276 @@
+@@ -0,0 +1,273 @@
 +package cmd
 +
 +import (
@@ -237,7 +237,7 @@ index 0000000..84ecd5b
 +	Use: "netgo-rpc", Hidden: true, Args: cobra.NoArgs,
 +	RunE: func(cmd *cobra.Command, _ []string) error {
 +		scanner := bufio.NewScanner(cmd.InOrStdin())
-+		scanner.Buffer(make([]byte, 4096), 65537)
++		scanner.Buffer(make([]byte, 4096), (2<<20)+1)
 +		encoder := json.NewEncoder(cmd.OutOrStdout())
 +		for scanner.Scan() {
 +			var req netgoRPCRequest
@@ -277,10 +277,7 @@ index 0000000..84ecd5b
 +	IDToken   string          `json:"id_token"`
 +	Internet  bool            `json:"internet"`
 +	Resources []struct {
-+		CIDR               string `json:"cidr"`
-+		ID, Name, Protocol string
-+		Ports              []uint16
-+		Enabled            bool
++		CIDR string `json:"cidr"`
 +	} `json:"resources"`
 +}
 +
@@ -519,7 +516,7 @@ index 0000000..f4907f4
 +			t.Fatal(result, err)
 +		}
 +	}
-+	command.SetIn(strings.NewReader(strings.Repeat("x", 65537) + "\n"))
++	command.SetIn(strings.NewReader(strings.Repeat("x", (2<<20)+1) + "\n"))
 +	if err := netgoRPCCmd.RunE(command, nil); err == nil {
 +		t.Fatal("unbounded frame accepted")
 +	}

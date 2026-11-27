@@ -13,9 +13,25 @@ std::string signedMessage(const std::string& method,const std::string& path,cons
 Json engineCall(const Json& request, const std::atomic_bool& cancel);
 void routeConflicts(const Json& resources);
 Json selectedResources(const Json& resources,bool internet);
+Json engineRouteResources(const Json& resources);
+bool recoverableConnectionError(const std::string& error);
 Json safeDiagnostic(const Json& status, const Json& logs);
 void validateHealth(const Json& health,const std::string& siteID);
 struct HttpResponse { int status; std::string body; };
+class HttpResponseReader {
+ enum class Stage { header, fixed, eof, chunkSize, chunkBody, trailers, complete };
+ Stage stage_ = Stage::header;
+ std::string raw_, decoded_;
+ size_t cursor_ = 0, bodyStart_ = 0, remaining_ = 0, trailerStart_ = 0;
+ int status_ = 0;
+ bool chunked_ = false, reusable_ = false;
+ void advance();
+public:
+ void append(const char* bytes, size_t length);
+ bool complete() const { return stage_ == Stage::complete; }
+ bool reusable() const { return complete() && reusable_; }
+ HttpResponse finish(bool closed);
+};
 HttpResponse decodeHttp(const std::string& raw);
 struct RequestOptions {
  std::function<bool()> cancelled;

@@ -14,8 +14,10 @@ void startup(bool enabled) {
         if (e != ERROR_SUCCESS)
             throw Error("startup_setting_failed");
     } else {
-        RegDeleteValueW(key, L"NetGoNative");
+        const auto e = RegDeleteValueW(key, L"NetGoNative");
         RegCloseKey(key);
+        if (e != ERROR_SUCCESS && e != ERROR_FILE_NOT_FOUND)
+            throw Error("startup_setting_failed");
     }
 }
 }

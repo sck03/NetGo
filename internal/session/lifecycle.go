@@ -42,6 +42,7 @@ func (m *Manager) reset(ctx context.Context) error {
 func (m *Manager) failClosed() error {
 	m.lastApply = time.Time{}
 	m.applied = nil
+	m.appliedBytes = 0
 	cleanup, cancel := context.WithTimeout(context.Background(), 4*time.Second)
 	defer cancel()
 	gateErr := m.Gate.Apply(cleanup, nil)
