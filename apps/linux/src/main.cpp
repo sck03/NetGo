@@ -272,13 +272,13 @@ void view(std::string host) {
         o.control = [](void* p, const char* method, const char* path, const char* body, const char* key,
                        char* output, size_t capacity, size_t* length) -> int32_t {
             return netgo::desktop_linux::remoteControl(state->socket, static_cast<ViewerContext *>(p)->site,
-                                                      state->alive, method, path, body, key, output, capacity, length);
+                                                      state->remoteActive, method, path, body, key, output, capacity, length);
         };
         o.sign = [](void *p, const uint8_t *message, size_t size, uint8_t output[64]) -> int32_t {
             try {
-                auto result = call(
+                auto result = netgo::desktop_linux::ipc(state->socket,
                     "POST", "/desktop/remote/sign",
-                    {{"Site", static_cast<ViewerContext *>(p)->site}, {"Message", netgo::remote::encode64(message, size)}});
+                    {{"Site", static_cast<ViewerContext *>(p)->site}, {"Message", netgo::remote::encode64(message, size)}}, state->remoteActive, 4000L);
                 auto bytes = netgo::remote::decode64(result.at("signature"), 64);
                 if (bytes.size() != 64) throw std::runtime_error("invalid_signature");
                 std::copy(bytes.begin(), bytes.end(), output);
@@ -490,7 +490,7 @@ void shareDesktop() {
             o.control = [](void* p, const char* method, const char* path, const char* body, const char* key,
                            char* output, size_t capacity, size_t* length) -> int32_t {
                 return netgo::desktop_linux::remoteControl(state->socket, static_cast<HostContext *>(p)->site,
-                                                          state->alive, method, path, body, key, output, capacity, length);
+                                                          state->remoteActive, method, path, body, key, output, capacity, length);
             };
             o.consent = [](void *, const char *user, uint32_t caps) -> int32_t {
                 auto result = std::make_shared<ConsentReply>();

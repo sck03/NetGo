@@ -1,6 +1,6 @@
 # LAN 与 VPS 一键安装、配置和卸载
 
-LAN 使用独立脚本 **install-server.sh**、快捷菜单 **ng**；VPS 使用 **install-vps.sh**、快捷菜单 **ngv**。程序安装和日常维护由 Go 实现，最终用户不需要 Python、Node 或 Go 编译器。当前支持 Debian 12/13、amd64/arm64、systemd，使用 API v2 / schema 5。
+LAN 使用独立脚本 **install-server.sh**、快捷菜单 **ng**；VPS 使用 **install-vps.sh**、快捷菜单 **ngv**。程序安装和日常维护由 Go 实现，最终用户不需要 Python、Node 或 Go 编译器。当前支持 Debian 12/13、amd64/arm64、systemd，使用 API v2 / schema 6。
 
 ## 当前下载状态
 

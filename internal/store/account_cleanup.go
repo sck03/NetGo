@@ -20,8 +20,6 @@ type AccountCleanup struct {
 // ReserveAccountCreation precedes the upstream POST. Alias and email reservations
 // survive restarts and fence other processes using this database as well.
 func (s *Store) ReserveAccountCreation(item AccountCleanup) error {
-	s.mu.Lock()
-	defer s.mu.Unlock()
 	b, err := json.Marshal(item)
 	if err != nil {
 		return err
@@ -48,8 +46,6 @@ func (s *Store) ResolveAccountCreation(item AccountCleanup, id string) error {
 	if err != nil {
 		return err
 	}
-	s.mu.Lock()
-	defer s.mu.Unlock()
 	result, err := s.db.Exec(`UPDATE OR IGNORE account_cleanups SET id=?,data=? WHERE id=?`, id, string(b), previous)
 	if err != nil {
 		return err
@@ -65,7 +61,7 @@ func (s *Store) PendingAccountCleanups(now time.Time, limit int) ([]AccountClean
 	if limit < 1 || limit > 100 {
 		limit = 16
 	}
-	rows, err := s.db.Query(`SELECT data FROM account_cleanups
+	rows, err := s.reader.Query(`SELECT data FROM account_cleanups
 	 WHERE julianday(json_extract(data,'$.cleanup_after'))<=julianday(?)
 	 ORDER BY julianday(json_extract(data,'$.cleanup_after')),id LIMIT ?`, now.UTC().Format(time.RFC3339Nano), limit)
 	if err != nil {
@@ -92,8 +88,6 @@ func (s *Store) AccountCleanup(id string) (AccountCleanup, error) {
 }
 
 func (s *Store) FinishAccountCleanup(id string) error {
-	s.mu.Lock()
-	defer s.mu.Unlock()
 	_, err := s.db.Exec("DELETE FROM account_cleanups WHERE id=?", id)
 	return err
 }
@@ -104,8 +98,6 @@ func (s *Store) DeferAccountCleanup(item AccountCleanup, now time.Time) error {
 	if err != nil {
 		return err
 	}
-	s.mu.Lock()
-	defer s.mu.Unlock()
 	_, err = s.db.Exec("UPDATE account_cleanups SET data=? WHERE id=?", string(b), item.ID)
 	return err
 }

@@ -51,7 +51,10 @@ func (m *Manager) verifyPeers(ctx context.Context, c model.Credential, host stri
 			return nil, ErrUnavailable
 		}
 		p, e := m.Peers.Verify(ctx, d.PeerID)
-		if e != nil || !p.Connected || p.Expired || p.UserID != d.UserID || p.PublicKey != d.WireGuardKey || p.IP != d.IP || net.ParseIP(p.IP) == nil {
+		if e != nil {
+			return nil, model.ControlFailure(e)
+		}
+		if !p.Connected || p.Expired || p.UserID != d.UserID || p.PublicKey != d.WireGuardKey || p.IP != d.IP || net.ParseIP(p.IP) == nil {
 			return nil, ErrUnavailable
 		}
 		out[id] = p

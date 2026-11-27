@@ -59,10 +59,13 @@ func (s *Store) RemoteSweep(now time.Time, fn func(*model.State) error) error {
 	return s.updateWith(func(tx *sql.Tx) (model.State, error) {
 		st, err := read(tx, 0)
 		if err == nil {
-			err = readRows(tx, "remote_sessions", st.RemoteSessions, "WHERE state IN ('issued','active') OR julianday(json_extract(data,'$.closed_at'))<julianday(?)", now.Add(-24*time.Hour).UTC().Format(time.RFC3339Nano))
+			err = readRows(tx, "remote_sessions", st.RemoteSessions, "WHERE state IN ('issued','active')")
 		}
 		if err == nil {
-			err = readRows(tx, "remote_operations", st.RemoteOperations, "WHERE julianday(json_extract(data,'$.expires_at'))<=julianday(?)", now.UTC().Format(time.RFC3339Nano))
+			err = readRows(tx, "remote_sessions", st.RemoteSessions, "WHERE state='closed' AND julianday(json_extract(data,'$.closed_at'))<julianday(?) ORDER BY julianday(json_extract(data,'$.closed_at')),id LIMIT 256", now.Add(-24*time.Hour).UTC().Format(time.RFC3339Nano))
+		}
+		if err == nil {
+			err = readRows(tx, "remote_operations", st.RemoteOperations, "WHERE julianday(json_extract(data,'$.expires_at'))<=julianday(?) ORDER BY julianday(json_extract(data,'$.expires_at')) LIMIT 256", now.UTC().Format(time.RFC3339Nano))
 		}
 		if err == nil {
 			err = remoteDependencies(tx, &st, model.Credential{})

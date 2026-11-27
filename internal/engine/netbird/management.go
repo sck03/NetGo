@@ -10,6 +10,7 @@ import (
 	"net/http"
 	"net/http/httptrace"
 	"net/url"
+	"netgo/internal/model"
 	"netgo/internal/session"
 	"sync/atomic"
 )
@@ -77,6 +78,10 @@ func (m *Management) Verify(ctx context.Context, id string) (session.Binding, er
 	}
 	h, e := m.Request(ctx, "GET", "/peers/"+url.PathEscape(id), nil, &p)
 	if e != nil {
+		var status *HTTPError
+		if errors.As(e, &status) && status.Status == http.StatusNotFound {
+			return session.Binding{}, model.ErrNotFound
+		}
 		return session.Binding{}, e
 	}
 	key := h.Get("X-NetGo-Peer-Key")
@@ -100,7 +105,7 @@ func (m *Management) UserActive(ctx context.Context, id string) error {
 			return nil
 		}
 	}
-	return errors.New("upstream user unavailable/blocked")
+	return model.ErrForbidden
 }
 func (m *Management) FindPeer(ctx context.Context, user, key string) (session.Binding, error) {
 	var all []struct {

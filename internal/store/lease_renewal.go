@@ -1,6 +1,7 @@
 package store
 
 import (
+	"context"
 	"database/sql"
 	"encoding/json"
 	"errors"
@@ -18,10 +19,8 @@ type RenewalGate struct {
 
 // VPNRenew loads the requesting identity and resources. Neither external gate
 // path may escape the write fence; an apply or commit failure rolls back the row.
-func (s *Store) VPNRenew(c model.Credential, id string, now time.Time, renew func(*model.State) error, gate RenewalGate) error {
-	s.mu.Lock()
-	defer s.mu.Unlock()
-	tx, err := s.db.Begin()
+func (s *Store) VPNRenew(ctx context.Context, c model.Credential, id string, now time.Time, renew func(*model.State) error, gate RenewalGate) error {
+	tx, err := s.db.BeginTx(ctx, nil)
 	if err != nil {
 		return err
 	}

@@ -10,17 +10,19 @@ import (
 )
 
 const Protocol = 2
-const Schema = 5
+const Schema = 6
 
 // Version is set by the build scripts through the Go linker; protocol/schema
 // remain fixed independently of the selected release version.
 var Version = "0.3.0-dev"
 
 var (
-	ErrUnauthorized = errors.New("unauthorized")
-	ErrForbidden    = errors.New("forbidden")
-	ErrConflict     = errors.New("session_conflict")
-	ErrNotFound     = errors.New("not_found")
+	ErrUnauthorized       = errors.New("unauthorized")
+	ErrForbidden          = errors.New("forbidden")
+	ErrConflict           = errors.New("session_conflict")
+	ErrNotFound           = errors.New("not_found")
+	ErrEditConflict       = errors.New("edit_conflict")
+	ErrControlUnavailable = errors.New("control_unavailable")
 )
 
 func ID() string {
@@ -50,6 +52,7 @@ type User struct {
 	MaxSessions   int           `json:"max_sessions"`
 	Resources     Array[string] `json:"resources"`
 	AuthRevision  uint64        `json:"auth_revision,omitempty"`
+	EditRevision  uint64        `json:"edit_revision"`
 }
 
 func (u User) Active(now time.Time) bool {

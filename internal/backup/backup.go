@@ -43,8 +43,11 @@ func Encrypt(plain, password []byte) ([]byte, error) {
 	if _, e = rand.Read(nonce); e != nil {
 		return nil, e
 	}
-	header := append(append(append([]byte{}, magic...), salt...), nonce...)
-	return append(header, g.Seal(nil, nonce, plain, header)...), nil
+	header := make([]byte, 0, len(magic)+len(salt)+len(nonce)+len(plain)+g.Overhead())
+	header = append(header, magic...)
+	header = append(header, salt...)
+	header = append(header, nonce...)
+	return g.Seal(header, nonce, plain, header), nil
 }
 func Decrypt(data, password []byte) ([]byte, error) {
 	if len(data) < len(magic)+16+12+16 || !bytes.HasPrefix(data, magic) {

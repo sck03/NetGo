@@ -58,7 +58,17 @@ final class PacketTunnelProvider: NEPacketTunnelProvider {
         if descriptor >= 0 { close(descriptor); descriptor = -1 }
     }
     override func handleAppMessage(_ messageData: Data, completionHandler: ((Data?) -> Void)?) {
-        requests.submit({ [weak self] in self?.bridge.message(messageData) }, completion: completionHandler)
+        guard messageData.count <= 1 << 20,
+              let message = try? JSONSerialization.jsonObject(with: messageData) as? [String: Any] else {
+            completionHandler?(Data("{\"error\":\"invalid_request\"}".utf8)); return
+        }
+        if let id = message["cancel"] as? String, UUID(uuidString: id) != nil {
+            requests.cancel(id); completionHandler?(Data("{}".utf8)); return
+        }
+        guard let id = message["id"] as? String, UUID(uuidString: id) != nil else {
+            completionHandler?(Data("{\"error\":\"invalid_request\"}".utf8)); return
+        }
+        requests.submit(id: id, { [weak self] active in self?.bridge.message(messageData, active: active) }, completion: completionHandler)
     }
     override func stopTunnel(with reason: NEProviderStopReason, completionHandler: @escaping () -> Void) {
         requests.close()

@@ -1,5 +1,9 @@
 import Foundation
 
+typealias RemoteActivity = () -> Bool
+typealias RemoteRequest = (String, String, String, @escaping RemoteActivity) throws -> String
+typealias RemoteControl = (String, String, String, String, @escaping RemoteActivity) throws -> String
+
 // Shared by host and viewer: the native core decides which errors are retryable.
 // Buffer failures remain ABI failures; backend errors travel as their JSON code.
 func remoteControlReply(output: UnsafeMutablePointer<CChar>?, capacity: Int,

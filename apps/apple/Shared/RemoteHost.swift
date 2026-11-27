@@ -10,10 +10,10 @@ final class RemoteHost {
     private var running = false
     private var generation: UInt64 = 0
     private var media: UnsafeMutableRawPointer?
-    private var control: ((String,String,String,String) throws -> String)?
+    private var control: RemoteControl?
     private var site = ""
     var changed: ((String) -> Void)?
-    func start(site: String, unattended: Bool, control: @escaping (String,String,String,String) throws -> String) {
+    func start(site: String, unattended: Bool, control: @escaping RemoteControl) {
         stop()
         let capabilities = ng_apple_host_capabilities(1)
         guard capabilities & 1 != 0 else { changed?("请在系统设置中允许 NetGo 屏幕录制，再重新开启共享"); return }
@@ -34,8 +34,9 @@ final class RemoteHost {
                 guard let call=h.control else { return -1 }
                 return remoteControlReply(output: output, capacity: capacity, length: length) {
                     let verb=String(cString:method!);let value:String
-                    if verb=="CONTEXT" { value=try call("LOCAL_CONTEXT","","","") }
-                    else { let request:[String:Any] = ["Site":h.site,"Method":verb,"Path":String(cString:path!),"Body":(try? JSONSerialization.jsonObject(with:Data(String(cString:body!).utf8))) ?? NSNull(),"Idempotency":""];let payload=String(decoding:try JSONSerialization.data(withJSONObject:request),as:UTF8.self);value=try call("LOCAL_CALL","",payload,"") }
+                    let active: RemoteActivity = { verb == "DELETE" || h.isRunning }
+                    if verb=="CONTEXT" { value=try call("LOCAL_CONTEXT","","","",active) }
+                    else { let request:[String:Any] = ["Site":h.site,"Method":verb,"Path":String(cString:path!),"Body":(try? JSONSerialization.jsonObject(with:Data(String(cString:body!).utf8))) ?? NSNull(),"Idempotency":""];let payload=String(decoding:try JSONSerialization.data(withJSONObject:request),as:UTF8.self);value=try call("LOCAL_CALL","",payload,"",active) }
                     return value
                 }
             }

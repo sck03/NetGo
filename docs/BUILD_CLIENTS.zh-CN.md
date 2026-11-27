@@ -26,7 +26,7 @@ macOS 构建脚本在原生构建前运行独立的连接协调器回归，覆�
 | Apple build_number | macOS/iOS Bundle 构建号 | 1 |
 | iOS sdk | both、iphoneos 设备版、iphonesimulator 模拟器版 | both |
 
-版本会传给程序内版本信息、Windows 文件属性、Android versionName、Apple Bundle 信息和包名。Apple 标准版本字段使用数字部分，NetGoBuildVersion 保留完整版本及预发布后缀。API v2/schema 5 与发行版本号分别管理。
+版本会传给程序内版本信息、Windows 文件属性、Android versionName、Apple Bundle 信息和包名。Apple 标准版本字段使用数字部分，NetGoBuildVersion 保留完整版本及预发布后缀。API v2/schema 6 与发行版本号分别管理。
 
 自动 push 构建使用 VERSION 文件的版本，**不发布 Releases**。只有手动运行且勾选 publish 才进入具有 `contents: write` 权限的发布任务。失败的构建不进入发布。
 

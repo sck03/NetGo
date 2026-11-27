@@ -12,6 +12,7 @@ import (
 	"netgo/internal/session"
 	"netgo/internal/site"
 	"netgo/internal/store"
+	"reflect"
 	"slices"
 	"strings"
 	"time"
@@ -90,6 +91,9 @@ func (s *Service) Update(ctx context.Context, u model.User) (model.User, error) 
 		if old.DeletePending || u.DeletePending {
 			return model.ErrConflict
 		}
+		if u.EditRevision != old.EditRevision {
+			return model.ErrEditConflict
+		}
 		u.CleanupRetry = old.CleanupRetry
 		for id, v := range st.Users {
 			if id != u.ID && strings.EqualFold(v.Alias, u.Alias) {
@@ -117,6 +121,13 @@ func (s *Service) Update(ctx context.Context, u model.User) (model.User, error) 
 			}
 		}
 		u.AuthRevision = old.AuthRevision
+		if reflect.DeepEqual(old, u) {
+			return nil
+		}
+		if old.EditRevision == ^uint64(0) {
+			return model.ErrEditConflict
+		}
+		u.EditRevision++
 		st.Users[u.ID] = u
 		if !sameAccess(old, u) {
 			if e := st.InvalidateUser(u.ID); e != nil {

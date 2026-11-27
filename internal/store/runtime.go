@@ -18,7 +18,7 @@ func (s *Store) Device(id string) (model.Device, error) {
 func entity[T any](s *Store, table, id string) (T, error) {
 	var out T
 	var raw []byte
-	err := s.db.QueryRow("SELECT data FROM "+table+" WHERE id=?", id).Scan(&raw)
+	err := s.reader.QueryRow("SELECT data FROM "+table+" WHERE id=?", id).Scan(&raw)
 	if errors.Is(err, sql.ErrNoRows) {
 		return out, model.ErrNotFound
 	}
@@ -30,13 +30,11 @@ func entity[T any](s *Store, table, id string) (T, error) {
 
 func (s *Store) Revision() (Revision, error) {
 	var r Revision
-	err := s.db.QueryRow("SELECT revision,observed_revision FROM metadata WHERE id=1").Scan(&r.Desired, &r.Observed)
+	err := s.reader.QueryRow("SELECT revision,observed_revision FROM metadata WHERE id=1").Scan(&r.Desired, &r.Observed)
 	return r, err
 }
 
 func (s *Store) Observe(revision uint64, message string) error {
-	s.mu.Lock()
-	defer s.mu.Unlock()
 	if message != "" {
 		_, err := s.db.Exec("UPDATE metadata SET last_error=? WHERE id=1", message)
 		return err
@@ -48,7 +46,7 @@ func (s *Store) Observe(revision uint64, message string) error {
 func (s *Store) Lease(id string) (model.Lease, error) {
 	var result model.Lease
 	var raw []byte
-	err := s.db.QueryRow("SELECT data FROM vpn_leases WHERE id=?", id).Scan(&raw)
+	err := s.reader.QueryRow("SELECT data FROM vpn_leases WHERE id=?", id).Scan(&raw)
 	if errors.Is(err, sql.ErrNoRows) {
 		return result, model.ErrForbidden
 	}
@@ -70,7 +68,7 @@ func pending[T any](s *Store, table string, now time.Time, limit int) ([]T, erro
 	if limit < 1 || limit > 100 {
 		limit = 16
 	}
-	rows, err := s.db.Query("SELECT data FROM "+table+" WHERE json_extract(data,'$.delete_pending')=1 AND julianday(json_extract(data,'$.cleanup_after'))<=julianday(?) ORDER BY julianday(json_extract(data,'$.cleanup_after')),id LIMIT ?", now.UTC().Format(time.RFC3339Nano), limit)
+	rows, err := s.reader.Query("SELECT data FROM "+table+" WHERE json_extract(data,'$.delete_pending')=1 AND julianday(json_extract(data,'$.cleanup_after'))<=julianday(?) ORDER BY julianday(json_extract(data,'$.cleanup_after')),id LIMIT ?", now.UTC().Format(time.RFC3339Nano), limit)
 	if err != nil {
 		return nil, err
 	}
@@ -94,7 +92,7 @@ func pending[T any](s *Store, table string, now time.Time, limit int) ([]T, erro
 // mutations still revalidate ownership inside the original commit fence.
 func (s *Store) SessionCleanupDue(now time.Time) (bool, error) {
 	var due bool
-	err := s.db.QueryRow(`SELECT
+	err := s.reader.QueryRow(`SELECT
 	 EXISTS(SELECT 1 FROM operation_keys WHERE julianday(json_extract(data,'$.expires_at')) <= julianday(?1)) OR
 	 EXISTS(SELECT 1 FROM credentials WHERE julianday(json_extract(data,'$.expires_at')) <= julianday(?1)) OR
 	 EXISTS(SELECT 1 FROM vpn_leases l JOIN users u ON u.id=l.user_id WHERE

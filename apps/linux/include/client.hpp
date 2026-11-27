@@ -8,8 +8,8 @@
 #include <vector>
 namespace netgo::desktop_linux {
 using Json=nlohmann::json;
-struct Frame {uint32_t width{},height{};std::vector<uint8_t> bgra;};
-Json ipc(const std::string& socket,const std::string& method,const std::string& path,const Json& body,std::atomic_bool& active);
+struct Frame {uint32_t width{},height{};std::shared_ptr<const std::vector<uint8_t>> bgra;};
+Json ipc(const std::string& socket,const std::string& method,const std::string& path,const Json& body,std::atomic_bool& active,long timeout=22000);
 class Decoder {
 public:
  Decoder();~Decoder();Decoder(const Decoder&)=delete;

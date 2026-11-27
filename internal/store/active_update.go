@@ -1,26 +1,27 @@
 package store
 
 import (
+	"context"
 	"database/sql"
 	"netgo/internal/model"
 )
 
-// VPN transitions need active remote routes for revision invalidation, but never
-// edit retained history or remote idempotency keys. Entity deletion must continue
-// to use Update, which loads the complete ownership graph.
-func (s *Store) VPNUpdate(fn func(*model.State) error) error {
-	return s.activeUpdate(allTables&^(remoteSessions|remoteOperations), fn)
+// VPN and account/resource/device transitions load all live ownership dependencies.
+// Closed history is independent of deleted identities; no transition needs to
+// decode it or remote idempotency rows to revoke active access atomically.
+func (s *Store) VPNUpdate(ctx context.Context, fn func(*model.State) error) error {
+	return s.activeUpdate(ctx, allTables&^(remoteSessions|remoteOperations), fn)
 }
 
 // Host/grant changes close live sessions. Closed history is immutable on these
 // paths and has no dependency on a grant row. Issuance uses RemoteAcquireUpdate
 // with SQL generation/capacity checks over retained history.
 func (s *Store) RemotePolicyUpdate(fn func(*model.State) error) error {
-	return s.activeUpdate(remoteTables&^(remoteSessions|remoteOperations), fn)
+	return s.activeUpdate(context.Background(), remoteTables&^(remoteSessions|remoteOperations), fn)
 }
 
-func (s *Store) activeUpdate(tables scope, fn func(*model.State) error) error {
-	return s.updateWith(func(tx *sql.Tx) (model.State, error) {
+func (s *Store) activeUpdate(ctx context.Context, tables scope, fn func(*model.State) error) error {
+	return s.updateWithContext(ctx, func(tx *sql.Tx) (model.State, error) {
 		st, err := read(tx, tables)
 		if err == nil {
 			err = readRows(tx, "remote_sessions", st.RemoteSessions, "WHERE state IN ('issued','active')")

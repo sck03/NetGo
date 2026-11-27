@@ -1,6 +1,7 @@
 package store
 
 import (
+	"context"
 	"errors"
 	"netgo/internal/model"
 	"testing"
@@ -74,7 +75,7 @@ func TestScopedUpdatePreservesUnloadedRowsAndIdentity(t *testing.T) {
 	if e != nil || st.Resources["r"].Ports[0] != 443 || st.Operations["o"].Fingerprint != "kept" || len(st.Users["u"].Resources) != 1 {
 		t.Fatal(st, e)
 	}
-	c, u, d, e := s.Identity("c")
+	c, u, d, e := s.Identity(context.Background(), "c")
 	if e != nil || c.TokenHash != "c" || u.ID != "u" || d.ID != "d" {
 		t.Fatal(c, u, d, e)
 	}

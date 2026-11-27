@@ -27,9 +27,7 @@ func (s *Store) RemoteInventory(c model.Credential, after string) (NativeInvento
 	if !validSearch(after, "") {
 		return NativeInventory{}, errors.New("invalid_remote_page")
 	}
-	s.mu.Lock()
-	defer s.mu.Unlock()
-	tx, err := s.db.Begin()
+	tx, err := s.reader.Begin()
 	if err != nil {
 		return NativeInventory{}, err
 	}
@@ -47,8 +45,8 @@ func (s *Store) RemoteInventory(c model.Credential, after string) (NativeInvento
 
 func (s *Store) RemoteCleanupDue(now time.Time) (bool, error) {
 	var due bool
-	err := s.db.QueryRow(`SELECT EXISTS(SELECT 1 FROM remote_sessions WHERE state IN ('issued','active') OR
-	 julianday(json_extract(data,'$.closed_at')) < julianday(?1)-1) OR
+	err := s.reader.QueryRow(`SELECT EXISTS(SELECT 1 FROM remote_sessions WHERE state IN ('issued','active')) OR
+	 EXISTS(SELECT 1 FROM remote_sessions WHERE state='closed' AND julianday(json_extract(data,'$.closed_at')) < julianday(?1)-1) OR
 	 EXISTS(SELECT 1 FROM remote_operations WHERE julianday(json_extract(data,'$.expires_at')) <= julianday(?1))`, now.UTC().Format(time.RFC3339Nano)).Scan(&due)
 	return due, err
 }
@@ -75,7 +73,7 @@ func (s *Store) RemoteHistory(before string, limit int) (RemoteHistory, error) {
 			return page, errors.New("invalid_remote_history_cursor")
 		}
 	}
-	rows, err := s.db.Query(`SELECT r.data,coalesce(json_extract(u.data,'$.alias'),''),coalesce(json_extract(h.data,'$.name'),'')
+	rows, err := s.reader.Query(`SELECT r.data,coalesce(json_extract(u.data,'$.alias'),''),coalesce(json_extract(h.data,'$.name'),'')
      FROM remote_sessions r LEFT JOIN users u ON u.id=r.user_id LEFT JOIN hosts h ON h.id=r.host_id
      WHERE r.state='closed' AND (?1='' OR
      (julianday(json_extract(r.data,'$.created_at')),r.id) < (julianday(?2),?3))

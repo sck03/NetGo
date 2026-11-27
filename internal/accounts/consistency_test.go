@@ -126,6 +126,7 @@ func TestPermanentAdminAndMetadataOnlyUpdate(t *testing.T) {
 	if err = db.Update(func(st *model.State) error { st.Users["backup"] = model.User{ID: "backup", Role: "admin"}; return nil }); err != nil {
 		t.Fatal(err)
 	}
+	expiring.EditRevision = st.Users[u.ID].EditRevision
 	if _, err = service.Update(context.Background(), expiring); err != nil {
 		t.Fatal("backup admin not recognized", err)
 	}

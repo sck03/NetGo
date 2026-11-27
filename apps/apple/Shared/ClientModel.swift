@@ -65,14 +65,15 @@ struct HostItem: Identifiable { let id: String; let name: String; let status: St
         if !unattended {stopRemote();disableUnattendedAction?()}
     }}
     func shareDesktop() {
-        guard remoteReady,let request else { return };remoteSuspended=false;viewer.stop();let site=selected
-        host.start(site:site,unattended:unattended) { method,_,body,_ in
-            if method=="LOCAL_CONTEXT" { return try request("GET","/desktop/remote/context?site="+site,"") }
-            return try request("POST","/desktop/remote/call",body)
+        guard remoteReady,let request=remoteRequest else { return };remoteSuspended=false;viewer.stop();let site=selected
+        host.start(site:site,unattended:unattended) { method,_,body,_,active in
+            if method=="LOCAL_CONTEXT" { return try request("GET","/desktop/remote/context?site="+site,"",active) }
+            return try request("POST","/desktop/remote/call",body,active)
         }
     }
 #endif
     var request: ((String,String,String) throws -> String)?
+    var remoteRequest: RemoteRequest?
     var importAction: ((String,String,Bool) throws -> Void)?
     var connectAction: ((SiteItem,String,String,Bool,Bool) -> Void)?
     var disconnectAction: (() -> Void)?
@@ -243,16 +244,16 @@ struct HostItem: Identifiable { let id: String; let name: String; let status: St
         }
     }
     func view(_ host: HostItem) {
-        guard host.ready, remoteReady, let request = request else { return }
+        guard host.ready, remoteReady, let request = remoteRequest else { return }
         remoteSuspended=true
 #if os(macOS)
         self.host.stop()
 #endif
-        viewer.control = { [site=selected] method,_,body,_ in
+        viewer.control = { [site=selected] method,_,body,_,active in
             switch method {
-            case "LOCAL_CONTEXT": return try request("GET","/desktop/remote/context?site=" + site,"")
-            case "LOCAL_SIGN": return try request("POST","/desktop/remote/sign",body)
-            default: return try request("POST","/desktop/remote/call",body)
+            case "LOCAL_CONTEXT": return try request("GET","/desktop/remote/context?site=" + site,"",active)
+            case "LOCAL_SIGN": return try request("POST","/desktop/remote/sign",body,active)
+            default: return try request("POST","/desktop/remote/call",body,active)
             }
         }
         viewer.start(site:selected,host:host.id,audio:remoteAudio,viewOnly:remoteViewOnly)

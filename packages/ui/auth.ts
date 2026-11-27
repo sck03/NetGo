@@ -1,5 +1,5 @@
 import type { User } from './models.generated'
-import { requestError } from './errors.ts'
+import { RequestError } from './errors.ts'
 type AuthResult = { token: string; refresh_token?: string; expires_at: string; user: User }
 type Health = { site_id: string; server_unix: number; protocol: number; capabilities: string[] }
 const enc = new TextEncoder()
@@ -62,7 +62,7 @@ export class AdminSession {
         if (response.status === 401 && token === this.token && key === this.key) {
           if (generation === this.generation && token === this.token && key === this.key) this.logout()
         }
-        throw Error(requestError(result.error))
+        throw new RequestError(result.error, response.status)
       }
       return result as T
     } catch (error) {

@@ -1,14 +1,16 @@
 <script setup lang="ts">
-import { ref } from 'vue'
+import { computed, ref } from 'vue'
 import type { User } from '../../../packages/ui/contracts'
 import CleanupStatus from './CleanupStatus.vue'
 type Account = { Alias: string; Email: string; Name: string }
 const props = defineProps<{ users: User[]; resources: { id: string; name: string }[]; busy: boolean; create: (account: Account) => Promise<boolean>; save: (user: User) => Promise<boolean>; remove: (user: User) => Promise<boolean> }>()
 const draft = ref<User | null>(null), creating = ref(false)
 const account = ref<Account>({ Alias: '', Email: '', Name: '' })
+const latest = computed(() => props.users.find(user => user.id === draft.value?.id))
+const stale = computed(() => !!draft.value && (!latest.value || latest.value.edit_revision !== draft.value.edit_revision))
 function edit(user: User) { draft.value = { ...user, resources: [...user.resources] } }
 async function create() { if (await props.create({ ...account.value, Name: account.value.Name.trim() || account.value.Alias })) { account.value = { Alias: '', Email: '', Name: '' }; creating.value = false } }
-async function save() { if (draft.value && await props.save(draft.value)) draft.value = null }
+async function save() { if (draft.value && !stale.value && await props.save(draft.value)) draft.value = null }
 async function remove(user: User) { if (await props.remove(user) && draft.value?.id === user.id) draft.value = null }
 function expiryValue(value: string) { if (!value || value.startsWith('0001-')) return ''; const d = new Date(value); return new Date(d.getTime() - d.getTimezoneOffset() * 60000).toISOString().slice(0, 16) }
 function setExpiry(event: Event) { const value = (event.target as HTMLInputElement).value; if (draft.value) draft.value.expires_at = value ? new Date(value).toISOString() : '0001-01-01T00:00:00Z' }
@@ -27,7 +29,8 @@ function setExpiry(event: Event) { const value = (event.target as HTMLInputEleme
       <fieldset class="permission-list"><legend>允许访问的资源</legend><label v-for="resource in resources" :key="resource.id" class="check"><input v-model="draft.resources" type="checkbox" :value="resource.id">{{ resource.name }}</label><p v-if="!resources.length">需要开放局域网设备时，请先到“局域网资源”添加。</p><p class="muted">仅使用远程桌面的账号可以不选局域网资源，桌面权限在“远程桌面”中单独授予。</p></fieldset>
       <details><summary>设备限额和到期时间</summary><div class="account-limits"><label>最多登记设备<input v-model.number="draft.max_devices" type="number" min="1" max="100" required></label><label>最多同时连接<input v-model.number="draft.max_sessions" type="number" min="1" max="100" required></label><label>到期时间（留空为不限）<input type="datetime-local" :value="expiryValue(draft.expires_at)" @change="setExpiry"></label></div></details>
       <p class="muted">修改权限会撤销此账号已有连接，重新连接后生效；仅修改显示名称不会断开连接。必须保留至少一个启用且不过期的管理员。</p>
-      <div class="actions"><button class="primary" :disabled="busy">保存权限</button><button type="button" class="secondary" :disabled="busy" @click="draft = null">取消</button></div>
+      <p v-if="stale" class="muted">账号已发生变化，请重新载入并核对最新权限。<button v-if="latest" type="button" class="secondary" :disabled="busy" @click="edit(latest)">载入最新设置</button></p>
+      <div class="actions"><button class="primary" :disabled="busy || stale">保存权限</button><button type="button" class="secondary" :disabled="busy" @click="draft = null">取消</button></div>
     </form>
   </section>
 </template>

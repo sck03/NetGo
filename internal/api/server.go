@@ -20,6 +20,7 @@ import (
 	"netgo/internal/session"
 	"netgo/internal/site"
 	"netgo/internal/store"
+	"slices"
 	"strconv"
 	"strings"
 	"sync"
@@ -62,6 +63,12 @@ func failure(w http.ResponseWriter, e error) {
 	status := 400
 	code := "invalid_request"
 	switch {
+	case errors.Is(e, model.ErrEditConflict):
+		status, code = http.StatusConflict, "edit_conflict"
+	case errors.Is(e, model.ErrControlUnavailable), errors.Is(e, context.DeadlineExceeded):
+		status, code = http.StatusServiceUnavailable, "control_unavailable"
+	case errors.Is(e, context.Canceled):
+		status, code = http.StatusRequestTimeout, "control_cancelled"
 	case errors.Is(e, session.ErrStopped):
 		status = http.StatusServiceUnavailable
 		code = "session_manager_stopped"
@@ -358,9 +365,9 @@ func (s *Server) Handler() http.Handler {
 func (s *Server) authorize(admin bool, next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		token := strings.TrimPrefix(r.Header.Get("Authorization"), "Bearer ")
-		c, u, d, e := s.Store.Identity(model.Hash(token))
+		c, u, d, e := s.Store.Identity(r.Context(), model.Hash(token))
 		if e != nil {
-			failure(w, e)
+			failure(w, model.ControlFailure(e))
 			return
 		}
 		if d.DeletePending || d.UserID != c.UserID || !time.Now().Before(c.ExpiresAt) || !u.Active(time.Now()) {
@@ -389,8 +396,8 @@ func (s *Server) authorize(admin bool, next http.Handler) http.Handler {
 		}
 		// Retain through the entire accepted timestamp window, including a stamp
 		// 30 seconds in the future. SQLite arbitrates concurrent server processes.
-		if e := s.Store.ConsumeNonce(model.Hash("api:"+c.DeviceID+":"+nonce), time.Now(), time.Now().Add(61*time.Second)); e != nil {
-			failure(w, model.ErrUnauthorized)
+		if e := s.Store.ConsumeNonce(r.Context(), model.Hash("api:"+c.DeviceID+":"+nonce), time.Now(), time.Now().Add(61*time.Second)); e != nil {
+			failure(w, model.ControlFailure(e))
 			return
 		}
 		ctx := context.WithValue(r.Context(), credKey, c)
@@ -455,9 +462,14 @@ func (s *Server) putResource(w http.ResponseWriter, r *http.Request) {
 		failure(w, e)
 		return
 	}
+	v = v.Normalized()
 	e := s.Sessions.MutateResource(r.Context(), v.ID, func(st *model.State) error {
 		if err := authorization.CheckAdmin(r.Context(), st); err != nil {
 			return err
+		}
+		old, exists := st.Resources[v.ID]
+		if exists && old.Name == v.Name && old.SameAccess(v) && slices.Equal(old.Ports, v.Ports) {
+			return nil
 		}
 		st.Resources[v.ID] = v
 		st.Record(authorization.Actor(r.Context()), "resource.update", v.ID)

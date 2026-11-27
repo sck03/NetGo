@@ -2,7 +2,9 @@
 package securefile
 
 import (
+	"bytes"
 	"errors"
+	"io"
 	"os"
 	"path/filepath"
 )
@@ -43,6 +45,12 @@ func Write(path string, data []byte, mode os.FileMode) error {
 	return os.Rename(temporary, path)
 }
 func Create(path string, data []byte, mode os.FileMode) error {
+	return CreateFrom(path, bytes.NewReader(data), mode)
+}
+
+// CreateFrom streams into an exclusively created file with the same ownership,
+// permission and durability guarantees as Create.
+func CreateFrom(path string, data io.Reader, mode os.FileMode) error {
 	f, err := os.OpenFile(path, os.O_WRONLY|os.O_CREATE|os.O_EXCL, mode)
 	if err != nil {
 		return err
@@ -51,7 +59,7 @@ func Create(path string, data []byte, mode os.FileMode) error {
 	// A restrictive administrative umask must not turn service binaries into
 	// owner-only executables; secret callers still explicitly request 0600.
 	if err = f.Chmod(mode); err == nil {
-		if _, err = f.Write(data); err == nil {
+		if _, err = io.Copy(f, data); err == nil {
 			err = f.Sync()
 		}
 	}

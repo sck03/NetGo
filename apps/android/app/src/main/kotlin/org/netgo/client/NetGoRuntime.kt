@@ -112,7 +112,7 @@ object NetGoRuntime {
                 do {
                     check(version == epoch.get() && request == hostRequest.get() && client === it) { "remote_cancelled" }
                     val path = "/netgo/v2/remote" + if (after.isEmpty()) "" else "?after=$after"
-                    val page = JSONObject(it.remoteCall(site, "GET", path, "", ""))
+                    val page = JSONObject(it.remoteCall(site, "GET", path, "", "", null))
                     val data = page.getJSONArray("hosts")
                     for (index in 0 until data.length()) {
                         val host = data.getJSONObject(index)

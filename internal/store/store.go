@@ -1,17 +1,19 @@
-// Package store owns schema 5. There is intentionally no earlier-schema migration or
+// Package store owns schema-6. There is intentionally no earlier-schema migration or
 // dual-write path: a deployment must initialize a new database directory.
 package store
 
 import (
+	"context"
 	"database/sql"
 	"encoding/json"
 	"errors"
 	"fmt"
+	"net/url"
 	"netgo/internal/model"
 	"os"
 	"path/filepath"
 	"reflect"
-	"sync"
+	"strings"
 	"time"
 
 	_ "modernc.org/sqlite"
@@ -19,11 +21,12 @@ import (
 
 const applicationID = 0x4e474f32
 
-var ErrSchema = errors.New("database_schema_incompatible: initialize a fresh schema-5 database")
+var ErrSchema = errors.New("database_schema_incompatible: initialize a fresh schema-6 database")
 
 type Store struct {
-	mu sync.Mutex
-	db *sql.DB
+	// One writer connection serializes transactions and makes pool waits cancellable.
+	db     *sql.DB
+	reader *sql.DB
 }
 
 func Open(path string) (*Store, error) {
@@ -32,12 +35,23 @@ func Open(path string) (*Store, error) {
 			return nil, e
 		}
 	}
-	db, e := sql.Open("sqlite", path)
+	dsn := path
+	if path != ":memory:" {
+		absolute, err := filepath.Abs(path)
+		if err != nil {
+			return nil, err
+		}
+		uri := url.URL{Scheme: "file", Path: "/" + strings.TrimPrefix(filepath.ToSlash(absolute), "/")}
+		query := url.Values{"_pragma": {"busy_timeout(5000)", "foreign_keys(ON)", "synchronous(FULL)"}}
+		uri.RawQuery = query.Encode()
+		dsn = uri.String()
+	}
+	db, e := sql.Open("sqlite", dsn)
 	if e != nil {
 		return nil, e
 	}
 	db.SetMaxOpenConns(1)
-	s := &Store{db: db}
+	s := &Store{db: db, reader: db}
 	if e = s.initialize(); e != nil {
 		db.Close()
 		return nil, e
@@ -45,6 +59,17 @@ func Open(path string) (*Store, error) {
 	if path != ":memory:" {
 		if e = os.Chmod(path, 0600); e != nil {
 			db.Close()
+			return nil, e
+		}
+		s.reader, e = sql.Open("sqlite", dsn+"&_pragma=query_only(ON)")
+		if e != nil {
+			db.Close()
+			return nil, e
+		}
+		s.reader.SetMaxOpenConns(4)
+		s.reader.SetMaxIdleConns(4)
+		if e = s.reader.Ping(); e != nil {
+			s.Close()
 			return nil, e
 		}
 	}
@@ -90,7 +115,12 @@ func (s *Store) initialize() error {
 	return e
 }
 
-func (s *Store) Close() error { return s.db.Close() }
+func (s *Store) Close() error {
+	if s.reader == s.db {
+		return s.db.Close()
+	}
+	return errors.Join(s.reader.Close(), s.db.Close())
+}
 
 func (s *Store) View() (model.State, error) { return s.view(allTables) }
 
@@ -99,9 +129,7 @@ func (s *Store) view(tables scope) (model.State, error) {
 }
 
 func (s *Store) viewWith(load func(*sql.Tx) (model.State, error)) (model.State, error) {
-	s.mu.Lock()
-	defer s.mu.Unlock()
-	tx, e := s.db.Begin()
+	tx, e := s.reader.Begin()
 	if e != nil {
 		return model.State{}, e
 	}
@@ -200,15 +228,17 @@ func (s *Store) update(tables scope, fn func(*model.State) error) error {
 }
 
 func (s *Store) updateWith(load func(*sql.Tx) (model.State, error), fn func(*model.State) error) error {
-	s.mu.Lock()
-	defer s.mu.Unlock()
-	tx, e := s.db.Begin()
+	return s.updateWithContext(context.Background(), load, fn)
+}
+
+func (s *Store) updateWithContext(ctx context.Context, load func(*sql.Tx) (model.State, error), fn func(*model.State) error) error {
+	tx, e := s.db.BeginTx(ctx, nil)
 	if e != nil {
 		return e
 	}
 	defer tx.Rollback()
 	// Acquire the write lock before reading. This fences separate processes too.
-	if _, e = tx.Exec("UPDATE metadata SET id=id WHERE id=1"); e != nil {
+	if _, e = tx.ExecContext(ctx, "UPDATE metadata SET id=id WHERE id=1"); e != nil {
 		return e
 	}
 	before, e := load(tx)
@@ -223,6 +253,9 @@ func (s *Store) updateWith(load func(*sql.Tx) (model.State, error), fn func(*mod
 		return ErrSchema
 	}
 	model.PruneDependencies(&before, &after)
+	if e = model.AdvanceUserRevisions(&before, &after); e != nil {
+		return e
+	}
 	if reflect.DeepEqual(before, after) {
 		return nil
 	}
@@ -254,13 +287,11 @@ func (s *Store) updateWith(load func(*sql.Tx) (model.State, error), fn func(*mod
 
 // ConsumeNonce atomically consumes a digest across callers and restarts. Expiry
 // includes the accepted request clock-skew window; full tables fail closed.
-func (s *Store) ConsumeNonce(key string, now, expires time.Time) error {
+func (s *Store) ConsumeNonce(ctx context.Context, key string, now, expires time.Time) error {
 	if len(key) != 64 || !expires.After(now) || expires.Sub(now) > 2*time.Minute {
 		return model.ErrUnauthorized
 	}
-	s.mu.Lock()
-	defer s.mu.Unlock()
-	tx, e := s.db.Begin()
+	tx, e := s.db.BeginTx(ctx, nil)
 	if e != nil {
 		return e
 	}

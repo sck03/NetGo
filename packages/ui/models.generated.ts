@@ -26,6 +26,7 @@ export type User = {
   max_sessions: number
   resources: string[]
   auth_revision?: number
+  edit_revision: number
 }
 export type Device = {
   cleanup_attempts?: number

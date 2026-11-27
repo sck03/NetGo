@@ -1,6 +1,7 @@
 package store
 
 import (
+	"context"
 	"database/sql"
 	"encoding/json"
 	"errors"
@@ -8,12 +9,12 @@ import (
 )
 
 // Identity reads only the indexed credential and its two owners in one snapshot.
-func (s *Store) Identity(hash string) (model.Credential, model.User, model.Device, error) {
+func (s *Store) Identity(ctx context.Context, hash string) (model.Credential, model.User, model.Device, error) {
 	var c model.Credential
 	var u model.User
 	var d model.Device
 	var cr, ur, dr []byte
-	err := s.db.QueryRow(`SELECT c.data,u.data,d.data FROM credentials c JOIN users u ON u.id=json_extract(c.data,'$.user_id') JOIN devices d ON d.id=json_extract(c.data,'$.device_id') WHERE c.id=?`, hash).Scan(&cr, &ur, &dr)
+	err := s.reader.QueryRowContext(ctx, `SELECT c.data,u.data,d.data FROM credentials c JOIN users u ON u.id=c.user_id JOIN devices d ON d.id=c.device_id WHERE c.id=?`, hash).Scan(&cr, &ur, &dr)
 	if errors.Is(err, sql.ErrNoRows) {
 		err = model.ErrUnauthorized
 	}
@@ -47,7 +48,7 @@ func (s *Store) Audit(before int64, limit int) (AuditPage, error) {
 	if limit < 1 || limit > 100 || before < 0 {
 		return page, errors.New("invalid audit cursor or limit")
 	}
-	rows, err := s.db.Query("SELECT sequence,data FROM audit_events WHERE (?=0 OR sequence<?) ORDER BY sequence DESC LIMIT ?", before, before, limit+1)
+	rows, err := s.reader.Query("SELECT sequence,data FROM audit_events WHERE (?=0 OR sequence<?) ORDER BY sequence DESC LIMIT ?", before, before, limit+1)
 	if err != nil {
 		return page, err
 	}
@@ -145,7 +146,7 @@ func (s *Store) PolicyView() (model.State, error) {
 func (s *Store) UserByAlias(alias string) (model.User, error) {
 	var u model.User
 	var raw []byte
-	e := s.db.QueryRow("SELECT data FROM users WHERE alias=lower(?)", alias).Scan(&raw)
+	e := s.reader.QueryRow("SELECT data FROM users WHERE alias=lower(?)", alias).Scan(&raw)
 	if errors.Is(e, sql.ErrNoRows) {
 		return u, model.ErrUnauthorized
 	}

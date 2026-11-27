@@ -44,7 +44,7 @@ async function save() {
   if (!capabilities || !form.value.user_id || busy.value) return
   try {
     const { user_id, host_id, expiry } = form.value
-    await change('/netgo/v2/admin/remote/grants', 'PUT', { user_id, host_id, capabilities, expires_at: expiryPayload(expiry) }, '桌面权限已保存，相关旧会话已关闭。用户可在客户端重新连接。')
+    await change('/netgo/v2/admin/remote/grants', 'PUT', { user_id, host_id, capabilities, expires_at: expiryPayload(expiry) }, '桌面权限已保存；权限发生变化时关闭相关旧会话，重复保存不影响连接。')
   } catch (e) { error.value = e instanceof Error ? e.message : String(e) }
 }
 let alive = true, refreshVersion = 0, timer: ReturnType<typeof setInterval> | undefined

@@ -50,20 +50,12 @@ final class TunnelRuntime: ObservableObject {
         }
         model.disconnectAction = { [weak self] in self?.disconnect() }
         model.request = { [weak self] method, path, body in
-            guard let session = self?.snapshot()?.connection as? NETunnelProviderSession,
-                  session.status == .connected || session.status == .reasserting else {
-                throw NSError(domain: "NetGo", code: 1, userInfo: [NSLocalizedDescriptionKey: "remote_site_disconnected"])
-            }
-            let request = try JSONSerialization.data(withJSONObject: ["method": method, "path": path, "body": body])
-            let signal = DispatchSemaphore(value: 0), response = TunnelResponse()
-            try session.sendProviderMessage(request) { data in response.store(data); signal.signal() }
-            guard signal.wait(timeout: .now() + 22) == .success, let data = response.load() else {
-                throw NSError(domain: "NetGo", code: 2, userInfo: [NSLocalizedDescriptionKey: "ipc_failed"])
-            }
-            if let object = try JSONSerialization.jsonObject(with: data) as? [String: Any], let error = object["error"] as? String {
-                throw NSError(domain: "NetGo", code: 3, userInfo: [NSLocalizedDescriptionKey: error])
-            }
-            return String(decoding: data, as: UTF8.self)
+            guard let self else { throw Self.controlError("remote_site_disconnected") }
+            return try self.send(method, path, body, active: { true }, timeout: 22)
+        }
+        model.remoteRequest = { [weak self] method, path, body, active in
+            guard let self else { throw Self.controlError("remote_site_disconnected") }
+            return try self.send(method, path, body, active: active, timeout: 4)
         }
         fence.lock()
         guard manager == nil && !loading else { fence.unlock(); return }
@@ -75,6 +67,40 @@ final class TunnelRuntime: ObservableObject {
             if let error { Task { @MainActor in model?.message = error.localizedDescription }; return }
             if let manager = Self.saved(managers) { self.install(manager, version: version, model: model) }
         }
+    }
+    private static func controlError(_ code: String) -> NSError {
+        NSError(domain: "NetGo", code: 1, userInfo: [NSLocalizedDescriptionKey: code])
+    }
+    private func send(_ method: String, _ path: String, _ body: String,
+                      active: RemoteActivity, timeout: TimeInterval) throws -> String {
+        guard active() else { throw Self.controlError("control_cancelled") }
+        guard let session = snapshot()?.connection as? NETunnelProviderSession,
+              session.status == .connected || session.status == .reasserting else {
+            throw Self.controlError("remote_site_disconnected")
+        }
+        let id = UUID().uuidString
+        let request = try JSONSerialization.data(withJSONObject: ["id": id, "method": method, "path": path, "body": body])
+        let signal = DispatchSemaphore(value: 0), response = TunnelResponse()
+        try session.sendProviderMessage(request) { data in response.store(data); signal.signal() }
+        var completed = false
+        defer {
+            if !completed, let cancel = try? JSONSerialization.data(withJSONObject: ["cancel": id]) {
+                try? session.sendProviderMessage(cancel) { _ in }
+            }
+        }
+        let deadline = DispatchTime.now() + timeout
+        while signal.wait(timeout: .now() + .milliseconds(50)) != .success {
+            guard active() else { throw Self.controlError("control_cancelled") }
+            guard DispatchTime.now() < deadline else { throw Self.controlError("control_timeout") }
+        }
+        completed = true
+        guard active() else { throw Self.controlError("control_cancelled") }
+        guard let data = response.load() else { throw Self.controlError("ipc_failed") }
+        guard data.count <= 4 << 20 else { throw Self.controlError("control_response_too_large") }
+        if let object = try JSONSerialization.jsonObject(with: data) as? [String: Any], let error = object["error"] as? String {
+            throw Self.controlError(error)
+        }
+        return String(decoding: data, as: UTF8.self)
     }
     private func disconnect() {
         let version = advance()

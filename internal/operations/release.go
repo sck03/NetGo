@@ -183,7 +183,7 @@ func (t ReleaseTransaction) Upgrade(ctx context.Context, source, expected string
 		}
 	}()
 	for _, name := range append(append([]string{}, Products...), "release.json", "SHA256SUMS") {
-		b, readErr := os.ReadFile(filepath.Join(source, name))
+		input, readErr := os.Open(filepath.Join(source, name))
 		if readErr != nil {
 			return readErr
 		}
@@ -191,7 +191,9 @@ func (t ReleaseTransaction) Upgrade(ctx context.Context, source, expected string
 		if name == "release.json" || name == "SHA256SUMS" {
 			mode = 0644
 		}
-		if err = securefile.Create(filepath.Join(target, name), b, mode); err != nil {
+		err = securefile.CreateFrom(filepath.Join(target, name), input, mode)
+		closeErr := input.Close()
+		if err = errors.Join(err, closeErr); err != nil {
 			return err
 		}
 	}

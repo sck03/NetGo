@@ -18,7 +18,7 @@ func (n *Native) Refresh(ctx context.Context, c model.Credential, oldToken, refr
 		return Result{}, errors.New("refresh unavailable")
 	}
 	if e := n.Provider.UserActive(ctx, c.UserID); e != nil {
-		return Result{}, model.ErrForbidden
+		return Result{}, model.ControlFailure(e)
 	}
 	t, e := p.Refresh(ctx, refresh)
 	if e != nil {

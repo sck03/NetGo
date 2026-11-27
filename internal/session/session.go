@@ -68,18 +68,7 @@ func (m *Manager) update(ctx context.Context, fn func(*model.State) error) error
 	if m.stopped {
 		return ErrStopped
 	}
-	return m.commit(ctx, fn)
-}
-
-func (m *Manager) commit(ctx context.Context, fn func(*model.State) error) error {
-	return m.commitWith(ctx, fn, m.Store.Update)
-}
-
-func (m *Manager) vpnUpdate(ctx context.Context, fn func(*model.State) error) error {
-	if m.stopped {
-		return ErrStopped
-	}
-	return m.commitWith(ctx, fn, m.Store.VPNUpdate)
+	return m.commitWith(ctx, fn, func(fn func(*model.State) error) error { return m.Store.VPNUpdate(ctx, fn) })
 }
 
 func (m *Manager) commitWith(ctx context.Context, fn func(*model.State) error, write func(func(*model.State) error) error) error {
@@ -125,7 +114,7 @@ func (m *Manager) Acquire(ctx context.Context, c model.Credential, peer string, 
 	now := m.now()
 	fp := model.Hash(fmt.Sprintf("%s|%s|%s|%d|%t", c.UserID, c.DeviceID, peer, generation, replace))
 	opKey := model.Hash(c.UserID + ":" + key)
-	e = m.vpnUpdate(ctx, func(st *model.State) error {
+	e = m.update(ctx, func(st *model.State) error {
 		// Authorization may have been revoked while reconciliation or peer lookup ran.
 		if !credentialCurrent(st, c, m.now()) {
 			return model.ErrUnauthorized
@@ -229,7 +218,7 @@ func (m *Manager) Renew(ctx context.Context, c model.Credential, id string, gene
 		return result, ErrStopped
 	}
 	touched := false
-	e = m.Store.VPNRenew(c, id, now, func(st *model.State) error {
+	e = m.Store.VPNRenew(ctx, c, id, now, func(st *model.State) error {
 		if !credentialCurrent(st, c, m.now()) {
 			return model.ErrUnauthorized
 		}
@@ -282,7 +271,7 @@ func (m *Manager) Renew(ctx context.Context, c model.Credential, id string, gene
 func (m *Manager) Revoke(ctx context.Context, actor, id string) error {
 	m.mu.Lock()
 	defer m.mu.Unlock()
-	return m.vpnUpdate(ctx, func(st *model.State) error {
+	return m.update(ctx, func(st *model.State) error {
 		l, ok := st.Leases[id]
 		if !ok {
 			return nil
@@ -328,14 +317,27 @@ func (m *Manager) EditUser(ctx context.Context, user string, fn func(*model.Stat
 	})
 }
 func (m *Manager) MutateResource(ctx context.Context, resource string, fn func(*model.State) error) error {
-	return m.mutateScope(ctx, func(l model.Lease) bool {
-		for _, r := range l.Resources {
-			if r.ID == resource {
-				return true
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	return m.update(ctx, func(st *model.State) error {
+		before, existed := st.Resources[resource]
+		if err := fn(st); err != nil {
+			return err
+		}
+		after, exists := st.Resources[resource]
+		if exists == existed && before.SameAccess(after) {
+			return nil
+		}
+		for id, lease := range st.Leases {
+			for _, r := range lease.Resources {
+				if r.ID == resource {
+					delete(st.Leases, id)
+					break
+				}
 			}
 		}
-		return false
-	}, fn)
+		return nil
+	})
 }
 func (m *Manager) MutateDevice(ctx context.Context, device string, fn func(*model.State) error) error {
 	return m.mutateScope(ctx, func(l model.Lease) bool { return l.DeviceID == device }, fn)

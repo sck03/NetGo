@@ -1,6 +1,7 @@
 package store
 
 import (
+	"context"
 	"fmt"
 	"netgo/internal/model"
 	"testing"
@@ -48,7 +49,7 @@ func BenchmarkReadPaths(b *testing.B) {
 	b.Run("IndexedIdentity", func(b *testing.B) {
 		b.ReportAllocs()
 		for b.Loop() {
-			if _, _, _, e := db.Identity("100"); e != nil {
+			if _, _, _, e := db.Identity(context.Background(), "100"); e != nil {
 				b.Fatal(e)
 			}
 		}

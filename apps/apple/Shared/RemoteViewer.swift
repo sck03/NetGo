@@ -16,8 +16,9 @@ final class RemoteViewer {
     private var sitePointer: UnsafeMutablePointer<CChar>?
     private var hostPointer: UnsafeMutablePointer<CChar>?
     private let queue = DispatchQueue(label: "org.netgo.viewer")
-    var control: ((String,String,String,String) throws -> String)?
-    private var sessionControl: ((String,String,String,String) throws -> String)?
+    var control: RemoteControl?
+    private var sessionControl: RemoteControl?
+    private var isRunning: Bool { lock.lock(); defer { lock.unlock() }; return running }
     var changed: ((String) -> Void)?
     var event: (([String:Any]) -> Void)?
     var permissionsChanged: ((UInt32) -> Void)?
@@ -46,7 +47,7 @@ final class RemoteViewer {
                 let v = Unmanaged<RemoteViewer>.fromOpaque(ctx!).takeUnretainedValue()
                 do {
                     let body = try v.json(["Site":v.site,"Message":Data(bytes:message!,count:size).base64url])
-                    let result = try v.sessionControl?("LOCAL_SIGN","",body,"") ?? ""
+                    let result = try v.sessionControl?("LOCAL_SIGN","",body,"",{ v.isRunning }) ?? ""
                     guard let object = try JSONSerialization.jsonObject(with: Data(result.utf8)) as? [String:Any], let text = object["signature"] as? String, let data = Data(base64url:text), data.count == 64 else { return -1 }
                     data.withUnsafeBytes { memcpy(signature!,$0.baseAddress!,64) }; return 0
                 } catch { return -1 }
@@ -74,8 +75,9 @@ final class RemoteViewer {
     }
     private func call(_ method: String,_ path: String,_ body: String,_ key: String) throws -> String {
         guard let control = sessionControl else { throw NSError(domain:"NetGo",code:1) }
-        if method == "CONTEXT" { return try control("LOCAL_CONTEXT","",try json(["Site":site]),"") }
-        return try control("LOCAL_CALL","",try json(["Site":site,"Method":method,"Path":path,"Body":(try? JSONSerialization.jsonObject(with:Data(body.utf8))) ?? NSNull(),"Idempotency":key]),"")
+        let active: RemoteActivity = { [self] in method == "DELETE" || isRunning }
+        if method == "CONTEXT" { return try control("LOCAL_CONTEXT","",try json(["Site":site]),"",active) }
+        return try control("LOCAL_CALL","",try json(["Site":site,"Method":method,"Path":path,"Body":(try? JSONSerialization.jsonObject(with:Data(body.utf8))) ?? NSNull(),"Idempotency":key]),"",active)
     }
     private func json(_ value: Any) throws -> String { String(decoding:try JSONSerialization.data(withJSONObject:value),as:UTF8.self) }
     @discardableResult func input(_ event: Any) -> Bool {

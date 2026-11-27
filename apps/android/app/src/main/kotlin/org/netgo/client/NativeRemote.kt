@@ -6,12 +6,14 @@ import androidx.annotation.Keep
 import org.json.JSONObject
 import org.json.JSONArray
 import org.netgo.runtime.mobile.Client
+import org.netgo.runtime.mobile.RemoteActivity
 import java.util.concurrent.atomic.AtomicReference
 
 @Keep
-class NativeRemote(private val site: String, private val host: String, private val surface: Surface, private val controlClient: Client, private val requestedCapabilities: Int) {
+class NativeRemote(private val site: String, private val host: String, private val surface: Surface, private val controlClient: Client, private val requestedCapabilities: Int) : RemoteActivity {
     @Volatile private var active = true
 	val isActive: Boolean get() = active
+	@Keep override fun controlActive(): Boolean = active
 	@Volatile var presenting = true
 	var capabilitiesChanged: ((Int) -> Unit)? = null
     @Volatile var capabilities = 0; private set
@@ -46,7 +48,7 @@ class NativeRemote(private val site: String, private val host: String, private v
     // The native core owns retry policy. Preserve terminal authorization errors
     // instead of letting JNI clear them into an indistinguishable transport error.
     @Keep fun control(method: String, path: String, body: String, key: String): ByteArray = try {
-        (if (method == "CONTEXT") controlClient.remoteContext(site) else controlClient.remoteCall(site, method, path, body, key)).toByteArray(Charsets.UTF_8)
+        (if (method == "CONTEXT") controlClient.remoteContext(site) else controlClient.remoteCall(site, method, path, body, key, this)).toByteArray(Charsets.UTF_8)
     } catch (error: Exception) {
         JSONObject().put("error", error.message ?: "remote_invalid_control_response").toString().toByteArray(Charsets.UTF_8)
     }

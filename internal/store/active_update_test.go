@@ -1,6 +1,7 @@
 package store
 
 import (
+	"context"
 	"errors"
 	"fmt"
 	"netgo/internal/model"
@@ -27,7 +28,7 @@ func TestActiveUpdatesPreserveHistoryAndInvalidateRoutes(t *testing.T) {
 				t.Fatal(err)
 			}
 			before, _ := s.View()
-			write := s.VPNUpdate
+			write := func(fn func(*model.State) error) error { return s.VPNUpdate(context.Background(), fn) }
 			if policy {
 				write = s.RemotePolicyUpdate
 			}

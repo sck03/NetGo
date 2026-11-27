@@ -68,7 +68,7 @@ func (s *Store) UserChoices(after, search string) (UserChoices, error) {
 	if !validSearch(after, search) {
 		return page, errors.New("invalid_user_page")
 	}
-	rows, err := s.db.Query(`SELECT id,json_extract(data,'$.alias'),coalesce(json_extract(data,'$.name'),'') FROM users
+	rows, err := s.reader.Query(`SELECT id,json_extract(data,'$.alias'),coalesce(json_extract(data,'$.name'),'') FROM users
         WHERE id>? AND coalesce(json_extract(data,'$.delete_pending'),0)=0
         AND coalesce(json_extract(data,'$.disabled'),0)=0
         AND (coalesce(json_extract(data,'$.expires_at'),'0001-01-01T00:00:00Z')='0001-01-01T00:00:00Z'

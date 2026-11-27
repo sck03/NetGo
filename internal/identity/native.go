@@ -50,14 +50,20 @@ func (d *Dex) Authorize(ctx context.Context, email, password, nonce, challenge s
 	req.Header.Set("Content-Type", "application/json")
 	r, e := d.Client.Do(req)
 	if e != nil {
-		return "", errors.New("identity provider unavailable")
+		return "", model.ControlFailure(e)
 	}
 	defer r.Body.Close()
+	if r.StatusCode == http.StatusTooManyRequests || r.StatusCode >= 500 {
+		return "", model.ErrControlUnavailable
+	}
 	var v struct {
 		Code string `json:"code"`
 	}
-	if r.StatusCode != 200 || json.NewDecoder(io.LimitReader(r.Body, 8192)).Decode(&v) != nil || v.Code == "" {
+	if r.StatusCode != 200 {
 		return "", model.ErrUnauthorized
+	}
+	if json.NewDecoder(io.LimitReader(r.Body, 8192)).Decode(&v) != nil || v.Code == "" {
+		return "", model.ErrControlUnavailable
 	}
 	return v.Code, nil
 }
@@ -74,21 +80,33 @@ func (d *Dex) token(ctx context.Context, f url.Values) (Tokens, error) {
 	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
 	r, e := d.Client.Do(req)
 	if e != nil {
-		return t, errors.New("identity provider unavailable")
+		return t, model.ControlFailure(e)
 	}
 	defer r.Body.Close()
-	if r.StatusCode != 200 || json.NewDecoder(io.LimitReader(r.Body, 32768)).Decode(&t) != nil {
+	if r.StatusCode == http.StatusTooManyRequests || r.StatusCode >= 500 {
+		return t, model.ErrControlUnavailable
+	}
+	if r.StatusCode != 200 {
 		return t, model.ErrUnauthorized
+	}
+	if json.NewDecoder(io.LimitReader(r.Body, 32768)).Decode(&t) != nil {
+		return t, model.ErrControlUnavailable
 	}
 	// JWKS is fetched locally, while issuer/audience validation uses the canonical identity.
 	d.verifierOnce.Do(func() {
 		// A verifier belongs to this immutable provider configuration, not to the
 		// first request's cancellation scope. RemoteKeySet handles key rotation.
-		keys := oidc.NewRemoteKeySet(oidc.ClientContext(context.Background(), d.Client), d.LocalURL+"/oauth2/keys")
-		d.verifier = oidc.NewVerifier(d.Origin+"/oauth2", keys, &oidc.Config{ClientID: "netbird-cli"})
+		d.verifier = oidc.NewVerifier(d.Origin+"/oauth2", d.keys(), &oidc.Config{ClientID: "netbird-cli"})
 	})
-	id, e := d.verifier.Verify(ctx, t.IDToken)
+	failure := &verificationFailure{}
+	id, e := d.verifier.Verify(context.WithValue(ctx, verificationFailureKey{}, failure), t.IDToken)
 	if e != nil {
+		if ctx.Err() != nil {
+			return Tokens{}, model.ControlFailure(ctx.Err())
+		}
+		if errors.Is(failure.cause, model.ErrControlUnavailable) {
+			return Tokens{}, model.ErrControlUnavailable
+		}
 		return Tokens{}, model.ErrUnauthorized
 	}
 	var c struct {
@@ -219,7 +237,7 @@ func (n *Native) Complete(ctx context.Context, id, alias, password, signature st
 		return model.ErrUnauthorized
 	}
 	if e = n.Provider.UserActive(ctx, u.ID); e != nil {
-		return model.ErrUnauthorized
+		return model.ControlFailure(e)
 	}
 	code, e := n.Provider.Authorize(ctx, u.Email, password, t.Nonce, t.Begin.Challenge)
 	if e != nil {
@@ -258,7 +276,7 @@ func (n *Native) Exchange(ctx context.Context, id, verifier, signature string) (
 		return Result{}, model.ErrForbidden
 	}
 	if e = n.Provider.UserActive(ctx, t.UserID); e != nil {
-		return Result{}, model.ErrForbidden
+		return Result{}, model.ControlFailure(e)
 	}
 	out := Result{Token: model.ID(), IDToken: tokens.IDToken, RefreshToken: tokens.RefreshToken, ExpiresAt: tokens.Expiry, DeviceID: model.Hash(n.SiteID + ":" + t.UserID + ":" + t.Begin.PublicKey)}
 	e = n.Store.EnrollmentUpdate(t.UserID, func(st *model.State) error {

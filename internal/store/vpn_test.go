@@ -1,6 +1,7 @@
 package store
 
 import (
+	"context"
 	"errors"
 	"fmt"
 	"netgo/internal/model"
@@ -47,7 +48,7 @@ func TestVPNRenewUpdatesOnlyTargetAndKeepsGateMembership(t *testing.T) {
 		t.Fatal(err)
 	}
 	var selected model.State
-	err = s.VPNRenew(c, "0", time.Now(), func(st *model.State) error {
+	err = s.VPNRenew(context.Background(), c, "0", time.Now(), func(st *model.State) error {
 		selected = *st
 		if len(st.Users) != 1 || len(st.Devices) != 1 || len(st.Leases) != 1 || len(st.Credentials) != 1 || len(st.Resources) != 1 || len(st.Operations) != 0 || len(st.RemoteSessions) != 0 {
 			t.Fatalf("unrelated data loaded: users=%d devices=%d credentials=%d resources=%d operations=%d", len(st.Users), len(st.Devices), len(st.Credentials), len(st.Resources), len(st.Operations))
@@ -79,7 +80,7 @@ func TestVPNRenewRollsBackGateFailure(t *testing.T) {
 	s, c := renewalFixture(t)
 	before, _ := s.View()
 	failure := errors.New("gate failed")
-	err := s.VPNRenew(c, "0", time.Now(), func(st *model.State) error {
+	err := s.VPNRenew(context.Background(), c, "0", time.Now(), func(st *model.State) error {
 		l := st.Leases["0"]
 		l.ExpiresAt = l.ExpiresAt.Add(time.Second)
 		st.Leases["0"] = l
@@ -101,7 +102,7 @@ func BenchmarkVPNRenewSnapshot(b *testing.B) {
 		update func(func(*model.State) error) error
 	}{
 		{"FullState", s.Update}, {"Targeted", func(fn func(*model.State) error) error {
-			return s.VPNRenew(c, "0", time.Now(), fn, RenewalGate{Refresh: func(model.Lease) (bool, error) { return true, nil }})
+			return s.VPNRenew(context.Background(), c, "0", time.Now(), fn, RenewalGate{Refresh: func(model.Lease) (bool, error) { return true, nil }})
 		}},
 	} {
 		b.Run(tc.name, func(b *testing.B) {
@@ -141,7 +142,7 @@ func BenchmarkVPNRenewActive(b *testing.B) {
 			}
 			b.ReportAllocs()
 			for b.Loop() {
-				err = s.VPNRenew(c, "0", now, func(st *model.State) error {
+				err = s.VPNRenew(context.Background(), c, "0", now, func(st *model.State) error {
 					lease := st.Leases["0"]
 					lease.ExpiresAt = lease.ExpiresAt.Add(time.Nanosecond)
 					st.Leases["0"] = lease

@@ -4,7 +4,6 @@ package mobile
 
 import (
 	"bytes"
-	"context"
 	"encoding/base64"
 	"encoding/json"
 	"errors"
@@ -12,7 +11,6 @@ import (
 	"netgo/internal/site"
 	"os"
 	"sync"
-	"time"
 )
 
 type DeviceStore interface {
@@ -81,22 +79,6 @@ func (c *Client) RemoteContext(site string) (string, error) {
 	}
 	b, err := json.Marshal(v)
 	return string(b), err
-}
-func (c *Client) RemoteCall(site, method, path, body, key string) (string, error) {
-	if len(body) > 65536 {
-		return "", errors.New("remote_too_large")
-	}
-	var data json.RawMessage
-	if body != "" {
-		data = json.RawMessage(body)
-		if !json.Valid(data) {
-			return "", errors.New("invalid_json")
-		}
-	}
-	ctx, cancel := context.WithTimeout(context.Background(), 20*time.Second)
-	defer cancel()
-	result, err := c.controller.RemoteCommand(ctx, client.RemoteRequest{Site: site, Method: method, Path: path, Body: data, Idempotency: key})
-	return string(result), err
 }
 func (c *Client) SignPossession(site string, message []byte) ([]byte, error) {
 	signed, err := c.controller.SignPossession(site, string(message))

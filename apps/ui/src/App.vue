@@ -2,6 +2,7 @@
 import { computed, onMounted, onUnmounted, ref, watch } from 'vue'
 import { AdminSession } from '../../../packages/ui/auth'
 import { LatestQuery } from '../../../packages/ui/query'
+import { RequestError } from '../../../packages/ui/errors'
 import RemotePanel from './RemotePanel.vue'
 import ResourcePanel from './ResourcePanel.vue'
 import UserPanel from './UserPanel.vue'
@@ -57,7 +58,12 @@ function clearSession() {
 function logout() { admin.logout() }
 async function saveUser(u: User) {
   return action(async () => {
-    await admin.request('/netgo/v2/admin/users/' + encodeURIComponent(u.id), 'PUT', u)
+    try {
+      await admin.request('/netgo/v2/admin/users/' + encodeURIComponent(u.id), 'PUT', u)
+    } catch (e) {
+      if (e instanceof RequestError && e.code === 'edit_conflict') await refresh(true)
+      throw e
+    }
     await refresh(true); notice.value = '账号设置已保存；权限变更需重新连接，仅修改显示名称不影响已有连接。'
   })
 }

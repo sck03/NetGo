@@ -179,6 +179,10 @@ func (m *Manager) Grant(c model.Credential, g model.RemoteGrant) (model.RemoteGr
 			return errors.New("invalid_remote_grant_expiry")
 		}
 		old := st.RemoteGrants[g.ID]
+		if old.ID == g.ID && old.Capabilities == g.Capabilities && old.ExpiresAt.Equal(g.ExpiresAt) {
+			g = old
+			return nil
+		}
 		if old.Revision == math.MaxUint64 {
 			return model.ErrConflict
 		}

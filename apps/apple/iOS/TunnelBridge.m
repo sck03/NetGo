@@ -2,6 +2,13 @@
 #import <NetGoMobile/Mobile.objc.h>
 #import <Security/Security.h>
 
+@interface RemoteActivityProbe : NSObject <MobileRemoteActivity>
+@property(nonatomic,copy) BOOL (^active)(void);
+@end
+@implementation RemoteActivityProbe
+- (BOOL)controlActive { return self.active && self.active(); }
+@end
+
 @interface TunnelBridge () <MobilePlatform>
 @property(atomic,strong) MobileClient *client;
 @property(nonatomic) int fd;
@@ -46,7 +53,9 @@
 - (long)tunnelFD{return self.fd;}
 - (NSString *)interfaceName{return self.interface;}
 - (BOOL)configureNetwork:(NSString *)address address6:(NSString *)address6 dns:(NSString *)dns routes:(NSString *)routes error:(NSError **)error {if(self.applyNetwork)self.applyNetwork(address,address6,dns,routes);return YES;}
-- (NSData *)message:(NSData *)data {
+- (NSData *)message:(NSData *)data active:(BOOL (^)(void))active {
+	RemoteActivityProbe *probe=[RemoteActivityProbe new];probe.active=active;
+	if(!probe.controlActive)return [NSJSONSerialization dataWithJSONObject:@{@"error":@"control_cancelled"} options:0 error:nil];
  MobileClient *client=self.client;
  NSError *error=nil;NSDictionary *request=[NSJSONSerialization JSONObjectWithData:data options:0 error:&error];
  if(!client||!request)return [NSJSONSerialization dataWithJSONObject:@{@"error":@"VPN 未连接"} options:0 error:nil];
@@ -56,7 +65,7 @@
  else if([path hasPrefix:@"/desktop/remote/context"]){NSURLComponents *parts=[NSURLComponents componentsWithString:[@"http://localhost" stringByAppendingString:path]];NSString *site=@"";for(NSURLQueryItem *item in parts.queryItems)if([item.name isEqualToString:@"site"])site=item.value;result=[client remoteContext:site error:&error];}
  else {
   NSDictionary *value=[NSJSONSerialization JSONObjectWithData:[body dataUsingEncoding:NSUTF8StringEncoding] options:0 error:&error];
-  if([path isEqualToString:@"/desktop/remote/call"]){NSString *json=@"";if(value[@"Body"]&&value[@"Body"]!=[NSNull null])json=[[NSString alloc]initWithData:[NSJSONSerialization dataWithJSONObject:value[@"Body"] options:NSJSONWritingFragmentsAllowed error:&error] encoding:NSUTF8StringEncoding];result=[client remoteCall:value[@"Site"] method:value[@"Method"] path:value[@"Path"] body:json key:value[@"Idempotency"]?:@"" error:&error];}
+  if([path isEqualToString:@"/desktop/remote/call"]){NSString *json=@"";if(value[@"Body"]&&value[@"Body"]!=[NSNull null])json=[[NSString alloc]initWithData:[NSJSONSerialization dataWithJSONObject:value[@"Body"] options:NSJSONWritingFragmentsAllowed error:&error] encoding:NSUTF8StringEncoding];result=[client remoteCall:value[@"Site"] method:value[@"Method"] path:value[@"Path"] body:json key:value[@"Idempotency"]?:@"" active:probe error:&error];}
   else if([path isEqualToString:@"/desktop/remote/sign"]){NSString *text=[value[@"Message"] stringByReplacingOccurrencesOfString:@"-" withString:@"+"];text=[text stringByReplacingOccurrencesOfString:@"_" withString:@"/"];while(text.length%4)text=[text stringByAppendingString:@"="];NSData *signature=[client signPossession:value[@"Site"] message:[[NSData alloc]initWithBase64EncodedString:text options:0] error:&error];if(signature)result=[[NSString alloc]initWithData:[NSJSONSerialization dataWithJSONObject:@{@"signature":[[[signature base64EncodedStringWithOptions:0] stringByReplacingOccurrencesOfString:@"+" withString:@"-"] stringByReplacingOccurrencesOfString:@"/" withString:@"_"]} options:0 error:&error] encoding:NSUTF8StringEncoding];}
   else if([path isEqualToString:@"/desktop/disconnect"]){[client disconnect:&error];result=[client status];}
  }
