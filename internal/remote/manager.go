@@ -94,7 +94,7 @@ func (m *Manager) Register(c model.Credential, h model.Host) (model.Host, error)
 	if h.ID != c.DeviceID || len(strings.TrimSpace(h.Name)) == 0 || len(h.Name) > 128 || !capabilities(h.Capabilities) || h.Port < 1024 || (h.Platform != "windows" && h.Platform != "macos" && h.Platform != "linux") {
 		return h, errors.New("invalid_remote_host")
 	}
-	err := m.Store.RemoteUpdate(func(st *model.State) error {
+	err := m.Store.RemotePolicyUpdate(func(st *model.State) error {
 		now := m.now()
 		if e := current(st, c, now); e != nil {
 			return e
@@ -155,7 +155,7 @@ func (m *Manager) Grant(c model.Credential, g model.RemoteGrant) (model.RemoteGr
 		return g, errors.New("invalid_remote_capabilities")
 	}
 	g.ID = model.Hash(g.UserID + ":" + g.HostID)
-	err := m.Store.RemoteUpdate(func(st *model.State) error {
+	err := m.Store.RemotePolicyUpdate(func(st *model.State) error {
 		now := m.now()
 		if e := current(st, c, now); e != nil {
 			return e
@@ -196,7 +196,7 @@ func (m *Manager) Grant(c model.Credential, g model.RemoteGrant) (model.RemoteGr
 }
 
 func (m *Manager) DeleteGrant(c model.Credential, id string) error {
-	return m.Store.RemoteUpdate(func(st *model.State) error {
+	return m.Store.RemotePolicyUpdate(func(st *model.State) error {
 		if e := current(st, c, m.now()); e != nil {
 			return e
 		}

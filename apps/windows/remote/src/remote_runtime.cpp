@@ -527,6 +527,7 @@ void view(const std::string &site, const std::string &hostID, uint32_t capabilit
         std::unique_ptr<video::Codec> decoder;
         std::unique_ptr<audio::Stream> sound;
         uint32_t capabilities = 0;
+        std::array<std::shared_ptr<Frame>, 3> frames{};
     };
     Bridge bridge{site, std::move(cb), nullptr, {}, {}};
     ng_remote_client_options options{};
@@ -652,8 +653,16 @@ void view(const std::string &site, const std::string &hostID, uint32_t capabilit
     options.video = [](void *p, const uint8_t *bytes, size_t size, int64_t stamp) -> int32_t {
         try {
             auto &b = *static_cast<Bridge *>(p);
-            for (auto &frame : b.decoder->decode({stamp, false, Bytes(bytes, bytes + size)}))
-                b.cb.present({frame.width, frame.height, video::nv12_to_bgra(frame)});
+            b.decoder->decode(bytes, size, stamp, [&](const video::Frame& decoded) {
+                for (auto& frame : b.frames) {
+                    if (!frame) frame = std::make_shared<Frame>();
+                    if (frame.use_count() != 1) continue;
+                    frame->width = decoded.width; frame->height = decoded.height;
+                    video::nv12_to_bgra(decoded, frame->bgra);
+                    b.cb.present(frame);
+                    break; // A slow presenter may hold at most three surfaces; discard stale frames.
+                }
+            });
             return 0;
         } catch (...) {
             return -1;

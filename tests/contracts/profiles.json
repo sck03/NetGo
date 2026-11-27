@@ -16,6 +16,8 @@
     {"name":"new gateway needs version","old":{},"next":{"GatewayIP":"100.96.0.2"},"accept":false},
     {"name":"new gateway versioned","old":{},"next":{"ConfigRevision":3,"GatewayIP":"100.96.0.2"},"accept":true},
     {"name":"bootstrap publication","old":{"ConfigRevision":0},"next":{"ConfigRevision":1},"accept":true},
+    {"name":"manual bootstrap receives server gateway and candidates","old":{"ConfigRevision":0,"GatewayPeerID":"","Candidates":[{"ID":"direct","Address":"wan1.example:10443","Kind":"direct"}]},"next":{"ConfigRevision":1,"GatewayPeerID":"gateway","Candidates":[{"ID":"local","Address":"wan1.example:10443","Kind":"direct"}],"InternetDNS":["1.1.1.1"]},"accept":true},
+    {"name":"bootstrap cannot replace trust authority","old":{"ConfigRevision":0},"next":{"ConfigRevision":1,"Origin":"https://attacker.example:10443"},"accept":false},
     {"name":"bootstrap manual address edit","old":{"ConfigRevision":0},"next":{"ConfigRevision":0,"Candidates":[{"ID":"wan2","Address":"wan2.example:10443","Kind":"direct"}]},"accept":true},
     {"name":"negative revision","old":{},"next":{"ConfigRevision":-1},"accept":false},
     {"name":"fractional revision","old":{},"next":{"ConfigRevision":2.5},"accept":false},

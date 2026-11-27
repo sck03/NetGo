@@ -93,6 +93,7 @@ public:
  Json profiles();
  void importProfile(const Json& p,bool replaceTrust=false);
  void disconnect();
+  void recoverEngine();
  void connect(const Json& request);
 };
 }

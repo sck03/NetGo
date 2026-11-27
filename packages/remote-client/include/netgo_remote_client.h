@@ -54,7 +54,9 @@ enum {
     NG_REMOTE_CLIENT_BUSY = -3
 };
 int32_t ng_remote_client_create(const ng_remote_client_options *options, ng_remote_client **output);
-/* Run once, on a worker thread. Cancel is thread safe and idempotent. Destroy
+/* File IO has its own bounded worker; event callbacks remain on the run caller.
+ * A command timeout cancels its transfer, while media and authorization continue.
+ * Run once, on a worker thread. Cancel is thread safe and idempotent. Destroy
  * only after run has returned and the caller has joined its worker. */
 int32_t ng_remote_client_run(ng_remote_client *client);
 /* Thread-safe bounded commands: clipboard.get/set, file.list, upload,

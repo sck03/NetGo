@@ -27,7 +27,7 @@ if ($IncludeTestData) {
     # Generated installer fixtures; these are not installed station data.
     $taskTargets += @('.cache/installer-lab', '.cache/cleanup-before.json', '.cache/cleanup-after.json',
         '.cache/cleanup-plan.json', '.cache/cleanup-recycled.json', '.cache/cleanup-measurement.json',
-        '.cache/audit-probes', '.cache/audit-relay-probe', '.cache/windows-project')
+        '.cache/audit-probes', '.cache/audit-relay-probe', '.cache/windows-project', '.cache/openssl-build.log')
     $reportRoot = Join-Path $taskRoot '.cache'
     if (Test-Path -LiteralPath $reportRoot) {
         Get-ChildItem -LiteralPath $reportRoot -Directory | Where-Object {
@@ -45,7 +45,7 @@ if ($IncludeSDK) {
 
 if ($IncludeToolchains) {
     $taskTargets += '.cache/audit-tools'
-    $taskTargets += @('.tools/go', '.tools/android', '.tools/native-json', '.tools/openssl-native', '.tools/openssl-source',
+    $taskTargets += @('.tools/go', '.tools/android', '.tools/native-json', '.tools/openssl-native', '.tools/openssl-source', '.tools/openssl-validation',
         '.tools/wintun-package', '.tools/wintun-0.14.1.zip')
     $toolRoot = Join-Path $taskRoot '.tools'
     if (Test-Path -LiteralPath $toolRoot) {
@@ -55,6 +55,9 @@ if ($IncludeToolchains) {
             }
         }
     }
+    Get-ChildItem -LiteralPath (Join-Path $taskRoot '.cache') -File -Filter '*.zip' -ErrorAction SilentlyContinue | Where-Object {
+        $_.Name -match '^(go[0-9]+[.][0-9]+[.][0-9]+[.]windows-(amd64|arm64)|node-v[0-9]+[.][0-9]+[.][0-9]+-win-(x64|arm64))[.]zip$'
+    } | ForEach-Object { $taskTargets += '.cache/' + $_.Name }
 }
 # Parent entries supersede nested SDK/cache entries; never count or remove twice.
 $taskTargets = @($taskTargets | Sort-Object -Unique | Where-Object {
@@ -91,7 +94,7 @@ function Get-TaskTarget([string]$Relative, [bool]$CheckRepository = $true) {
     } else { $bytes = $item.Length }
     # Empty directory remnants reclaim no file bytes; leave them alone.
     if ($item.PSIsContainer -and $bytes -eq 0) { return }
-    if ($CheckRepository -and $Relative.Replace('\', '/') -eq '.tools/openssl-source' -and (Test-Path -LiteralPath (Join-Path $target '.git'))) {
+    if ($CheckRepository -and $Relative.Replace('\', '/') -in @('.tools/openssl-source','.tools/openssl-validation') -and (Test-Path -LiteralPath (Join-Path $target '.git'))) {
         $changed = @(git -C $target status --porcelain --untracked-files=normal)
         if ($LASTEXITCODE -ne 0 -or $changed.Count) { throw "OpenSSL source contains uncommitted work: $target" }
     }

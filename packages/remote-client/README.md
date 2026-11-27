@@ -30,6 +30,18 @@ commands use the shared bounded exchange module. Files use a window of at most
 eight ordered chunks, cancellation, integrity checks and publication without
 overwriting an existing destination; platform UI owns file selection and storage.
 
+The viewer's `AsyncExchange` owns `Exchange` and local filesystem operations on
+one joined worker. Media only exchanges bounded messages; progress is coalesced,
+completion events remain on the run caller, and handles close before completion.
+Command deadlines retire old IDs and cancel the transfer without ending valid
+media; late replies cannot corrupt a subsequent command. The host reserves one
+cancellation slot beyond the eight ordinary commands. If cancellation also times
+out, new commands remain paused until its late acknowledgement confirms cleanup.
+Windows requests IO
+cancellation for a stalled operation and on shutdown. Publication rechecks
+cancellation and download authority after flush. A noncooperating filesystem
+driver can still delay join; workers are never detached from their owners.
+
 The TLS test fixture exercises real sockets, key pinning and possession; its
 six-byte video marker tests protocol dispatch and is not a media benchmark.
 

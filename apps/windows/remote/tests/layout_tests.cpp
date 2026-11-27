@@ -19,5 +19,13 @@ int main(){try{
   check(std::abs(double(size.width)/size.height-double(input.width)/input.height)<0.01);
  }
  auto small=netgo::video::fit_size(640,480);check(small.width==640&&small.height==480);
+ // Fixed session canvas must survive a smaller source and an aspect ratio change.
+ netgo::video::Frame converted;
+ std::vector<std::uint8_t> pixels(640*480*4,255), bgra;
+ netgo::video::bgra_to_nv12(pixels.data(),640,480,640*4,1280,720,converted);
+ check(converted.width==1280&&converted.height==720&&converted.nv12.front()==235&&converted.nv12[1280*720-1]==235);
+ netgo::video::nv12_to_bgra(converted,bgra);check(bgra.size()==1280*720*4&&bgra.front()>250);
+ auto storage=bgra.data();netgo::video::nv12_to_bgra(converted,bgra);check(storage==bgra.data());
+ bool invalid=false;try{netgo::video::bgra_to_nv12(pixels.data(),0,480,640*4,1280,720,converted);}catch(const std::invalid_argument&){invalid=true;}check(invalid);
  std::cout<<"PASS aspect-preserving video size, letterbox input exclusion, drag clamp and minimized window\n";return 0;
  }catch(const std::exception& e){std::cerr<<e.what()<<'\n';return 1;}}

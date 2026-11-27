@@ -22,7 +22,9 @@ HWND window = nullptr, list = nullptr, connectButton = nullptr, hostButton = nul
      notice = nullptr;
 HWND refreshButton = nullptr, viewOnly = nullptr, audioOption = nullptr, fullButton = nullptr;
 HWND unattendedOption = nullptr, exchangeButton = nullptr;
-bool unattendedMode = false, autoHosting = false;
+bool unattendedMode = false;
+std::atomic_bool autoHosting = false;
+bool preservePreferences = false;
 std::deque<Json> commands;
 Json remoteFiles = Json::array();
 bool fullscreen = false;
@@ -182,26 +184,28 @@ void toggleFullscreen() {
 }
 void saveUnattended(bool enabled) {
     if (enabled) {
-        auto saved = pipeCall({{"action", "credential-info"}, {"site", site}});
+        auto saved = pipeCall({{"action", "credential-info"}, {"site", site}}, [] { return running.load(); });
         if (!saved.value("remembered", false))
             throw Error("请先在主界面勾选记住密码并成功连接，再开启登录恢复");
     }
     UiPreferences::update([&](auto& next) {
         if (enabled) {
+            if (!running || closing) throw Error("cancelled");
             next.startup = next.autoConnect = true;
             next.autoConnectSite = next.unattendedSite = site;
         } else if (next.unattendedSite == site) next.unattendedSite.clear();
     });
-    autoHosting = enabled;
 }
 void stop() {
-    if (autoHosting) {
+    running = false;
+    if (!preservePreferences && (autoHosting || unattendedMode)) {
         try {
             saveUnattended(false);
         } catch (const std::exception &e) {
             postStatus(e.what());
         }
     }
+    autoHosting = false;
     receiving = false;
     running = false;
     activeCaps = 0;
@@ -221,14 +225,14 @@ void queue(Json value) {
 desktop::Callbacks callbacks() {
     return {[] { return running.load(); },
             postStatus,
-            [](desktop::Frame value) {
+            [](std::shared_ptr<const desktop::Frame> value) {
                 if (!running || closing)
                     return;
                 {
                     std::lock_guard lock(mutex);
                     if (!running || closing)
                         return;
-                    frame = std::make_shared<const desktop::Frame>(std::move(value));
+                    frame = std::move(value);
                 }
                 receiving = true;
                 postUpdate();
@@ -269,19 +273,11 @@ desktop::Callbacks callbacks() {
 void start(bool host, const std::string &id = {}) {
     if (busy.exchange(true))
         return;
-    if (host) {
-        try {
-            saveUnattended(SendMessageW(unattendedOption, BM_GETCHECK, 0, 0) == BST_CHECKED);
-        } catch (const std::exception &e) {
-            busy = false;
-            postStatus(e.what());
-            return;
-        }
-    }
     if (worker.joinable())
         worker.join();
     auto caps = uint32_t(NG_REMOTE_VIEW | NG_REMOTE_CLIPBOARD | NG_REMOTE_UPLOAD | NG_REMOTE_DOWNLOAD);
     unattendedMode = SendMessageW(unattendedOption, BM_GETCHECK, 0, 0) == BST_CHECKED;
+    if (host) autoHosting = unattendedMode;
     {
         std::lock_guard lock(mutex);
         commands.clear();
@@ -302,12 +298,17 @@ void start(bool host, const std::string &id = {}) {
     EnableWindow(stopButton, TRUE);
     postStatus(host ? "正在开启本机共享…" : "正在连接远程主机…");
     worker = std::thread([host, id, caps] {
+        bool preferencesReady = !host;
         try {
-            if (host)
+            if (host) {
+                saveUnattended(unattendedMode);
+                preferencesReady = true;
+                if (!running) throw Error("cancelled");
                 desktop::host(site, callbacks());
-            else
+            } else
                 desktop::view(site, id, caps, callbacks());
         } catch (const std::exception &e) {
+            if (host && (!preferencesReady || !running)) autoHosting = false;
             postStatus(std::string("远程桌面已停止：") + e.what());
         }
         PostMessageW(window, done, 0, 0);
@@ -435,6 +436,7 @@ void exchangeMenu() {
 LRESULT CALLBACK proc(HWND h, UINT m, WPARAM w, LPARAM l) {
     if (m == remoteShutdownMessage()) {
         // Application exit preserves the user's next-login preference.
+        preservePreferences = true;
         autoHosting = false;
         PostMessageW(h, WM_CLOSE, 0, 0);
         return 0;
@@ -782,7 +784,8 @@ LRESULT CALLBACK proc(HWND h, UINT m, WPARAM w, LPARAM l) {
             queue({{"type", "release"}});
         break;
     case WM_CLOSE:
-        if (autoHosting) {
+        running = false;
+        if (!preservePreferences && (autoHosting || unattendedMode)) {
             try {
                 saveUnattended(false);
             } catch (...) {
@@ -819,7 +822,7 @@ int remoteMain(HINSTANCE instance, int show, const std::wstring &siteValue, bool
             site.find_first_not_of("ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789_.-") !=
                 std::string::npos)
             return 2;
-        Handle single(CreateMutexW(nullptr, TRUE, wide("Local\\NetGoRemote-" + sid()).c_str()));
+        Handle single(CreateMutexW(nullptr, TRUE, wide("Local\\NetGoRemote-" + sid() + "-" + site).c_str()));
         if (GetLastError() == ERROR_ALREADY_EXISTS) {
             MessageBoxW(nullptr, L"已有远程桌面窗口正在运行。", L"NetGo", MB_OK);
             return 0;
@@ -832,7 +835,8 @@ int remoteMain(HINSTANCE instance, int show, const std::wstring &siteValue, bool
         WNDCLASSW cls{};
         cls.hInstance = instance;
         cls.lpfnWndProc = proc;
-        cls.lpszClassName = L"NetGoRemoteWindow";
+        auto className = remoteWindowClass(site);
+        cls.lpszClassName = className.c_str();
         cls.hCursor = LoadCursorW(nullptr, IDC_ARROW);
         cls.hIcon = LoadIconW(instance, MAKEINTRESOURCEW(101));
         cls.hbrBackground = reinterpret_cast<HBRUSH>(COLOR_BTNFACE + 1);

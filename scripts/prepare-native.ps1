@@ -14,7 +14,20 @@ if((Get-AuthenticodeSignature -LiteralPath $driver).Status -ne 'Valid'){throw 'W
 $sslSource=Join-Path $root '.tools\openssl-source'
 $sslRoot=Join-Path $root '.tools\openssl-native'
 $commit='2f4e3a5fec05394068cfa7379890ab552483a8a6'
-if(-not(Test-Path -LiteralPath $sslSource)){git clone --depth 1 --branch openssl-4.1.0 https://github.com/openssl/openssl.git $sslSource;if($LASTEXITCODE -ne 0){throw 'OpenSSL clone failed'}}
+# Cleanup may leave an empty directory tree. Initialize it without deleting it,
+# and require its own .git so revision checks never walk into the parent project.
+if(-not(Test-Path -LiteralPath (Join-Path $sslSource '.git\HEAD') -PathType Leaf)){
+ if(Test-Path -LiteralPath $sslSource){
+  if((Get-Item -LiteralPath $sslSource).Attributes -band [IO.FileAttributes]::ReparsePoint){throw 'Linked OpenSSL source directory'}
+  foreach($item in Get-ChildItem -LiteralPath $sslSource -Force -Recurse){
+   if(-not $item.PSIsContainer -or ($item.Attributes -band [IO.FileAttributes]::ReparsePoint)){throw 'OpenSSL source contains unverified files or links'}
+  }
+ }
+ git init --quiet $sslSource;if($LASTEXITCODE -ne 0){throw 'OpenSSL repository initialization failed'}
+ git -C $sslSource remote add origin https://github.com/openssl/openssl.git;if($LASTEXITCODE -ne 0){throw 'OpenSSL remote setup failed'}
+ git -C $sslSource fetch --depth 1 origin $commit;if($LASTEXITCODE -ne 0){throw 'OpenSSL fetch failed'}
+ git -C $sslSource checkout --detach FETCH_HEAD;if($LASTEXITCODE -ne 0){throw 'OpenSSL checkout failed'}
+}
 if((git -C $sslSource rev-parse HEAD) -ne $commit){throw 'OpenSSL source revision mismatch'}
 if(-not(Test-Path -LiteralPath (Join-Path $sslRoot 'lib64\libssl.a'))){
  if($SkipOpenSSLBuild){throw 'OpenSSL 4.1.0 static libraries unavailable'}

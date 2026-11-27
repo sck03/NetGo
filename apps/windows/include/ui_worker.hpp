@@ -8,6 +8,7 @@ struct UiResult {
     std::string action, site;
     Json value;
     std::string error;
+    bool recovered = false;
 };
 
 // Owns IPC work and undelivered results; window messages carry no heap pointers.

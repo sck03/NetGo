@@ -190,7 +190,7 @@ void editProfile(bool create, bool advanced = false) {
     Json p =
         create
             ? Json{{"Protocol", 2},
-                   {"ConfigRevision", 1},
+                   {"ConfigRevision", 0},
                    {"ID", "site1"},
                    {"Name", "我的服务器"},
                    {"Origin", "https://control.example.com:10443"},
@@ -825,6 +825,8 @@ LRESULT CALLBACK proc(HWND h, UINT m, WPARAM w, LPARAM l) {
         case DM_GETDEFID:
             return MAKELRESULT(Connect, DC_HASDEFID);
         case WM_TIMER:
+            remoteProcess.poll();
+            if (exiting) return 0;
             if (!polling.exchange(true))
                 submit({{"action", "status"}});
             if (TabCtrl_GetCurSel(controls[Tabs]) == 3 && !logsPending) {
@@ -888,6 +890,7 @@ LRESULT CALLBACK proc(HWND h, UINT m, WPARAM w, LPARAM l) {
                 }
                 return 0;
             }
+            if (r->recovered && r->action != "profiles") submit({{"action", "profiles"}});
             if (r->action == "profiles") {
                 sites = r->value;
                 if (!selected())
@@ -918,6 +921,7 @@ LRESULT CALLBACK proc(HWND h, UINT m, WPARAM w, LPARAM l) {
             } else if (r->action == "status" || r->action == "connect" || r->action == "disconnect") {
                 bool wasConnected = currentStatus.value("state", "") == "connected";
                 drawStatus(r->value);
+                if (wasConnected && currentStatus.value("state", "") != "connected") remoteProcess.stop();
                 if (!wasConnected && currentStatus.value("state", "") == "connected") {
                     submit({{"action", "credential-info"}, {"site", chosen}});
                     launchUnattended();
@@ -957,23 +961,6 @@ LRESULT CALLBACK proc(HWND h, UINT m, WPARAM w, LPARAM l) {
     }
     return DefWindowProcW(h, m, w, l);
 }
-void launchAgent() {
-    try {
-        pipeCall({{"action", "status"}});
-        return;
-    } catch (...) {
-    }
-    auto file = executableDir() / L"NetGo.exe";
-    std::wstring command = L"\"" + file.wstring() + L"\" --agent";
-    STARTUPINFOW start{};
-    start.cb = sizeof(start);
-    PROCESS_INFORMATION p{};
-    if (!CreateProcessW(file.c_str(), command.data(), nullptr, nullptr, FALSE, CREATE_NO_WINDOW, nullptr,
-                        file.parent_path().c_str(), &start, &p))
-        throw Error("agent_unavailable");
-    CloseHandle(p.hThread);
-    CloseHandle(p.hProcess);
-}
 } // namespace
 int desktopMain(HINSTANCE instance, PWSTR args, int show) {
     try {
@@ -994,7 +981,6 @@ int desktopMain(HINSTANCE instance, PWSTR args, int show) {
         preferences = UiPreferences::load();
         chosen = preferences.selected;
         if (preferences.autoConnect) chosen = preferences.autoConnectSite;
-        launchAgent();
         WNDCLASSW c{};
         c.hInstance = instance;
         c.lpfnWndProc = proc;

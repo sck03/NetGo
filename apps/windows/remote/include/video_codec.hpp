@@ -2,6 +2,7 @@
 #include <cstdint>
 #include <memory>
 #include <vector>
+#include <functional>
 
 namespace netgo::video {
 // One worker thread owns each codec. Bounded samples; platform handles remain
@@ -18,12 +19,13 @@ public:
  ~Codec();
  Codec(const Codec&)=delete;Codec& operator=(const Codec&)=delete;
  std::vector<Packet> encode(const Frame&,std::int64_t timestamp);
- std::vector<Frame> decode(const Packet&);
+ // The decoded frame is borrowed until the callback returns; its storage is reused.
+ void decode(const std::uint8_t*, std::size_t, std::int64_t, const std::function<void(const Frame&)>&);
  void reset();
 private:
  struct Impl;std::unique_ptr<Impl> impl_;
 };
 void bgra_to_nv12(const std::uint8_t* bgra,std::uint32_t width,std::uint32_t height,std::uint32_t stride,std::uint32_t output_width,std::uint32_t output_height,Frame& output);
 Frame bgra_to_nv12(const std::uint8_t* bgra,std::uint32_t width,std::uint32_t height,std::uint32_t stride,std::uint32_t output_width,std::uint32_t output_height);
-std::vector<std::uint8_t> nv12_to_bgra(const Frame&);
+void nv12_to_bgra(const Frame&, std::vector<std::uint8_t>& output);
 }

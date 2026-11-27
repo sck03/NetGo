@@ -72,8 +72,19 @@ func (m *Manager) update(ctx context.Context, fn func(*model.State) error) error
 }
 
 func (m *Manager) commit(ctx context.Context, fn func(*model.State) error) error {
+	return m.commitWith(ctx, fn, m.Store.Update)
+}
+
+func (m *Manager) vpnUpdate(ctx context.Context, fn func(*model.State) error) error {
+	if m.stopped {
+		return ErrStopped
+	}
+	return m.commitWith(ctx, fn, m.Store.VPNUpdate)
+}
+
+func (m *Manager) commitWith(ctx context.Context, fn func(*model.State) error, write func(func(*model.State) error) error) error {
 	touched := false
-	e := m.Store.Update(func(st *model.State) error {
+	e := write(func(st *model.State) error {
 		if e := fn(st); e != nil {
 			return e
 		}
@@ -114,7 +125,7 @@ func (m *Manager) Acquire(ctx context.Context, c model.Credential, peer string, 
 	now := m.now()
 	fp := model.Hash(fmt.Sprintf("%s|%s|%s|%d|%t", c.UserID, c.DeviceID, peer, generation, replace))
 	opKey := model.Hash(c.UserID + ":" + key)
-	e = m.update(ctx, func(st *model.State) error {
+	e = m.vpnUpdate(ctx, func(st *model.State) error {
 		// Authorization may have been revoked while reconciliation or peer lookup ran.
 		if !credentialCurrent(st, c, m.now()) {
 			return model.ErrUnauthorized
@@ -271,7 +282,7 @@ func (m *Manager) Renew(ctx context.Context, c model.Credential, id string, gene
 func (m *Manager) Revoke(ctx context.Context, actor, id string) error {
 	m.mu.Lock()
 	defer m.mu.Unlock()
-	return m.update(ctx, func(st *model.State) error {
+	return m.vpnUpdate(ctx, func(st *model.State) error {
 		l, ok := st.Leases[id]
 		if !ok {
 			return nil

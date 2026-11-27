@@ -11,7 +11,7 @@ struct Frame {
 struct Callbacks {
     std::function<bool()> running;
     std::function<void(std::string)> status;
-    std::function<void(Frame)> present;
+    std::function<void(std::shared_ptr<const Frame>)> present;
     std::function<bool(const std::string &, uint32_t)> consent;
     std::function<std::vector<Json>()> inputs;
     std::function<void(uint32_t)> permissions;

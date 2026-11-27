@@ -5,12 +5,12 @@ UINT remoteShutdownMessage() {
     static const UINT message = RegisterWindowMessageW(L"NetGo.RemoteShutdown.v2");
     return message;
 }
-void RemoteProcess::launch(const std::string& site, bool host) {
-    if (auto existing = FindWindowW(L"NetGoRemoteWindow", nullptr)) {
+std::wstring remoteWindowClass(const std::string& site) { return wide("NetGoRemoteWindow-" + site); }
+void RemoteProcess::start(const std::string& site, bool host) {
+    if (auto existing = FindWindowW(remoteWindowClass(site).c_str(), nullptr)) {
         if (!host) { ShowWindow(existing, SW_RESTORE); SetForegroundWindow(existing); }
         return;
     }
-    if (process_.value && WaitForSingleObject(process_, 0) == WAIT_TIMEOUT) return;
     if (!job_.value) {
         Handle job(CreateJobObjectW(nullptr, nullptr));
         JOBOBJECT_EXTENDED_LIMIT_INFORMATION limits{};
@@ -40,9 +40,44 @@ void RemoteProcess::launch(const std::string& site, bool host) {
     if (process_.value) CloseHandle(process_.value);
     process_.value = process.value;
     process.value = nullptr;
+    site_ = site;
 }
-void RemoteProcess::stop() {
-    if (auto window = FindWindowW(L"NetGoRemoteWindow", nullptr))
+void RemoteProcess::requestStop() {
+    if (!process_.value || stopDeadline_ != Clock::time_point{}) return;
+    stopDeadline_ = Clock::now() + std::chrono::seconds(5);
+    auto window = FindWindowW(remoteWindowClass(site_).c_str(), nullptr);
+    DWORD owner = 0;
+    if (window) GetWindowThreadProcessId(window, &owner);
+    if (owner == GetProcessId(process_))
         PostMessageW(window, remoteShutdownMessage(), 0, 0);
+}
+void RemoteProcess::launch(const std::string& site, bool host) {
+    if (site == site_ && process_.value && WaitForSingleObject(process_, 0) == WAIT_TIMEOUT &&
+        stopDeadline_ == Clock::time_point{}) {
+        if (!host) if (auto window = FindWindowW(remoteWindowClass(site).c_str(), nullptr)) {
+            ShowWindow(window, SW_RESTORE); SetForegroundWindow(window);
+        }
+        return;
+    }
+    pendingSite_ = site; pendingHost_ = host;
+    requestStop();
+    poll();
+}
+void RemoteProcess::stop() { pendingSite_.clear(); requestStop(); }
+void RemoteProcess::poll() {
+    if (process_.value) {
+        if (WaitForSingleObject(process_, 0) == WAIT_TIMEOUT) {
+            if (stopDeadline_ != Clock::time_point{} && Clock::now() >= stopDeadline_)
+                TerminateJobObject(job_, 1);
+            return;
+        }
+        CloseHandle(process_.value); process_.value = nullptr;
+        CloseHandle(job_.value); job_.value = nullptr;
+        site_.clear(); stopDeadline_ = {};
+    }
+    if (!pendingSite_.empty()) {
+        auto next = std::move(pendingSite_); pendingSite_.clear();
+        start(next, pendingHost_);
+    }
 }
 }

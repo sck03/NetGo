@@ -81,6 +81,11 @@ void Controller::disconnectLocked() {
  {std::lock_guard lock(mutex_);status_={{"state","disconnected"},{"generation",generation_}};}
 }
 void Controller::disconnect(){std::lock_guard op(operation_);disconnectLocked();}
+void Controller::recoverEngine(){
+ std::lock_guard op(operation_);
+ cleanupFailed_=true;
+ disconnectLocked();
+}
 void Controller::connect(const Json& r) {
  std::lock_guard op(operation_);std::string id=r.at("site");
  if(!std::regex_match(id,std::regex(R"(^[a-zA-Z0-9][a-zA-Z0-9_.-]{0,62}$)")))throw Error("invalid_site");

@@ -84,8 +84,10 @@ int main(int argc, char **argv) {
         const bool nonblocking = commands.take().is_null();
         for (unsigned id=2;id<=8;++id) check(commands.submit({{"id",id}}), "bounded command capacity lost");
         const bool bounded = !commands.submit({{"id",9u}});
+        const bool cancellationReserved = commands.submit({{"id",9u},{"action","file.cancel"}}) &&
+            !commands.submit({{"id",10u},{"action","file.cancel"}});
         release.set_value();
-        check(nonblocking && bounded, "slow IO blocks media or queue is unbounded");
+        check(nonblocking && bounded && cancellationReserved, "slow IO blocks media/cancellation or queue is unbounded");
     }
     {
         CommandWorker commands([](const Json&, const std::function<bool()>&) {
@@ -343,6 +345,19 @@ int main(int argc, char **argv) {
             exchange.receive({{"id", pending.at("id")}, {"result", {{"text", ""}}}});
             check(!exchange.push({{"action", "clipboard.set"}, {"text", std::string(8193, 'a')}}),
                   "oversized clipboard accepted");
+            exchange.push({{"action", "file.list"}});
+            auto expired = exchange.next(63);
+            auto cancellation = exchange.next(63, std::chrono::steady_clock::now() + std::chrono::seconds(11));
+            check(cancellation.at("action") == "file.cancel" && events.back().value("error", "") == "remote_command_timeout", "file timeout escaped into media");
+            exchange.receive({{"id", expired.at("id")}, {"result", {{"files", Json::array()}}}});
+            check(exchange.next(63, std::chrono::steady_clock::now() + std::chrono::seconds(11)).is_null(), "cancel timeout escaped");
+            exchange.push({{"action", "clipboard.get"}});
+            check(exchange.next(63).is_null() && events.back().value("error", "") == "remote_command_timeout", "new request exceeded stalled peer window");
+            exchange.receive({{"id", cancellation.at("id")}, {"result", {{"done", true}}}});
+            exchange.push({{"action", "clipboard.get"}});
+            auto next = exchange.next(63);
+            exchange.receive({{"id", next.at("id")}, {"result", {{"text", "still connected"}}}});
+            check(events.back().at("text") == "still connected", "late reply poisoned subsequent commands");
             for (auto &e : fs::directory_iterator(root / "remote"))
                 check(e.path().extension() != ".part", "temporary upload leaked");
         }

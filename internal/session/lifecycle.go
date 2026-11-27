@@ -30,11 +30,11 @@ func (m *Manager) Close(ctx context.Context) error {
 
 func (m *Manager) reset(ctx context.Context) error {
 	m.lastApply = time.Time{}
-	return m.commit(ctx, func(st *model.State) error {
+	return m.commitWith(ctx, func(st *model.State) error {
 		st.Leases = map[string]model.Lease{}
 		st.Operations = map[string]model.Operation{}
 		return nil
-	})
+	}, m.Store.VPNUpdate)
 }
 
 // A failed external apply or commit must not leave uncommitted access open.
@@ -46,7 +46,7 @@ func (m *Manager) failClosed() error {
 	cleanup, cancel := context.WithTimeout(context.Background(), 4*time.Second)
 	defer cancel()
 	gateErr := m.Gate.Apply(cleanup, nil)
-	storeErr := m.Store.Update(func(st *model.State) error {
+	storeErr := m.Store.VPNUpdate(func(st *model.State) error {
 		st.Leases = map[string]model.Lease{}
 		st.Operations = map[string]model.Operation{}
 		return nil

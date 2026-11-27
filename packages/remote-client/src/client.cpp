@@ -6,7 +6,7 @@
 #include "netgo_remote_clock.hpp"
 #include "netgo_remote_watchdog.hpp"
 #include "remote_input.hpp"
-#include "remote_exchange.hpp"
+#include "remote_async_exchange.hpp"
 #include <nlohmann/json.hpp>
 #include <openssl/evp.h>
 #include <openssl/rand.h>
@@ -154,7 +154,7 @@ struct ng_remote_client {
     std::atomic_bool cancelled = false, started = false;
     std::mutex controlMutex;
     std::vector<char> controlBuffer = std::vector<char>(4 << 20);
-    netgo::remote::Exchange exchange{[this](const Json &j) {
+    netgo::remote::AsyncExchange exchange{[this](const Json &j) {
         if (options.event) {
             auto s = j.dump();
             options.event(options.context, s.c_str());
@@ -471,7 +471,9 @@ extern "C" int32_t ng_remote_client_command(ng_remote_client *c, const char *dat
     }
 }
 extern "C" void ng_remote_client_cancel(ng_remote_client *c) {
-    if (c)
+    if (c) {
         c->cancelled = true;
+        c->exchange.cancel();
+    }
 }
 extern "C" void ng_remote_client_destroy(ng_remote_client *c) { delete c; }

@@ -84,6 +84,7 @@ void Exchange::reset() noexcept {
         discard(std::move(queued), "remote_disconnected");
         discard(std::move(discarded), "remote_transfer_cancelled");
         cancelling_ = false;
+        blockedCancel_ = 0;
         finish("remote_disconnected");
     } catch (...) {
         local_.reset();
@@ -99,7 +100,7 @@ Exchange::Json Exchange::send(Json command) {
     pending_.push_back({std::move(tracked), std::chrono::steady_clock::now() + std::chrono::seconds(10)});
     return command;
 }
-Exchange::Json Exchange::next(uint32_t caps) {
+Exchange::Json Exchange::next(uint32_t caps, std::chrono::steady_clock::time_point now) {
     bool cancel = false;
     std::deque<Json> discarded;
     {
@@ -108,6 +109,12 @@ Exchange::Json Exchange::next(uint32_t caps) {
         discarded.swap(discarded_);
     }
     discard(std::move(discarded), "remote_transfer_cancelled");
+    if (blockedCancel_) {
+        std::deque<Json> queued;
+        { std::lock_guard lock(mutex_); queued.swap(queue_); }
+        discard(std::move(queued), "remote_command_timeout");
+        return {};
+    }
     if (cancel)
         cancelling_ = true;
     if (!active_.is_null()) {
@@ -120,7 +127,17 @@ Exchange::Json Exchange::next(uint32_t caps) {
             cancelling_ = true;
     }
     if (!pending_.empty()) {
-        require(std::chrono::steady_clock::now() < pending_.front().deadline, "remote_command_timeout");
+        if (now >= pending_.front().deadline) {
+            // Responses remain ordered, but the peer may finish an expired request later.
+            // Retire its IDs without letting a file timeout tear down media or authorization.
+            const bool wasCancel = active_.value("action", "") == "cancel";
+            retired_ = id_;
+            finish("remote_command_timeout");
+            cancelling_ = false;
+            if (wasCancel) { blockedCancel_ = retired_; return {}; }
+            active_ = {{"action", "cancel"}};
+            return send({{"action", "file.cancel"}});
+        }
         if (cancelling_ || pending_.size() >= 8) return {};
     }
     if (cancelling_) {
@@ -198,6 +215,12 @@ void Exchange::advanceUpload() {
     sent_ += decode64(data, file_chunk).size();
 }
 void Exchange::receive(const Json &reply) {
+    require(reply.is_object() && reply.contains("id") && reply.at("id").is_number_unsigned(), "remote_command_mismatch");
+    if (blockedCancel_ && reply.at("id") == blockedCancel_) {
+        if (!reply.contains("error") && reply.contains("result") && reply.at("result").value("done", false)) blockedCancel_ = 0;
+        return;
+    }
+    if (reply.at("id").get<std::uint64_t>() <= retired_) return;
     require(!pending_.empty() && reply.at("id") == pending_.front().request.at("id"), "remote_command_mismatch");
     auto request = std::move(pending_.front().request);
     pending_.pop_front();
@@ -251,7 +274,10 @@ void Exchange::receive(const Json &reply) {
                     offset_ = local_->write(localToken_, offset_, bytes);
                 if (result.at("done").get<bool>()) {
                     require(offset_ == size_, "remote_file_incomplete");
-                    local_->commit(localToken_, result.at("sha256"));
+                    local_->commit(localToken_, result.at("sha256"), [this] {
+                        std::lock_guard lock(mutex_);
+                        return !cancel_ && (!allowed_ || allowed_());
+                    });
                     finish();
                     return;
                 }

@@ -1,4 +1,5 @@
 #include "ui_worker.hpp"
+#include "agent_lifecycle.hpp"
 
 namespace netgo {
 UiWorker::~UiWorker() { stop(); }
@@ -7,6 +8,7 @@ void UiWorker::start(HWND window, UINT message) {
     stop();
     stopped_ = false;
     thread_ = std::thread([this, window, message] {
+        AgentLifecycle agent;
         for (;;) {
             Json job;
             {
@@ -19,7 +21,7 @@ void UiWorker::start(HWND window, UINT message) {
             auto result = std::make_unique<UiResult>();
             result->action = job.at("action");
             result->site = job.value("site", "");
-            try { result->value = pipeCall(job, [this] { std::lock_guard lock(mutex_); return !stopped_; }); }
+            try { result->value = agent.call(job, [this] { std::lock_guard lock(mutex_); return !stopped_; }, result->recovered); }
             catch (const std::exception &e) { result->error = e.what(); }
             job = Json::object();
             std::lock_guard lock(mutex_);

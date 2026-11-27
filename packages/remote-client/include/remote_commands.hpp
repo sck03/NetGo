@@ -9,7 +9,8 @@
 #include <nlohmann/json.hpp>
 
 namespace netgo::remote {
-// One bounded worker owns file/clipboard commands; media and authorization never
+// One bounded worker owns eight file/clipboard commands plus one cancellation;
+// media and authorization never
 // wait for disk IO. Destruction cancels queued work and joins before its owners die.
 class CommandWorker {
     using Json = nlohmann::json;
@@ -22,6 +23,7 @@ class CommandWorker {
     std::atomic_bool stopped_{false};
     bool cancel_ = false;
     size_t outstanding_ = 0;
+    bool cancellationOutstanding_ = false;
     std::thread thread_;
     void run() {
         for (;;) {
@@ -59,7 +61,13 @@ public:
         if (!request.is_object() || !request.contains("id") || !request.at("id").is_number_unsigned())
             return false;
         std::lock_guard lock(mutex_);
-        if (stopped_ || outstanding_ >= 8) return false;
+        const auto action = request.find("action");
+        const bool cancellation = action != request.end() && action->is_string() && *action == "file.cancel";
+        // One reserved cancellation slot lets a timed-out full transfer window
+        // drain without treating disk backpressure as a media protocol failure.
+        if (stopped_ || (cancellation ? cancellationOutstanding_ || outstanding_ >= 9
+                                     : outstanding_ >= 8)) return false;
+        if (cancellation) cancellationOutstanding_ = true;
         requests_.push_back(std::move(request));
         ++outstanding_;
         wake_.notify_one();
@@ -69,6 +77,7 @@ public:
         std::lock_guard lock(mutex_);
         if (results_.empty()) return {};
         auto result = std::move(results_.front()); results_.pop_front(); --outstanding_;
+        if (result.value("_action", "") == "file.cancel") cancellationOutstanding_ = false;
         return result;
     }
     void cancel() {

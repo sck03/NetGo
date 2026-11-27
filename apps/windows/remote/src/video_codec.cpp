@@ -26,6 +26,7 @@ ComPtr<IMFSample> sample(const std::uint8_t* data,DWORD size,LONGLONG timestamp,
 std::vector<std::uint8_t> bytes(IMFSample* s){ComPtr<IMFMediaBuffer>b;check(s->ConvertToContiguousBuffer(b.GetAddressOf()),"contiguous buffer");BYTE* p=nullptr;DWORD n=0;check(b->Lock(&p,nullptr,&n),"output lock");if(n>max_sample){b->Unlock();throw std::runtime_error("oversize codec output");}std::vector<std::uint8_t> out;try{out.assign(p,p+n);}catch(...){b->Unlock();throw;}b->Unlock();return out;}
 }
 struct Codec::Impl {
+ Frame decoded;
  Mode mode;std::uint32_t width,height,fps;std::uint32_t decoded_stride{},decoded_height{};ComPtr<IMFTransform> transform;bool com=false,mf=false;
  Impl(Mode m,std::uint32_t w,std::uint32_t h,std::uint32_t f,std::uint32_t bitrate):mode(m),width(w),height(h),fps(f){
   dimensions(w,h);decoded_stride=w;decoded_height=h;if(f<1||f>60||bitrate<100'000||bitrate>40'000'000)throw std::invalid_argument("invalid video limits");
@@ -72,17 +73,22 @@ struct Codec::Impl {
 Codec::Codec(Mode m,std::uint32_t w,std::uint32_t h,std::uint32_t f,std::uint32_t b):impl_(std::make_unique<Impl>(m,w,h,f,b)){}
 Codec::~Codec()=default;
 std::vector<Packet> Codec::encode(const Frame& f,std::int64_t timestamp){auto& p=*impl_;if(p.mode!=Mode::encode||f.width!=p.width||f.height!=p.height||f.nv12.size()!=size_t(p.width)*p.height*3/2)throw std::invalid_argument("encoder frame mismatch");auto s=sample(f.nv12.data(),DWORD(f.nv12.size()),timestamp,10'000'000/p.fps);check(p.transform->ProcessInput(0,s.Get(),0),"encode frame");std::vector<Packet> out;for(auto& v:p.pull()){LONGLONG time=0;v->GetSampleTime(&time);UINT32 key=0;v->GetUINT32(MFSampleExtension_CleanPoint,&key);out.push_back({time,key!=0,bytes(v.Get())});}return out;}
-std::vector<Frame> Codec::decode(const Packet& packet){
+void Codec::decode(const std::uint8_t* data,std::size_t length,std::int64_t stamp,const std::function<void(const Frame&)>& receive){
  auto& p=*impl_;if(p.mode!=Mode::decode)throw std::invalid_argument("decoder mode");
- auto s=sample(packet.h264.data(),DWORD(packet.h264.size()),packet.timestamp,10'000'000/p.fps);check(p.transform->ProcessInput(0,s.Get(),0),"decode packet");std::vector<Frame> out;
+ if(!data||!length||length>max_sample)throw std::invalid_argument("video sample exceeds limit");
+ auto s=sample(data,DWORD(length),stamp,10'000'000/p.fps);check(p.transform->ProcessInput(0,s.Get(),0),"decode packet");
  for(auto& v:p.pull()){
-  auto raw=bytes(v.Get());size_t plane=size_t(p.decoded_stride)*p.decoded_height;
-  if(raw.size()<plane*3/2)throw std::runtime_error("short decoder output");
-  Frame frame{p.width,p.height,std::vector<std::uint8_t>(size_t(p.width)*p.height*3/2)};
-  for(UINT32 y=0;y<p.height;y++)std::memcpy(frame.nv12.data()+size_t(y)*p.width,raw.data()+size_t(y)*p.decoded_stride,p.width);
-  for(UINT32 y=0;y<p.height/2;y++)std::memcpy(frame.nv12.data()+size_t(p.width)*p.height+size_t(y)*p.width,raw.data()+plane+size_t(y)*p.decoded_stride,p.width);
-  out.push_back(std::move(frame));
- }return out;
+  ComPtr<IMFMediaBuffer> buffer;check(v->ConvertToContiguousBuffer(buffer.GetAddressOf()),"contiguous decoder buffer");
+  BYTE* raw=nullptr;DWORD size=0;check(buffer->Lock(&raw,nullptr,&size),"decoder buffer lock");
+  try {
+   size_t plane=size_t(p.decoded_stride)*p.decoded_height;
+   if(size<plane*3/2||size>max_sample)throw std::runtime_error("invalid decoder output");
+   auto& frame=p.decoded;frame.width=p.width;frame.height=p.height;frame.nv12.resize(size_t(p.width)*p.height*3/2);
+   for(UINT32 y=0;y<p.height;y++)std::memcpy(frame.nv12.data()+size_t(y)*p.width,raw+size_t(y)*p.decoded_stride,p.width);
+   for(UINT32 y=0;y<p.height/2;y++)std::memcpy(frame.nv12.data()+size_t(p.width)*p.height+size_t(y)*p.width,raw+plane+size_t(y)*p.decoded_stride,p.width);
+  }catch(...){buffer->Unlock();throw;}
+  buffer->Unlock();receive(p.decoded);
+ }
 }
 void Codec::reset(){check(impl_->transform->ProcessMessage(MFT_MESSAGE_COMMAND_FLUSH,0),"flush");check(impl_->transform->ProcessMessage(MFT_MESSAGE_NOTIFY_START_OF_STREAM,0),"restart stream");}
 
@@ -95,9 +101,11 @@ Size fit_size(std::uint32_t w,std::uint32_t h,std::uint32_t maxw,std::uint32_t m
 }
 
 void bgra_to_nv12(const std::uint8_t* data,std::uint32_t w,std::uint32_t h,std::uint32_t stride,std::uint32_t ow,std::uint32_t oh,Frame& out){
- dimensions(ow,oh);if(!data||w<ow||h<oh||w>16384||h>16384||stride<w*4)throw std::invalid_argument("BGRA input bounds");out.width=ow;out.height=oh;out.nv12.resize(size_t(ow)*oh*3/2);auto clip=[](int v){return std::uint8_t(std::clamp(v,0,255));};
+ // The negotiated canvas is fixed for the session. Match the GPU stretch and
+ // normalized input mapping when a source mode becomes smaller or changes aspect.
+ dimensions(ow,oh);if(!data||w<16||h<16||w>16384||h>16384||stride<w*4)throw std::invalid_argument("BGRA input bounds");out.width=ow;out.height=oh;out.nv12.resize(size_t(ow)*oh*3/2);auto clip=[](int v){return std::uint8_t(std::clamp(v,0,255));};
  for(std::uint32_t y=0;y<oh;y++)for(std::uint32_t x=0;x<ow;x++){const auto* p=data+size_t(y*h/oh)*stride+size_t(x*w/ow)*4;int b=p[0],g=p[1],r=p[2];out.nv12[size_t(y)*ow+x]=clip(((66*r+129*g+25*b+128)>>8)+16);if(!(y&1)&&!(x&1)){size_t uv=size_t(ow)*oh+size_t(y/2)*ow+x;out.nv12[uv]=clip(((-38*r-74*g+112*b+128)>>8)+128);out.nv12[uv+1]=clip(((112*r-94*g-18*b+128)>>8)+128);}}
 }
 Frame bgra_to_nv12(const std::uint8_t* data,std::uint32_t w,std::uint32_t h,std::uint32_t stride,std::uint32_t ow,std::uint32_t oh){Frame out;bgra_to_nv12(data,w,h,stride,ow,oh,out);return out;}
-std::vector<std::uint8_t> nv12_to_bgra(const Frame& f){dimensions(f.width,f.height);if(f.nv12.size()!=size_t(f.width)*f.height*3/2)throw std::invalid_argument("NV12 input bounds");std::vector<std::uint8_t> out(size_t(f.width)*f.height*4);auto clip=[](int v){return std::uint8_t(std::clamp(v,0,255));};for(std::uint32_t y=0;y<f.height;y++)for(std::uint32_t x=0;x<f.width;x++){int c=f.nv12[size_t(y)*f.width+x]-16;size_t uv=size_t(f.width)*f.height+size_t(y/2)*f.width+(x&~1u);int d=f.nv12[uv]-128,e=f.nv12[uv+1]-128;auto* p=out.data()+(size_t(y)*f.width+x)*4;p[0]=clip((298*c+516*d+128)>>8);p[1]=clip((298*c-100*d-208*e+128)>>8);p[2]=clip((298*c+409*e+128)>>8);p[3]=255;}return out;}
+void nv12_to_bgra(const Frame& f,std::vector<std::uint8_t>& out){dimensions(f.width,f.height);if(f.nv12.size()!=size_t(f.width)*f.height*3/2)throw std::invalid_argument("NV12 input bounds");out.resize(size_t(f.width)*f.height*4);auto clip=[](int v){return std::uint8_t(std::clamp(v,0,255));};for(std::uint32_t y=0;y<f.height;y++)for(std::uint32_t x=0;x<f.width;x++){int c=f.nv12[size_t(y)*f.width+x]-16;size_t uv=size_t(f.width)*f.height+size_t(y/2)*f.width+(x&~1u);int d=f.nv12[uv]-128,e=f.nv12[uv+1]-128;auto* p=out.data()+(size_t(y)*f.width+x)*4;p[0]=clip((298*c+516*d+128)>>8);p[1]=clip((298*c-100*d-208*e+128)>>8);p[2]=clip((298*c+409*e+128)>>8);p[3]=255;}}
 }
