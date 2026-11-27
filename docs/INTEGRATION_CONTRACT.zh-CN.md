@@ -110,3 +110,15 @@ I01–I10 尚未完成。门禁单元测试、采集探针、VPN 网络测试分
 - 文件交换目录的 `.netgo-exchange.lock` 为零字节锁标识，不能按普通临时文件删除。同目录上传和崩溃回收互斥；只回收可识别的过期 `.part`，其他普通隐藏文件也占配额。持锁进程退出后由 OS 释放锁。
 - Linux 与其他端的“仅查看”选择只收窄键鼠输入；其他能力仍由独立授权控制。GTK 呈现保持不可变帧引用直到纹理释放。
 - 管理页显示清理失败次数及 `cleanup_after`；`cleanup_attempts` 饱和于 6，显示为“6 次及以上”。实现、测试与尚未完成的设备验证见 [审查交付记录](REFACTOR_REVIEW_2026-11-27.zh-CN.md)。
+
+## 2026-11-27 一致性补充
+
+- `GET /netgo/v2/remote?after=<cursor>` 返回最多 50 个 host、`next_after` 和 `next_generation`。空 cursor 读第一页，空 `next_after` 表示结束。各页基于独立 SQL 快照，不是跨页冻结快照；客户端要求 cursor 严格前进，最多 200 页。列表刷新与创建会话仍分别鉴权，不把列表当作授权缓存。
+- 原生接口仅返回当前账号对应主机的 grants 和当前设备参与的 sessions。管理员的全站授权管理使用独立的 `/admin/remote/inventory`。忙碌状态仍加载页内主机的活动会话及完整依赖后判定。
+- Windows IPC 请求保持 1 MiB，响应与 HTTP/共享远控均为 4 MiB；超限明确返回 `ipc_response_too_large`，不再静默丢弃响应。分页正常返回远小于此上限。
+- 管理页普通请求可以并发，刷新凭据必须排空已开始的普通请求；刷新开始后新请求等待同一轮换结果。登出取消旧代请求，失败操作不自动重放。
+- `netgo-rpc routes` 接受空资源并显式清空网络选择；重复 CIDR 去重。空 LAN 授权不等于没有 overlay/远控权限。
+- daemon Login metadata 新增 `netgo-gateway-ip`、`netgo-local-relay`，来自受信站点 Profile；`netgo-candidate-kind` 必须与候选一一对应，删除“省略类别时按位置推断”的旧分支。移动绑定同步传入同样配置。
+- 客户端到网关沿用客户端可达中继；普通客户端之间优先双方可共享的非本地中继，否则按互补 controller 顺序选择。识别网关使用 Management 提供的 peer overlay IP 与站点 GatewayIP 比较，不能由 peer offer 自称网关；选中 URL 仍要求在 Management 发布列表中。
+- 远控遇到暂时控制面故障可在剩余 watchdog 时间内重试，失败不会刷新 watchdog；续租响应丢失后先读取当前 sequence。明确撤权、非法响应、取消和到期都终止，不恢复已关闭 generation。
+- Go DTO 是资源、账号、设备、租约、远控主机/授权/分页与运行诊断的类型来源；执行 `go generate ./internal/contracts` 更新 TypeScript，不手工修改生成文件。

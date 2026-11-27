@@ -54,3 +54,135 @@ export type DeleteResult = {
   deleted: boolean
   cleanup_pending: boolean
 }
+export type Host = {
+  id: string
+  name: string
+  platform: string
+  boot: string
+  transport_key: string
+  enabled: boolean
+  capabilities: number
+  require_consent: boolean
+  port: number
+  revision: number
+  last_seen: string
+}
+export type RemoteGrant = {
+  id: string
+  user_id: string
+  host_id: string
+  capabilities: number
+  expires_at: string
+  revision: number
+}
+export type RemoteSession = {
+  id: string
+  user_id: string
+  controller_id: string
+  host_id: string
+  host_boot: string
+  grant_id: string
+  binding: string
+  generation: number
+  policy_revision: number
+  sequence: number
+  capabilities: number
+  require_consent: boolean
+  created_at: string
+  closed_at: string
+  issued_at: string
+  expires_at: string
+  state: string
+  controller_lease: string
+  host_lease: string
+  controller_auth: string
+}
+export type HostSummary = {
+  id: string
+  name: string
+  platform: string
+  boot: string
+  transport_key: string
+  enabled: boolean
+  capabilities: number
+  require_consent: boolean
+  port: number
+  revision: number
+  last_seen: string
+  status: string
+  available_capabilities: number
+}
+export type GrantSummary = {
+  id: string
+  user_id: string
+  host_id: string
+  capabilities: number
+  expires_at: string
+  revision: number
+  active: boolean
+}
+export type Inventory = {
+  next_after: string
+  hosts: HostSummary[]
+  grants: GrantSummary[]
+  sessions: RemoteSession[]
+  next_generation: number
+}
+export type InventoryPage = {
+  next_after: string
+  hosts: HostSummary[]
+  grants: GrantSummary[]
+  sessions: RemoteSession[]
+  next_generation: number
+  users: Record<string, string>
+}
+export type UserChoice = {
+  id: string
+  alias: string
+  name: string
+}
+export type UserChoices = {
+  users: UserChoice[]
+  next_after: string
+}
+export type RemoteHistory = {
+  sessions: RemoteSession[]
+  next_before: string
+  users: Record<string, string>
+  hosts: Record<string, string>
+}
+export type Check = {
+  name: string
+  status: string
+  detail?: string
+}
+export type Alert = {
+  code: string
+  severity: string
+  message: string
+}
+export type HostResources = {
+  process_cpu_seconds: number
+  process_max_rss_bytes: number
+  database_disk_available_bytes: number
+  database_disk_total_bytes: number
+}
+export type RuntimeReport = {
+  generated_at: string
+  sampled_at: string
+  version: string
+  site_id: string
+  config_revision: number
+  status: string
+  checks: Check[]
+  alerts: Alert[]
+  requests: number
+  request_errors: number
+  authentication_failures_last_minute: number
+  uptime_seconds: number
+  process_heap_bytes: number
+  process_goroutines: number
+  host_resources: HostResources
+  counts: Record<string, number>
+  real_network_acceptance: string
+}

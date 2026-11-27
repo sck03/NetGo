@@ -1,3 +1,102 @@
+diff --git a/client/android/exec.go b/client/android/exec.go
+index 805d312..38b1a39 100644
+--- a/client/android/exec.go
++++ b/client/android/exec.go
+@@ -2,25 +2,10 @@
+ 
+ package android
+ 
+-import (
+-	"fmt"
+-	_ "unsafe"
+-)
+-
+-// https://github.com/golang/go/pull/69543/commits/aad6b3b32c81795f86bc4a9e81aad94899daf520
+-// In Android version 11 and earlier, pidfd-related system calls
+-// are not allowed by the seccomp policy, which causes crashes due
+-// to SIGSYS signals.
+-
+-//go:linkname checkPidfdOnce os.checkPidfdOnce
+-var checkPidfdOnce func() error
+-
+-func execWorkaround(androidSDKVersion int) {
+-	if androidSDKVersion > 30 { // above Android 11
+-		return
+-	}
+-
+-	checkPidfdOnce = func() error {
+-		return fmt.Errorf("unsupported Android version")
++// NetGo requires Android 12+. No pre-Android-12 pidfd override is needed.
++// Do not link to unexported Go runtime variables on supported versions.
++func execWorkaround(api int) {
++	if api < 31 {
++		panic("NetGo Android requires Android 12 or newer")
+ 	}
+ }
+diff --git a/client/android/netgo.go b/client/android/netgo.go
+new file mode 100644
+index 0000000..07a5cd6
+--- /dev/null
++++ b/client/android/netgo.go
+@@ -0,0 +1,58 @@
++//go:build android
++
++package android
++
++import (
++	"context"
++	"errors"
++	netgogrpc "github.com/netbirdio/netbird/client/grpc"
++	"github.com/netbirdio/netbird/client/internal/auth"
++	"github.com/netbirdio/netbird/client/system"
++	"golang.zx2c4.com/wireguard/wgctrl/wgtypes"
++	"net/url"
++	"strings"
++)
++
++// NewNetGoAuth uses the authenticated site's existing canonical authority,
++// public trust material and candidate selector. It does not open an OAuth UI.
++func NewNetGoAuth(path, origin, ca, addresses, kinds, gateway, localRelay string) (*Auth, error) {
++	target, err := url.Parse(origin)
++	if err != nil || target.Scheme != "https" || target.Host == "" {
++		return nil, errors.New("invalid_netgo_origin")
++	}
++	candidates := strings.Split(addresses, ";")
++	types := strings.Split(kinds, ";")
++	if len(candidates) != len(types) || len(candidates) > 16 {
++		return nil, errors.New("invalid_netgo_candidates")
++	}
++	if err = netgogrpc.ConfigureNetGoCA(target.Host, ca); err != nil {
++		return nil, err
++	}
++	if err = netgogrpc.ConfigureNetGoRoutes(target.Host, candidates, types...); err != nil {
++		return nil, err
++	}
++	if err = netgogrpc.ConfigureNetGoTopology(target.Host, gateway, localRelay); err != nil {
++		return nil, err
++	}
++	return NewAuth(path, origin, nil)
++}
++func (a *Auth) NetGoPublicKey() (string, error) {
++	key, err := wgtypes.ParseKey(a.config.PrivateKey)
++	if err != nil {
++		return "", err
++	}
++	return key.PublicKey().String(), nil
++}
++func (a *Auth) NetGoLoginJWT(token, deviceName string) error {
++	if token == "" || len(token) > 65536 {
++		return errors.New("invalid_netgo_token")
++	}
++	connection, err := auth.NewAuth(a.ctx, a.config.PrivateKey, a.config.ManagementURL, a.config)
++	if err != nil {
++		return err
++	}
++	defer connection.Close()
++	ctx := context.WithValue(a.ctx, system.DeviceNameCtxKey, deviceName)
++	err, _ = connection.Login(ctx, "", token)
++	return err
++}
 diff --git a/client/cmd/netgo_relay.go b/client/cmd/netgo_relay.go
 new file mode 100644
 index 0000000..97f035a
@@ -29,16 +128,19 @@ index 0000000..97f035a
 +}
 diff --git a/client/cmd/netgo_relay_test.go b/client/cmd/netgo_relay_test.go
 new file mode 100644
-index 0000000..bc43a7c
+index 0000000..7d18b39
 --- /dev/null
 +++ b/client/cmd/netgo_relay_test.go
-@@ -0,0 +1,21 @@
+@@ -0,0 +1,24 @@
 +package cmd
 +
 +import "testing"
 +
 +func TestNetGoRelayEndpointIdentity(t *testing.T) {
-+	for _, c := range []struct{ actual, expected string; match bool }{
++	for _, c := range []struct {
++		actual, expected string
++		match            bool
++	}{
 +		{"rels://relay.example:18443", "relay.example", true},
 +		{"relay.example:18443", "relay.example", true},
 +		{"rels://RELAY.example:18443", "relay.example", true},
@@ -54,11 +156,61 @@ index 0000000..bc43a7c
 +		}
 +	}
 +}
+diff --git a/client/cmd/netgo_routes_test.go b/client/cmd/netgo_routes_test.go
+new file mode 100644
+index 0000000..c8716c3
+--- /dev/null
++++ b/client/cmd/netgo_routes_test.go
+@@ -0,0 +1,43 @@
++package cmd
++
++import (
++	"context"
++	"encoding/json"
++	"github.com/netbirdio/netbird/client/proto"
++	"google.golang.org/grpc"
++	"testing"
++)
++
++type routeRPC struct {
++	proto.DaemonServiceClient
++	listed   int
++	selected *proto.SelectNetworksRequest
++}
++
++func (r *routeRPC) ListNetworks(context.Context, *proto.ListNetworksRequest, ...grpc.CallOption) (*proto.ListNetworksResponse, error) {
++	r.listed++
++	return &proto.ListNetworksResponse{Routes: []*proto.Network{{ID: "nas", Range: "192.168.1.0/24"}}}, nil
++}
++func (r *routeRPC) SelectNetworks(_ context.Context, request *proto.SelectNetworksRequest, _ ...grpc.CallOption) (*proto.SelectNetworksResponse, error) {
++	r.selected = request
++	return &proto.SelectNetworksResponse{}, nil
++}
++func TestNetGoRoutesEmptyAndDuplicateCIDRs(t *testing.T) {
++	for _, input := range []string{`{"resources":[]}`, `{"resources":[{"cidr":"192.168.1.0/24"},{"cidr":"192.168.1.0/24"}]}`} {
++		var request netgoRPCRequest
++		if err := json.Unmarshal([]byte(input), &request); err != nil {
++			t.Fatal(err)
++		}
++		rpc := &routeRPC{}
++		if _, err := netgoSelectRoutes(context.Background(), rpc, request); err != nil {
++			t.Fatal(err)
++		}
++		want := 0
++		if len(request.Resources) > 0 {
++			want = 1
++		}
++		if rpc.selected == nil || rpc.selected.Append || len(rpc.selected.NetworkIDs) != want || rpc.listed != want {
++			t.Fatalf("incorrect selection for %s: %+v lists=%d", input, rpc.selected, rpc.listed)
++		}
++	}
++}
 diff --git a/client/cmd/netgo_rpc.go b/client/cmd/netgo_rpc.go
 new file mode 100644
+index 0000000..84ecd5b
 --- /dev/null
 +++ b/client/cmd/netgo_rpc.go
-@@ -0,0 +1,259 @@
+@@ -0,0 +1,276 @@
 +package cmd
 +
 +import (
@@ -100,7 +252,7 @@ new file mode 100644
 +			}
 +			result, err := netgoRPC(cmd.Context(), req)
 +			if err != nil {
-+				result = map[string]string{"error": "engine_rpc_failed"}
++				result = map[string]string{"error": netgoRPCError(err)}
 +			}
 +			if err := encoder.Encode(result); err != nil {
 +				return err
@@ -159,7 +311,7 @@ new file mode 100644
 +	}
 +	name := "netgo-" + p.ID
 +	login := func(mode string) (*proto.LoginResponse, error) {
-+		md := metadata.Pairs("netgo-mode", mode)
++		md := metadata.Pairs("netgo-mode", mode, "netgo-gateway-ip", p.GatewayIP, "netgo-local-relay", p.LocalRelay)
 +		for _, c := range p.Candidates {
 +			md.Append("netgo-candidate", c.Address)
 +			md.Append("netgo-candidate-kind", c.Kind)
@@ -281,41 +433,95 @@ new file mode 100644
 +		}
 +		return out, nil
 +	case "routes":
-+		if len(req.Resources) == 0 {
-+			return nil, errors.New("no authorized routes")
-+		}
-+		var ids []string
-+		deadline := time.Now().Add(15 * time.Second)
-+		for {
-+			networks, err := client.ListNetworks(ctx, &proto.ListNetworksRequest{})
-+			if err != nil {
-+				return nil, err
-+			}
-+			ids = nil
-+			for _, r := range req.Resources {
-+				for _, n := range networks.Routes {
-+					if n.Range == r.CIDR {
-+						ids = append(ids, n.ID)
-+						break
-+					}
-+				}
-+			}
-+			if len(ids) == len(req.Resources) {
-+				break
-+			}
-+			if time.Now().After(deadline) {
-+				return nil, errors.New("authorized route unavailable")
-+			}
-+			select {
-+			case <-ctx.Done():
-+				return nil, ctx.Err()
-+			case <-time.After(200 * time.Millisecond):
-+			}
-+		}
-+		_, err = client.SelectNetworks(ctx, &proto.SelectNetworksRequest{NetworkIDs: ids, Append: false})
-+		return map[string]bool{"done": err == nil}, err
++		return netgoSelectRoutes(ctx, client, req)
 +	default:
 +		return nil, errors.New("unsupported action")
++	}
++}
++
++func netgoSelectRoutes(ctx context.Context, client proto.DaemonServiceClient, req netgoRPCRequest) (any, error) {
++	wanted := make(map[string]bool, len(req.Resources))
++	for _, resource := range req.Resources {
++		wanted[resource.CIDR] = true
++	}
++	var ids []string
++	deadline := time.Now().Add(15 * time.Second)
++	for len(wanted) != 0 {
++		networks, err := client.ListNetworks(ctx, &proto.ListNetworksRequest{})
++		if err != nil {
++			return nil, err
++		}
++		ids = nil
++		seen := make(map[string]bool, len(wanted))
++		for _, network := range networks.Routes {
++			if wanted[network.Range] && !seen[network.Range] {
++				ids = append(ids, network.ID)
++				seen[network.Range] = true
++			}
++		}
++		if len(seen) == len(wanted) {
++			break
++		}
++		if time.Now().After(deadline) {
++			return nil, errors.New("authorized route unavailable")
++		}
++		select {
++		case <-ctx.Done():
++			return nil, ctx.Err()
++		case <-time.After(200 * time.Millisecond):
++		}
++	}
++	_, err := client.SelectNetworks(ctx, &proto.SelectNetworksRequest{NetworkIDs: ids, Append: false})
++	return map[string]bool{"done": err == nil}, err
++}
++
++func netgoRPCError(err error) string {
++	if errors.Is(err, context.Canceled) {
++		return "cancelled"
++	}
++	if errors.Is(err, context.DeadlineExceeded) {
++		return "engine_timeout"
++	}
++	if err.Error() == "authorized route unavailable" {
++		return "authorized_route_unavailable"
++	}
++	return "engine_rpc_failed"
++}
+diff --git a/client/cmd/netgo_rpc_stream_test.go b/client/cmd/netgo_rpc_stream_test.go
+new file mode 100644
+index 0000000..f4907f4
+--- /dev/null
++++ b/client/cmd/netgo_rpc_stream_test.go
+@@ -0,0 +1,31 @@
++package cmd
++
++import (
++	"bytes"
++	"encoding/json"
++	"strings"
++	"testing"
++
++	"github.com/spf13/cobra"
++)
++
++func TestNetGoRPCFramedRequests(t *testing.T) {
++	command := &cobra.Command{}
++	command.SetIn(strings.NewReader("{invalid}\n{\"unknown\":true}\n"))
++	var output bytes.Buffer
++	command.SetOut(&output)
++	if err := netgoRPCCmd.RunE(command, nil); err != nil {
++		t.Fatal(err)
++	}
++	decoder := json.NewDecoder(&output)
++	for range 2 {
++		var result map[string]string
++		if err := decoder.Decode(&result); err != nil || result["error"] != "engine_invalid_request" {
++			t.Fatal(result, err)
++		}
++	}
++	command.SetIn(strings.NewReader(strings.Repeat("x", 65537) + "\n"))
++	if err := netgoRPCCmd.RunE(command, nil); err == nil {
++		t.Fatal("unbounded frame accepted")
 +	}
 +}
 diff --git a/client/firewall/nftables/chains_linux.go b/client/firewall/nftables/chains_linux.go
@@ -381,6 +587,69 @@ index 0000000..3874312
 +		}
 +	}
 +}
+diff --git a/client/firewall/uspfilter/filter.go b/client/firewall/uspfilter/filter.go
+index 5e2ca62..e42c3a4 100644
+--- a/client/firewall/uspfilter/filter.go
++++ b/client/firewall/uspfilter/filter.go
+@@ -936,11 +936,8 @@ func (m *Manager) filterOutbound(packetData []byte, size int) bool {
+ 	d := m.decoders.Get().(*decoder)
+ 	defer m.decoders.Put(d)
+ 
+-	if err := d.decodePacket(packetData); err != nil {
+-		return false
+-	}
+-
+-	if len(d.decoded) < 2 {
++	valid, fragment := m.isValidPacket(d, packetData)
++	if !valid {
+ 		return false
+ 	}
+ 
+@@ -951,6 +948,16 @@ func (m *Manager) filterOutbound(packetData []byte, size int) bool {
+ 		}
+ 		return false
+ 	}
++	if fragment {
++		// Register only a first fragment with a complete transport header.
++		// Reply fragments must still pass the inbound conntrack and fragment
++		// verdict checks; trailing outbound fragments create no new flow.
++		meta, ok := fragmentMetadata(d, srcIP, dstIP)
++		if ok && meta.offset == 0 && d.decodeTransport(meta.proto, meta.l4payload) {
++			m.trackOutbound(d, srcIP, dstIP, packetData, size)
++		}
++		return false
++	}
+ 
+ 	switch d.decoded[1] {
+ 	case layers.LayerTypeUDP:
+diff --git a/client/firewall/uspfilter/netgo_fragment_test.go b/client/firewall/uspfilter/netgo_fragment_test.go
+new file mode 100644
+index 0000000..d7217a9
+--- /dev/null
++++ b/client/firewall/uspfilter/netgo_fragment_test.go
+@@ -0,0 +1,22 @@
++package uspfilter
++
++import (
++	"encoding/binary"
++	"github.com/stretchr/testify/require"
++	"testing"
++)
++
++func TestNetGoFragmentedOutboundUDPTracksOnlyItsReply(t *testing.T) {
++	m := newFragmentTestManager(t)
++	outgoing := outboundUDPPacket(t, 12345, 40000)
++	binary.BigEndian.PutUint16(outgoing[6:8], 0x2000)
++	require.False(t, m.filterOutbound(outgoing, len(outgoing)))
++	first := firstFragmentUDP(t, 0x9876, 12345, 32)
++	require.False(t, m.filterInbound(first, len(first)), "first reply fragment needs the outbound flow")
++	trailing := trailingFragment(t, 0x9876, 5, false, 24)
++	require.False(t, m.filterInbound(trailing, len(trailing)))
++	wrongPort := firstFragmentUDP(t, 0x9877, 12346, 32)
++	require.True(t, m.filterInbound(wrongPort, len(wrongPort)), "a different destination port must remain denied")
++	orphan := trailingFragment(t, 0x9878, 5, false, 24)
++	require.True(t, m.filterInbound(orphan, len(orphan)), "orphan fragment must remain denied")
++}
 diff --git a/client/grpc/dialer.go b/client/grpc/dialer.go
 index 9a6bc06..73d1c5f 100644
 --- a/client/grpc/dialer.go
@@ -398,9 +667,237 @@ index 9a6bc06..73d1c5f 100644
  	opts = append(opts, extraOpts...)
  
  	conn, err := grpc.DialContext(connCtx, addr, opts...)
+diff --git a/client/grpc/netgo.go b/client/grpc/netgo.go
+new file mode 100644
+index 0000000..981ffd1
+--- /dev/null
++++ b/client/grpc/netgo.go
+@@ -0,0 +1,222 @@
++package grpc
++
++import (
++	"context"
++	"crypto/tls"
++	"crypto/x509"
++	"errors"
++	"net"
++	"net/netip"
++	"net/url"
++	"strconv"
++	"strings"
++	"sync"
++	"time"
++
++	relayClient "github.com/netbirdio/netbird/shared/relay/client"
++	relayTLS "github.com/netbirdio/netbird/shared/relay/tls"
++	"google.golang.org/grpc"
++	"google.golang.org/grpc/credentials"
++)
++
++type netgoCandidate struct {
++	address string
++	kind    string
++}
++
++var netgoRoutes = struct {
++	sync.RWMutex
++	m        map[string][]netgoCandidate
++	roots    map[string]*x509.CertPool
++	topology map[string]relayClient.NetGoTopology
++}{m: map[string][]netgoCandidate{}, roots: map[string]*x509.CertPool{}, topology: map[string]relayClient.NetGoTopology{}}
++
++// ConfigureNetGoCA accepts public trust material from an authorized Login, never
++// a caller-supplied path for the privileged daemon to open.
++func ConfigureNetGoCA(authority, ca string) error {
++	if len(ca) > 256*1024 {
++		return errors.New("NetGo CA too large")
++	}
++	var roots *x509.CertPool
++	if ca != "" {
++		roots, _ = x509.SystemCertPool()
++		if roots == nil {
++			roots = x509.NewCertPool()
++		}
++		if !roots.AppendCertsFromPEM([]byte(ca)) {
++			return errors.New("invalid NetGo CA")
++		}
++	}
++	netgoRoutes.Lock()
++	defer netgoRoutes.Unlock()
++	if roots == nil {
++		delete(netgoRoutes.roots, authority)
++	} else {
++		netgoRoutes.roots[authority] = roots
++	}
++	return nil
++}
++func netgoTLSOption(authority string) (grpc.DialOption, bool) {
++	netgoRoutes.RLock()
++	roots, ok := netgoRoutes.roots[authority]
++	netgoRoutes.RUnlock()
++	if !ok {
++		return nil, false
++	}
++	host, _, err := net.SplitHostPort(authority)
++	if err != nil {
++		host = authority
++	}
++	return grpc.WithTransportCredentials(credentials.NewTLS(&tls.Config{ServerName: host, RootCAs: roots, MinVersion: tls.VersionTLS12})), true
++}
++
++// ConfigureNetGoTopology binds relay policy to the authenticated profile,
++// never to untrusted peer offers.
++func ConfigureNetGoTopology(authority, gateway, localRelay string) error {
++	ip, err := netip.ParseAddr(gateway)
++	endpoint, urlErr := url.Parse("rels://" + localRelay)
++	if err != nil || !ip.Is4() || urlErr != nil || (localRelay != "" && (endpoint.Host != localRelay || endpoint.Hostname() == "" || endpoint.Port() != "" || endpoint.User != nil || endpoint.RawQuery != "" || endpoint.Fragment != "" || endpoint.Path != "")) {
++		return errors.New("invalid NetGo relay topology")
++	}
++	netgoRoutes.Lock()
++	defer netgoRoutes.Unlock()
++	netgoRoutes.topology[authority] = relayClient.NetGoTopology{Gateway: ip, LocalRelay: localRelay}
++	return nil
++}
++
++// NetGoRelayContext snapshots the active profile's trust for both relay
++// transports without modifying the machine's certificate store.
++func NetGoRelayContext(ctx context.Context, authority string) context.Context {
++	netgoRoutes.RLock()
++	roots := netgoRoutes.roots[authority]
++	_, active := netgoRoutes.m[authority]
++	topology := netgoRoutes.topology[authority]
++	netgoRoutes.RUnlock()
++	ctx = relayTLS.WithNetGoRootCAs(ctx, roots)
++	return relayClient.WithNetGoClient(ctx, active, topology)
++}
++
++// ConfigureNetGoRoutes follows the daemon's profile ownership checks.
++func ConfigureNetGoRoutes(authority string, candidates []string, kinds ...string) error {
++	if len(candidates) == 0 || len(candidates) > 8 || len(kinds) != len(candidates) {
++		return errors.New("invalid NetGo candidate count")
++	}
++	entries := make([]netgoCandidate, 0, len(candidates))
++	for index, addr := range candidates {
++		h, p, e := net.SplitHostPort(addr)
++		port, portErr := strconv.ParseUint(p, 10, 16)
++		if e != nil || h == "" || portErr != nil || port == 0 || strings.ContainsAny(addr, "\x00\n\r\t/\\ ") {
++			return errors.New("invalid NetGo candidate")
++		}
++		kind := kinds[index]
++		if kind != "direct" && kind != "auxiliary" {
++			return errors.New("invalid NetGo candidate kind")
++		}
++		entries = append(entries, netgoCandidate{address: addr, kind: kind})
++	}
++	netgoRoutes.Lock()
++	defer netgoRoutes.Unlock()
++	netgoRoutes.m[authority] = entries
++	return nil
++}
++func netgoDialOption(authority string) (grpc.DialOption, bool) {
++	netgoRoutes.RLock()
++	_, ok := netgoRoutes.m[authority]
++	netgoRoutes.RUnlock()
++	if !ok {
++		return nil, false
++	}
++	return grpc.WithContextDialer(func(ctx context.Context, _ string) (net.Conn, error) {
++		netgoRoutes.RLock()
++		list := append([]netgoCandidate(nil), netgoRoutes.m[authority]...)
++		roots := netgoRoutes.roots[authority]
++		netgoRoutes.RUnlock()
++		return dialNetGo(ctx, authority, list, roots)
++	}), true
++}
++
++func dialNetGo(ctx context.Context, authority string, candidates []netgoCandidate, roots *x509.CertPool) (net.Conn, error) {
++	if err := ctx.Err(); err != nil {
++		return nil, err
++	}
++	ctx, cancel := context.WithCancel(ctx)
++	var workers sync.WaitGroup
++	defer func() { cancel(); workers.Wait() }()
++	host, _, err := net.SplitHostPort(authority)
++	if err != nil {
++		host = authority
++	}
++	hasDirect := false
++	for _, candidate := range candidates {
++		hasDirect = hasDirect || candidate.kind == "direct"
++	}
++	// An unbuffered handoff gives each unsuccessful worker ownership of closing
++	// its connection once the winner returns or the calling generation cancels.
++	results := make(chan net.Conn)
++	for _, candidate := range candidates {
++		workers.Add(1)
++		go func(candidate netgoCandidate) {
++			defer workers.Done()
++			if candidate.kind == "auxiliary" && hasDirect {
++				timer := time.NewTimer(800 * time.Millisecond)
++				defer timer.Stop()
++				select {
++				case <-ctx.Done():
++					return
++				case <-timer.C:
++				}
++			}
++			connection := probeNetGo(ctx, host, candidate.address, roots)
++			select {
++			case results <- connection:
++			case <-ctx.Done():
++				if connection != nil {
++					_ = connection.Close()
++				}
++			}
++		}(candidate)
++	}
++	for range candidates {
++		select {
++		case <-ctx.Done():
++			return nil, ctx.Err()
++		case connection := <-results:
++			if connection != nil {
++				if err := ctx.Err(); err != nil {
++					_ = connection.Close()
++					return nil, err
++				}
++				return connection, nil
++			}
++		}
++	}
++	return nil, errors.New("no trusted NetGo control candidate")
++}
++
++func probeNetGo(ctx context.Context, host, address string, roots *x509.CertPool) net.Conn {
++	ctx, cancel := context.WithTimeout(ctx, 3*time.Second)
++	defer cancel()
++	raw, err := dialContext(ctx, address)
++	if err != nil {
++		return nil
++	}
++	probe := tls.Client(raw, &tls.Config{
++		ServerName: host, RootCAs: roots, MinVersion: tls.VersionTLS12, NextProtos: []string{"h2"},
++	})
++	if err = probe.HandshakeContext(ctx); err != nil {
++		_ = probe.Close()
++		return nil
++	}
++	negotiated := probe.ConnectionState().NegotiatedProtocol
++	_ = probe.Close()
++	if negotiated != "h2" {
++		return nil
++	}
++	// gRPC performs its own TLS handshake over this transport with the same
++	// authority and trust roots; the probe never sends application credentials.
++	connection, err := dialContext(ctx, address)
++	if err != nil {
++		return nil
++	}
++	return connection
++}
 diff --git a/client/grpc/netgo_dial_test.go b/client/grpc/netgo_dial_test.go
 new file mode 100644
-index 0000000..ab5a374
+index 0000000..9a84b64
 --- /dev/null
 +++ b/client/grpc/netgo_dial_test.go
 @@ -0,0 +1,152 @@
@@ -480,7 +977,7 @@ index 0000000..ab5a374
 +	if err := ConfigureNetGoCA(address, ca); err != nil {
 +		t.Fatal(err)
 +	}
-+	if err := ConfigureNetGoRoutes(address, []string{stalled, stalled, stalled, stalled, stalled, stalled, stalled, address}); err != nil {
++	if err := ConfigureNetGoRoutes(address, []string{stalled, stalled, stalled, stalled, stalled, stalled, stalled, address}, "direct", "direct", "direct", "direct", "direct", "direct", "direct", "direct"); err != nil {
 +		t.Fatal(err)
 +	}
 +	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
@@ -542,7 +1039,7 @@ index 0000000..ab5a374
 +
 +func TestNetGoCandidateKindsAndPorts(t *testing.T) {
 +	for _, address := range []string{"site.test:0", "site.test:65536", "site.test:abc", "site\t.test:443"} {
-+		if ConfigureNetGoRoutes("validation.test:443", []string{address}) == nil {
++		if ConfigureNetGoRoutes("validation.test:443", []string{address}, "direct") == nil {
 +			t.Fatalf("invalid address accepted: %q", address)
 +		}
 +	}
@@ -556,15 +1053,88 @@ index 0000000..ab5a374
 +		t.Fatal(err)
 +	}
 +}
+diff --git a/client/grpc/netgo_relay_role_test.go b/client/grpc/netgo_relay_role_test.go
+new file mode 100644
+index 0000000..94bcc08
+--- /dev/null
++++ b/client/grpc/netgo_relay_role_test.go
+@@ -0,0 +1,48 @@
++package grpc
++
++import (
++	"context"
++	"net/netip"
++	"testing"
++
++	relayClient "github.com/netbirdio/netbird/shared/relay/client"
++)
++
++func TestNetGoRelayRoleIsBoundToRegisteredAuthority(t *testing.T) {
++	t.Setenv("NB_NETGO_ROUTING_PEER", "false")
++	authority := "relay-role.test:10443"
++	if err := ConfigureNetGoRoutes(authority, []string{"192.0.2.1:10443"}, "direct"); err != nil {
++		t.Fatal(err)
++	}
++	if err := ConfigureNetGoTopology(authority, "100.96.0.1", "192.0.2.1"); err != nil {
++		t.Fatal(err)
++	}
++	t.Cleanup(func() {
++		netgoRoutes.Lock()
++		delete(netgoRoutes.m, authority)
++		delete(netgoRoutes.topology, authority)
++		netgoRoutes.Unlock()
++	})
++	urls := []string{"rels://192.0.2.1:18443", "rels://198.51.100.1:28443"}
++	selected := relayClient.NewManager(NetGoRelayContext(context.Background(), authority), urls, "client", 1280)
++	parent := NetGoRelayContext(context.Background(), authority)
++	other := relayClient.NewManager(NetGoRelayContext(parent, "other.test:10443"), urls, "other", 1280)
++	if !selected.NetGoRelaySelection() || other.NetGoRelaySelection() {
++		t.Fatal("NetGo relay mode crossed authority boundary")
++	}
++	chosen, err := selected.PreferredRelay(urls[1], urls[0], false, netip.MustParseAddr("100.96.0.1"))
++	if err != nil || chosen != urls[1] {
++		t.Fatalf("profile topology not propagated: %s %v", chosen, err)
++	}
++}
++
++func TestNetGoTopologyRejectsInvalidConfiguration(t *testing.T) {
++	for _, topology := range [][2]string{{"not-ip", "relay.test"}, {"::1", "relay.test"}, {"100.96.0.1", "https://relay.test"}, {"100.96.0.1", "relay.test/collect"}, {"100.96.0.1", "user@relay.test"}} {
++		if ConfigureNetGoTopology("invalid.test", topology[0], topology[1]) == nil {
++			t.Fatalf("invalid topology accepted: %v", topology)
++		}
++	}
++	if ConfigureNetGoRoutes("invalid.test", []string{"relay.test:443"}) == nil {
++		t.Fatal("missing candidate kind accepted")
++	}
++}
 diff --git a/client/grpc/netgo_test.go b/client/grpc/netgo_test.go
 new file mode 100644
-index 0000000..77394a9
+index 0000000..9a12493
 --- /dev/null
 +++ b/client/grpc/netgo_test.go
-@@ -0,0 +1,3 @@
+@@ -0,0 +1,22 @@
 +package grpc
-+import("testing")
-+func TestNetGoCandidateValidation(t *testing.T){if e:=ConfigureNetGoRoutes("site.test:443",[]string{"site.test:443","vps.test:8443"});e!=nil{t.Fatal(e)};if _,ok:=netgoDialOption("site.test:443");!ok{t.Fatal("not registered")};if _,ok:=netgoDialOption("another.test:443");ok{t.Fatal("cross-site route leak")};for _,s:=range []string{"no-port","https://site.test:443","bad\n:443"}{if ConfigureNetGoRoutes("site.test:443",[]string{s})==nil{t.Fatal("unsafe candidate",s)}}}
++
++import (
++	"testing"
++)
++
++func TestNetGoCandidateValidation(t *testing.T) {
++	if e := ConfigureNetGoRoutes("site.test:443", []string{"site.test:443", "vps.test:8443"}, "direct", "auxiliary"); e != nil {
++		t.Fatal(e)
++	}
++	if _, ok := netgoDialOption("site.test:443"); !ok {
++		t.Fatal("not registered")
++	}
++	if _, ok := netgoDialOption("another.test:443"); ok {
++		t.Fatal("cross-site route leak")
++	}
++	for _, s := range []string{"no-port", "https://site.test:443", "bad\n:443"} {
++		if ConfigureNetGoRoutes("site.test:443", []string{s}, "direct") == nil {
++			t.Fatal("unsafe candidate", s)
++		}
++	}
++}
 diff --git a/client/internal/connect.go b/client/internal/connect.go
 index fa6808b..4e0d15b 100644
 --- a/client/internal/connect.go
@@ -587,8 +1157,106 @@ index fa6808b..4e0d15b 100644
  			relayClient.WithNetEvents(c.netMgr))
  		c.statusRecorder.SetRelayMgr(relayManager)
  		if len(relayURLs) > 0 {
+diff --git a/client/internal/peer/worker_relay.go b/client/internal/peer/worker_relay.go
+index 6942078..00afd4b 100644
+--- a/client/internal/peer/worker_relay.go
++++ b/client/internal/peer/worker_relay.go
+@@ -59,9 +59,13 @@ func (w *WorkerRelay) OnNewOffer(remoteOfferAnswer *OfferAnswer) {
+ 		return
+ 	}
+ 
+-	srv := w.preferredRelayServer(currentRelayAddress, remoteOfferAnswer.RelaySrvAddress)
++	srv, err := w.relayManager.PreferredRelay(currentRelayAddress, remoteOfferAnswer.RelaySrvAddress, w.isController, w.config.WgConfig.AllowedIps[0].Addr())
++	if err != nil {
++		w.log.Warnf("relay selection rejected: %v", err)
++		return
++	}
+ 	var serverIP netip.Addr
+-	if srv == remoteOfferAnswer.RelaySrvAddress {
++	if srv == remoteOfferAnswer.RelaySrvAddress && !w.relayManager.NetGoRelaySelection() {
+ 		serverIP = remoteOfferAnswer.RelaySrvIP
+ 	}
+ 
+@@ -127,13 +131,6 @@ func (w *WorkerRelay) isRelaySupported(answer *OfferAnswer) bool {
+ 	return answer.RelaySrvAddress != ""
+ }
+ 
+-func (w *WorkerRelay) preferredRelayServer(myRelayAddress, remoteRelayAddress string) string {
+-	if w.isController {
+-		return myRelayAddress
+-	}
+-	return remoteRelayAddress
+-}
+-
+ func (w *WorkerRelay) watchRelayedConn(relayedConn *relayClient.Conn) {
+ 	<-relayedConn.Context().Done()
+ 
+diff --git a/client/ios/NetBirdSDK/netgo.go b/client/ios/NetBirdSDK/netgo.go
+new file mode 100644
+index 0000000..0e299a0
+--- /dev/null
++++ b/client/ios/NetBirdSDK/netgo.go
+@@ -0,0 +1,58 @@
++//go:build ios
++
++package NetBirdSDK
++
++import (
++	"context"
++	"errors"
++	netgogrpc "github.com/netbirdio/netbird/client/grpc"
++	"github.com/netbirdio/netbird/client/internal/auth"
++	"github.com/netbirdio/netbird/client/system"
++	"golang.zx2c4.com/wireguard/wgctrl/wgtypes"
++	"net/url"
++	"strings"
++)
++
++// NewNetGoAuth uses the authenticated site's existing canonical authority,
++// public trust material and candidate selector. It does not open an OAuth UI.
++func NewNetGoAuth(path, origin, ca, addresses, kinds, gateway, localRelay string) (*Auth, error) {
++	target, err := url.Parse(origin)
++	if err != nil || target.Scheme != "https" || target.Host == "" {
++		return nil, errors.New("invalid_netgo_origin")
++	}
++	candidates := strings.Split(addresses, ";")
++	types := strings.Split(kinds, ";")
++	if len(candidates) != len(types) || len(candidates) > 16 {
++		return nil, errors.New("invalid_netgo_candidates")
++	}
++	if err = netgogrpc.ConfigureNetGoCA(target.Host, ca); err != nil {
++		return nil, err
++	}
++	if err = netgogrpc.ConfigureNetGoRoutes(target.Host, candidates, types...); err != nil {
++		return nil, err
++	}
++	if err = netgogrpc.ConfigureNetGoTopology(target.Host, gateway, localRelay); err != nil {
++		return nil, err
++	}
++	return NewAuth(path, origin, nil)
++}
++func (a *Auth) NetGoPublicKey() (string, error) {
++	key, err := wgtypes.ParseKey(a.config.PrivateKey)
++	if err != nil {
++		return "", err
++	}
++	return key.PublicKey().String(), nil
++}
++func (a *Auth) NetGoLoginJWT(token, deviceName string) error {
++	if token == "" || len(token) > 65536 {
++		return errors.New("invalid_netgo_token")
++	}
++	connection, err := auth.NewAuth(a.ctx, a.config.PrivateKey, a.config.ManagementURL, a.config)
++	if err != nil {
++		return err
++	}
++	defer connection.Close()
++	ctx := context.WithValue(a.ctx, system.DeviceNameCtxKey, deviceName)
++	err, _ = connection.Login(ctx, "", token)
++	return err
++}
 diff --git a/client/server/server.go b/client/server/server.go
-index c16c5f4..ef384b8 100644
+index c16c5f4..7903608 100644
 --- a/client/server/server.go
 +++ b/client/server/server.go
 @@ -22,6 +22,7 @@ import (
@@ -599,7 +1267,7 @@ index c16c5f4..ef384b8 100644
  	"github.com/netbirdio/netbird/client/internal/auth"
  	"github.com/netbirdio/netbird/client/internal/expose"
  	"github.com/netbirdio/netbird/client/internal/ipcauth"
-@@ -773,6 +774,39 @@ func (s *Server) Login(callerCtx context.Context, msg *proto.LoginRequest) (*pro
+@@ -773,6 +774,46 @@ func (s *Server) Login(callerCtx context.Context, msg *proto.LoginRequest) (*pro
  
  	s.localMetrics.Reconcile(config.LocalMetricsEnabled, config.LocalMetricsAddress)
  
@@ -617,6 +1285,13 @@ index c16c5f4..ef384b8 100644
 +			return nil, gstatus.Error(codes.InvalidArgument, err.Error())
 +		}
 +		if err := netgogrpc.ConfigureNetGoRoutes(config.ManagementURL.Host, md.Get("netgo-candidate"), md.Get("netgo-candidate-kind")...); err != nil {
++			return nil, gstatus.Error(codes.InvalidArgument, err.Error())
++		}
++		gateway, relay := md.Get("netgo-gateway-ip"), md.Get("netgo-local-relay")
++		if len(gateway) != 1 || len(relay) != 1 {
++			return nil, gstatus.Error(codes.InvalidArgument, "missing NetGo topology")
++		}
++		if err := netgogrpc.ConfigureNetGoTopology(config.ManagementURL.Host, gateway[0], relay[0]); err != nil {
 +			return nil, gstatus.Error(codes.InvalidArgument, err.Error())
 +		}
 +		key, err := wgtypes.ParseKey(config.PrivateKey)
@@ -1120,6 +1795,233 @@ index 946d267..7fc32b6 100644
  
  	wsConn, resp, err := websocket.Dial(ctx, wsURL, opts)
  	if err != nil {
+diff --git a/shared/relay/client/manager.go b/shared/relay/client/manager.go
+index 518a4a5..ad11546 100644
+--- a/shared/relay/client/manager.go
++++ b/shared/relay/client/manager.go
+@@ -72,6 +72,7 @@ func WithNetEvents(events NetEvents) ManagerOption {
+ // relay servers will be closed if there is no active connection. Periodically the manager will check if there is any
+ // unused relay connection and close it.
+ type Manager struct {
++	netgoRole    netGoRelayRole
+ 	ctx          context.Context
+ 	peerID       string
+ 	running      bool
+@@ -108,6 +109,7 @@ func NewManager(ctx context.Context, serverURLs []string, peerID string, mtu uin
+ 	tf := newTransportFallback()
+ 
+ 	m := &Manager{
++		netgoRole:         netGoRole(ctx),
+ 		ctx:               ctx,
+ 		peerID:            peerID,
+ 		tokenStore:        tokenStore,
+diff --git a/shared/relay/client/netgo_selection.go b/shared/relay/client/netgo_selection.go
+new file mode 100644
+index 0000000..b06175e
+--- /dev/null
++++ b/shared/relay/client/netgo_selection.go
+@@ -0,0 +1,100 @@
++package client
++
++import (
++	"context"
++	"errors"
++	"net/netip"
++	"net/url"
++	"os"
++	"strconv"
++	"strings"
++)
++
++const netGoRoutingPeerEnv = "NB_NETGO_ROUTING_PEER"
++
++type netGoRelayRole uint8
++
++const (
++	netGoUnmanaged netGoRelayRole = iota
++	netGoClient
++	netGoRoutingPeer
++	netGoInvalidRole
++)
++
++type NetGoTopology struct {
++	Gateway    netip.Addr
++	LocalRelay string
++}
++type netGoClientKey struct{}
++type netGoTopologyKey struct{}
++
++// WithNetGoClient snapshots whether this context uses the NetGo profile adapter.
++func WithNetGoClient(ctx context.Context, active bool, topology NetGoTopology) context.Context {
++	ctx = context.WithValue(ctx, netGoTopologyKey{}, topology)
++	return context.WithValue(ctx, netGoClientKey{}, active)
++}
++
++func netGoRole(ctx context.Context) netGoRelayRole {
++	if value := os.Getenv(netGoRoutingPeerEnv); value != "" {
++		router, err := strconv.ParseBool(value)
++		if err != nil {
++			return netGoInvalidRole
++		}
++		if router {
++			return netGoRoutingPeer
++		}
++	}
++	if active, _ := ctx.Value(netGoClientKey{}).(bool); active {
++		return netGoClient
++	}
++	return netGoUnmanaged
++}
++
++// NetGoRelaySelection reports whether the manager uses the NetGo gateway topology.
++func (m *Manager) NetGoRelaySelection() bool {
++	return m.netgoRole != netGoUnmanaged
++}
++
++// Gateway links follow the client's reachable home relay. Between clients,
++// prefer the non-local home when one side needs it; otherwise use controller
++// ordering. Both peers therefore select the same Management-published endpoint.
++func (m *Manager) PreferredRelay(local, remote string, controller bool, remoteIP netip.Addr) (string, error) {
++	selected := remote
++	switch m.netgoRole {
++	case netGoUnmanaged:
++		if controller {
++			selected = local
++		}
++		return selected, nil
++	case netGoClient:
++		topology, _ := m.ctx.Value(netGoTopologyKey{}).(NetGoTopology)
++		if !topology.Gateway.IsValid() {
++			return "", errors.New("missing NetGo relay topology")
++		}
++		isLocal := func(endpoint string) bool {
++			parsed, err := url.Parse(endpoint)
++			return err == nil && topology.LocalRelay != "" && strings.EqualFold(parsed.Hostname(), topology.LocalRelay)
++		}
++		switch {
++		case remoteIP == topology.Gateway:
++			selected = local
++		case isLocal(local) && !isLocal(remote):
++			selected = remote
++		case isLocal(remote) && !isLocal(local):
++			selected = local
++		case controller:
++			selected = local
++		}
++	case netGoRoutingPeer:
++	default:
++		return "", errors.New("invalid NetGo relay role")
++	}
++	// Only Management-published endpoints are eligible. A peer cannot make the
++	// privileged gateway dial an arbitrary address or a different site's relay.
++	for _, allowed := range m.serverPicker.ServerURLs.Load().([]string) {
++		if allowed != "" && selected == allowed {
++			return selected, nil
++		}
++	}
++	return "", errors.New("NetGo relay endpoint is not published by Management")
++}
+diff --git a/shared/relay/client/netgo_selection_test.go b/shared/relay/client/netgo_selection_test.go
+new file mode 100644
+index 0000000..18b8a7b
+--- /dev/null
++++ b/shared/relay/client/netgo_selection_test.go
+@@ -0,0 +1,95 @@
++package client
++
++import (
++	"context"
++	"net/netip"
++	"testing"
++)
++
++func TestNetGoRelaySelectionBothControllerOrders(t *testing.T) {
++	t.Setenv(netGoRoutingPeerEnv, "false")
++	const local = "rels://192.0.2.1:18443"
++	const auxiliary = "rels://198.51.100.1:28443"
++	urls := []string{local, auxiliary}
++	client := NewManager(WithNetGoClient(context.Background(), true, NetGoTopology{Gateway: netip.MustParseAddr("100.96.0.1"), LocalRelay: "192.0.2.1"}), urls, "client", 1280)
++	t.Setenv(netGoRoutingPeerEnv, "true")
++	gateway := NewManager(context.Background(), urls, "gateway", 1280)
++	for _, controller := range []bool{false, true} {
++		for _, reachable := range urls {
++			clientChoice, err := client.PreferredRelay(reachable, local, controller, netip.MustParseAddr("100.96.0.1"))
++			if err != nil || clientChoice != reachable {
++				t.Fatalf("client home=%s controller=%t: %s %v", reachable, controller, clientChoice, err)
++			}
++			gatewayChoice, err := gateway.PreferredRelay(local, reachable, !controller, netip.MustParseAddr("100.96.0.1"))
++			if err != nil || gatewayChoice != clientChoice {
++				t.Fatalf("peers disagree for controller=%t: client=%s gateway=%s err=%v", controller, clientChoice, gatewayChoice, err)
++			}
++		}
++	}
++}
++
++func TestNetGoRelaySelectionNoVPSAndRemovedEndpoints(t *testing.T) {
++	t.Setenv(netGoRoutingPeerEnv, "true")
++	const local = "rels://192.0.2.1:18443"
++	manager := NewManager(context.Background(), []string{local}, "gateway", 1280)
++	selected, err := manager.PreferredRelay(local, local, false, netip.MustParseAddr("100.96.0.2"))
++	if err != nil || selected != local {
++		t.Fatalf("standalone local relay rejected: %s %v", selected, err)
++	}
++	for _, foreign := range []string{"", "rels://other-site:18443", "rel://192.0.2.1:18443", "rels://192.0.2.1:18444"} {
++		if _, err := manager.PreferredRelay(local, foreign, true, netip.MustParseAddr("100.96.0.2")); err == nil {
++			t.Fatalf("unpublished relay accepted: %q", foreign)
++		}
++	}
++	manager.serverPicker.ServerURLs.Store([]string{})
++	if _, err := manager.PreferredRelay(local, local, true, netip.MustParseAddr("100.96.0.2")); err == nil {
++		t.Fatal("removed relay remained selectable")
++	}
++}
++
++func TestNetGoRelaySelectionUnmanagedAndInvalidRole(t *testing.T) {
++	t.Setenv(netGoRoutingPeerEnv, "false")
++	manager := NewManager(context.Background(), []string{"local", "remote"}, "plain", 1280)
++	for _, controller := range []bool{false, true} {
++		want := "remote"
++		if controller {
++			want = "local"
++		}
++		got, err := manager.PreferredRelay("local", "remote", controller, netip.MustParseAddr("100.96.0.1"))
++		if err != nil || got != want || manager.NetGoRelaySelection() {
++			t.Fatalf("unmanaged selection changed: %s %v", got, err)
++		}
++	}
++	t.Setenv(netGoRoutingPeerEnv, "invalid")
++	manager = NewManager(context.Background(), []string{"local"}, "bad", 1280)
++	if _, err := manager.PreferredRelay("local", "local", true, netip.MustParseAddr("100.96.0.2")); err == nil {
++		t.Fatal("invalid role failed open")
++	}
++}
++
++func TestNetGoClientRelayAgreement(t *testing.T) {
++	t.Setenv(netGoRoutingPeerEnv, "false")
++	const local = "rels://192.0.2.1:18443"
++	const aux = "rels://198.51.100.1:28443"
++	ctx := WithNetGoClient(context.Background(), true, NetGoTopology{Gateway: netip.MustParseAddr("100.96.0.1"), LocalRelay: "192.0.2.1"})
++	a, b := NewManager(ctx, []string{local, aux}, "a", 1280), NewManager(ctx, []string{local, aux}, "b", 1280)
++	for _, controller := range []bool{true, false} {
++		for _, homes := range [][2]string{{local, aux}, {aux, local}, {local, local}, {aux, aux}} {
++			one, err := a.PreferredRelay(homes[0], homes[1], controller, netip.MustParseAddr("100.96.0.3"))
++			if err != nil {
++				t.Fatal(err)
++			}
++			two, err := b.PreferredRelay(homes[1], homes[0], !controller, netip.MustParseAddr("100.96.0.2"))
++			want := local
++			if homes[0] == aux || homes[1] == aux {
++				want = aux
++			}
++			if err != nil || one != two || one != want {
++				t.Fatalf("homes=%v controller=%t: %s %s %v", homes, controller, one, two, err)
++			}
++		}
++	}
++	if _, err := a.PreferredRelay(local, "rels://foreign.test:443", true, netip.MustParseAddr("100.96.0.3")); err == nil {
++		t.Fatal("foreign relay accepted")
++	}
++}
 diff --git a/shared/relay/tls/netgo.go b/shared/relay/tls/netgo.go
 new file mode 100644
 index 0000000..4f0425a
@@ -1184,712 +2086,4 @@ index 0000000..2812518
 +	if NetGoRootCAs(WithNetGoRootCAs(ctx, nil)) != nil {
 +		t.Fatal("next profile inherited custom trust")
 +	}
-+}
-
-diff --git a/client/firewall/uspfilter/filter.go b/client/firewall/uspfilter/filter.go
-index 5e2ca62..e42c3a4 100644
---- a/client/firewall/uspfilter/filter.go
-+++ b/client/firewall/uspfilter/filter.go
-@@ -936,11 +936,8 @@ func (m *Manager) filterOutbound(packetData []byte, size int) bool {
- 	d := m.decoders.Get().(*decoder)
- 	defer m.decoders.Put(d)
- 
--	if err := d.decodePacket(packetData); err != nil {
--		return false
--	}
--
--	if len(d.decoded) < 2 {
-+	valid, fragment := m.isValidPacket(d, packetData)
-+	if !valid {
- 		return false
- 	}
- 
-@@ -951,6 +948,16 @@ func (m *Manager) filterOutbound(packetData []byte, size int) bool {
- 		}
- 		return false
- 	}
-+	if fragment {
-+		// Register only a first fragment with a complete transport header.
-+		// Reply fragments must still pass the inbound conntrack and fragment
-+		// verdict checks; trailing outbound fragments create no new flow.
-+		meta, ok := fragmentMetadata(d, srcIP, dstIP)
-+		if ok && meta.offset == 0 && d.decodeTransport(meta.proto, meta.l4payload) {
-+			m.trackOutbound(d, srcIP, dstIP, packetData, size)
-+		}
-+		return false
-+	}
- 
- 	switch d.decoded[1] {
- 	case layers.LayerTypeUDP:
-diff --git a/client/firewall/uspfilter/netgo_fragment_test.go b/client/firewall/uspfilter/netgo_fragment_test.go
-new file mode 100644
-index 0000000..d7217a9
---- /dev/null
-+++ b/client/firewall/uspfilter/netgo_fragment_test.go
-@@ -0,0 +1,22 @@
-+package uspfilter
-+
-+import (
-+	"encoding/binary"
-+	"github.com/stretchr/testify/require"
-+	"testing"
-+)
-+
-+func TestNetGoFragmentedOutboundUDPTracksOnlyItsReply(t *testing.T) {
-+	m := newFragmentTestManager(t)
-+	outgoing := outboundUDPPacket(t, 12345, 40000)
-+	binary.BigEndian.PutUint16(outgoing[6:8], 0x2000)
-+	require.False(t, m.filterOutbound(outgoing, len(outgoing)))
-+	first := firstFragmentUDP(t, 0x9876, 12345, 32)
-+	require.False(t, m.filterInbound(first, len(first)), "first reply fragment needs the outbound flow")
-+	trailing := trailingFragment(t, 0x9876, 5, false, 24)
-+	require.False(t, m.filterInbound(trailing, len(trailing)))
-+	wrongPort := firstFragmentUDP(t, 0x9877, 12346, 32)
-+	require.True(t, m.filterInbound(wrongPort, len(wrongPort)), "a different destination port must remain denied")
-+	orphan := trailingFragment(t, 0x9878, 5, false, 24)
-+	require.True(t, m.filterInbound(orphan, len(orphan)), "orphan fragment must remain denied")
-+}
-diff --git a/client/grpc/netgo.go b/client/grpc/netgo.go
-new file mode 100644
-index 0000000..96839a8
---- /dev/null
-+++ b/client/grpc/netgo.go
-@@ -0,0 +1,210 @@
-+package grpc
-+
-+import (
-+	"context"
-+	"crypto/tls"
-+	"crypto/x509"
-+	"errors"
-+	"net"
-+	"strconv"
-+	"strings"
-+	"sync"
-+	"time"
-+
-+	relayClient "github.com/netbirdio/netbird/shared/relay/client"
-+	relayTLS "github.com/netbirdio/netbird/shared/relay/tls"
-+	"google.golang.org/grpc"
-+	"google.golang.org/grpc/credentials"
-+)
-+
-+type netgoCandidate struct {
-+	address string
-+	kind    string
-+}
-+
-+var netgoRoutes = struct {
-+	sync.RWMutex
-+	m     map[string][]netgoCandidate
-+	roots map[string]*x509.CertPool
-+}{m: map[string][]netgoCandidate{}, roots: map[string]*x509.CertPool{}}
-+
-+// ConfigureNetGoCA accepts public trust material from an authorized Login, never
-+// a caller-supplied path for the privileged daemon to open.
-+func ConfigureNetGoCA(authority, ca string) error {
-+	if len(ca) > 256*1024 {
-+		return errors.New("NetGo CA too large")
-+	}
-+	var roots *x509.CertPool
-+	if ca != "" {
-+		roots, _ = x509.SystemCertPool()
-+		if roots == nil {
-+			roots = x509.NewCertPool()
-+		}
-+		if !roots.AppendCertsFromPEM([]byte(ca)) {
-+			return errors.New("invalid NetGo CA")
-+		}
-+	}
-+	netgoRoutes.Lock()
-+	defer netgoRoutes.Unlock()
-+	if roots == nil {
-+		delete(netgoRoutes.roots, authority)
-+	} else {
-+		netgoRoutes.roots[authority] = roots
-+	}
-+	return nil
-+}
-+func netgoTLSOption(authority string) (grpc.DialOption, bool) {
-+	netgoRoutes.RLock()
-+	roots, ok := netgoRoutes.roots[authority]
-+	netgoRoutes.RUnlock()
-+	if !ok {
-+		return nil, false
-+	}
-+	host, _, err := net.SplitHostPort(authority)
-+	if err != nil {
-+		host = authority
-+	}
-+	return grpc.WithTransportCredentials(credentials.NewTLS(&tls.Config{ServerName: host, RootCAs: roots, MinVersion: tls.VersionTLS12})), true
-+}
-+
-+// NetGoRelayContext snapshots the active profile's trust for both relay
-+// transports without modifying the machine's certificate store.
-+func NetGoRelayContext(ctx context.Context, authority string) context.Context {
-+	netgoRoutes.RLock()
-+	roots := netgoRoutes.roots[authority]
-+	_, active := netgoRoutes.m[authority]
-+	netgoRoutes.RUnlock()
-+	ctx = relayTLS.WithNetGoRootCAs(ctx, roots)
-+	return relayClient.WithNetGoClient(ctx, active)
-+}
-+
-+// ConfigureNetGoRoutes follows the daemon's profile ownership checks. Older
-+// callers without kinds retain a preference for their first configured entry.
-+func ConfigureNetGoRoutes(authority string, candidates []string, kinds ...string) error {
-+	if len(candidates) == 0 || len(candidates) > 8 || (len(kinds) != 0 && len(kinds) != len(candidates)) {
-+		return errors.New("invalid NetGo candidate count")
-+	}
-+	entries := make([]netgoCandidate, 0, len(candidates))
-+	for index, addr := range candidates {
-+		h, p, e := net.SplitHostPort(addr)
-+		port, portErr := strconv.ParseUint(p, 10, 16)
-+		if e != nil || h == "" || portErr != nil || port == 0 || strings.ContainsAny(addr, "\x00\n\r\t/\\ ") {
-+			return errors.New("invalid NetGo candidate")
-+		}
-+		kind := "direct"
-+		if len(kinds) != 0 {
-+			kind = kinds[index]
-+		} else if index != 0 {
-+			kind = "auxiliary"
-+		}
-+		if kind != "direct" && kind != "auxiliary" {
-+			return errors.New("invalid NetGo candidate kind")
-+		}
-+		entries = append(entries, netgoCandidate{address: addr, kind: kind})
-+	}
-+	netgoRoutes.Lock()
-+	defer netgoRoutes.Unlock()
-+	netgoRoutes.m[authority] = entries
-+	return nil
-+}
-+func netgoDialOption(authority string) (grpc.DialOption, bool) {
-+	netgoRoutes.RLock()
-+	_, ok := netgoRoutes.m[authority]
-+	netgoRoutes.RUnlock()
-+	if !ok {
-+		return nil, false
-+	}
-+	return grpc.WithContextDialer(func(ctx context.Context, _ string) (net.Conn, error) {
-+		netgoRoutes.RLock()
-+		list := append([]netgoCandidate(nil), netgoRoutes.m[authority]...)
-+		roots := netgoRoutes.roots[authority]
-+		netgoRoutes.RUnlock()
-+		return dialNetGo(ctx, authority, list, roots)
-+	}), true
-+}
-+
-+func dialNetGo(ctx context.Context, authority string, candidates []netgoCandidate, roots *x509.CertPool) (net.Conn, error) {
-+	if err := ctx.Err(); err != nil {
-+		return nil, err
-+	}
-+	ctx, cancel := context.WithCancel(ctx)
-+	var workers sync.WaitGroup
-+	defer func() { cancel(); workers.Wait() }()
-+	host, _, err := net.SplitHostPort(authority)
-+	if err != nil {
-+		host = authority
-+	}
-+	hasDirect := false
-+	for _, candidate := range candidates {
-+		hasDirect = hasDirect || candidate.kind == "direct"
-+	}
-+	// An unbuffered handoff gives each unsuccessful worker ownership of closing
-+	// its connection once the winner returns or the calling generation cancels.
-+	results := make(chan net.Conn)
-+	for _, candidate := range candidates {
-+		workers.Add(1)
-+		go func(candidate netgoCandidate) {
-+			defer workers.Done()
-+			if candidate.kind == "auxiliary" && hasDirect {
-+				timer := time.NewTimer(800 * time.Millisecond)
-+				defer timer.Stop()
-+				select {
-+				case <-ctx.Done():
-+					return
-+				case <-timer.C:
-+				}
-+			}
-+			connection := probeNetGo(ctx, host, candidate.address, roots)
-+			select {
-+			case results <- connection:
-+			case <-ctx.Done():
-+				if connection != nil {
-+					_ = connection.Close()
-+				}
-+			}
-+		}(candidate)
-+	}
-+	for range candidates {
-+		select {
-+		case <-ctx.Done():
-+			return nil, ctx.Err()
-+		case connection := <-results:
-+			if connection != nil {
-+				if err := ctx.Err(); err != nil {
-+					_ = connection.Close()
-+					return nil, err
-+				}
-+				return connection, nil
-+			}
-+		}
-+	}
-+	return nil, errors.New("no trusted NetGo control candidate")
-+}
-+
-+func probeNetGo(ctx context.Context, host, address string, roots *x509.CertPool) net.Conn {
-+	ctx, cancel := context.WithTimeout(ctx, 3*time.Second)
-+	defer cancel()
-+	raw, err := dialContext(ctx, address)
-+	if err != nil {
-+		return nil
-+	}
-+	probe := tls.Client(raw, &tls.Config{
-+		ServerName: host, RootCAs: roots, MinVersion: tls.VersionTLS12, NextProtos: []string{"h2"},
-+	})
-+	if err = probe.HandshakeContext(ctx); err != nil {
-+		_ = probe.Close()
-+		return nil
-+	}
-+	negotiated := probe.ConnectionState().NegotiatedProtocol
-+	_ = probe.Close()
-+	if negotiated != "h2" {
-+		return nil
-+	}
-+	// gRPC performs its own TLS handshake over this transport with the same
-+	// authority and trust roots; the probe never sends application credentials.
-+	connection, err := dialContext(ctx, address)
-+	if err != nil {
-+		return nil
-+	}
-+	return connection
-+}
-diff --git a/client/grpc/netgo_relay_role_test.go b/client/grpc/netgo_relay_role_test.go
-new file mode 100644
-index 0000000..fe34813
---- /dev/null
-+++ b/client/grpc/netgo_relay_role_test.go
-@@ -0,0 +1,28 @@
-+package grpc
-+
-+import (
-+	"context"
-+	"testing"
-+
-+	relayClient "github.com/netbirdio/netbird/shared/relay/client"
-+)
-+
-+func TestNetGoRelayRoleIsBoundToRegisteredAuthority(t *testing.T) {
-+	t.Setenv("NB_NETGO_ROUTING_PEER", "false")
-+	authority := "relay-role.test:10443"
-+	if err := ConfigureNetGoRoutes(authority, []string{"192.0.2.1:10443"}); err != nil {
-+		t.Fatal(err)
-+	}
-+	t.Cleanup(func() {
-+		netgoRoutes.Lock()
-+		delete(netgoRoutes.m, authority)
-+		netgoRoutes.Unlock()
-+	})
-+	urls := []string{"rels://192.0.2.1:18443", "rels://198.51.100.1:28443"}
-+	selected := relayClient.NewManager(NetGoRelayContext(context.Background(), authority), urls, "client", 1280)
-+	parent := NetGoRelayContext(context.Background(), authority)
-+	other := relayClient.NewManager(NetGoRelayContext(parent, "other.test:10443"), urls, "other", 1280)
-+	if !selected.NetGoRelaySelection() || other.NetGoRelaySelection() {
-+		t.Fatal("NetGo relay mode crossed authority boundary")
-+	}
-+}
-diff --git a/client/internal/peer/worker_relay.go b/client/internal/peer/worker_relay.go
-index 6942078..bf11b44 100644
---- a/client/internal/peer/worker_relay.go
-+++ b/client/internal/peer/worker_relay.go
-@@ -59,9 +59,13 @@ func (w *WorkerRelay) OnNewOffer(remoteOfferAnswer *OfferAnswer) {
- 		return
- 	}
- 
--	srv := w.preferredRelayServer(currentRelayAddress, remoteOfferAnswer.RelaySrvAddress)
-+	srv, err := w.relayManager.PreferredRelay(currentRelayAddress, remoteOfferAnswer.RelaySrvAddress, w.isController)
-+	if err != nil {
-+		w.log.Warnf("relay selection rejected: %v", err)
-+		return
-+	}
- 	var serverIP netip.Addr
--	if srv == remoteOfferAnswer.RelaySrvAddress {
-+	if srv == remoteOfferAnswer.RelaySrvAddress && !w.relayManager.NetGoRelaySelection() {
- 		serverIP = remoteOfferAnswer.RelaySrvIP
- 	}
- 
-@@ -127,13 +131,6 @@ func (w *WorkerRelay) isRelaySupported(answer *OfferAnswer) bool {
- 	return answer.RelaySrvAddress != ""
- }
- 
--func (w *WorkerRelay) preferredRelayServer(myRelayAddress, remoteRelayAddress string) string {
--	if w.isController {
--		return myRelayAddress
--	}
--	return remoteRelayAddress
--}
--
- func (w *WorkerRelay) watchRelayedConn(relayedConn *relayClient.Conn) {
- 	<-relayedConn.Context().Done()
- 
-diff --git a/shared/relay/client/manager.go b/shared/relay/client/manager.go
-index 518a4a5..ad11546 100644
---- a/shared/relay/client/manager.go
-+++ b/shared/relay/client/manager.go
-@@ -72,6 +72,7 @@ func WithNetEvents(events NetEvents) ManagerOption {
- // relay servers will be closed if there is no active connection. Periodically the manager will check if there is any
- // unused relay connection and close it.
- type Manager struct {
-+	netgoRole    netGoRelayRole
- 	ctx          context.Context
- 	peerID       string
- 	running      bool
-@@ -108,6 +109,7 @@ func NewManager(ctx context.Context, serverURLs []string, peerID string, mtu uin
- 	tf := newTransportFallback()
- 
- 	m := &Manager{
-+		netgoRole:         netGoRole(ctx),
- 		ctx:               ctx,
- 		peerID:            peerID,
- 		tokenStore:        tokenStore,
-diff --git a/shared/relay/client/netgo_selection.go b/shared/relay/client/netgo_selection.go
-new file mode 100644
-index 0000000..c3f0508
---- /dev/null
-+++ b/shared/relay/client/netgo_selection.go
-@@ -0,0 +1,73 @@
-+package client
-+
-+import (
-+	"context"
-+	"errors"
-+	"os"
-+	"strconv"
-+)
-+
-+const netGoRoutingPeerEnv = "NB_NETGO_ROUTING_PEER"
-+
-+type netGoRelayRole uint8
-+
-+const (
-+	netGoUnmanaged netGoRelayRole = iota
-+	netGoClient
-+	netGoRoutingPeer
-+	netGoInvalidRole
-+)
-+
-+type netGoClientKey struct{}
-+
-+// WithNetGoClient snapshots whether this context uses the NetGo profile adapter.
-+func WithNetGoClient(ctx context.Context, active bool) context.Context {
-+	return context.WithValue(ctx, netGoClientKey{}, active)
-+}
-+
-+func netGoRole(ctx context.Context) netGoRelayRole {
-+	if value := os.Getenv(netGoRoutingPeerEnv); value != "" {
-+		router, err := strconv.ParseBool(value)
-+		if err != nil {
-+			return netGoInvalidRole
-+		}
-+		if router {
-+			return netGoRoutingPeer
-+		}
-+	}
-+	if active, _ := ctx.Value(netGoClientKey{}).(bool); active {
-+		return netGoClient
-+	}
-+	return netGoUnmanaged
-+}
-+
-+// NetGoRelaySelection reports whether the manager uses the NetGo gateway topology.
-+func (m *Manager) NetGoRelaySelection() bool {
-+	return m.netgoRole != netGoUnmanaged
-+}
-+
-+// PreferredRelay selects the client's reachable home relay for NetGo gateway links.
-+// The gateway follows that choice, independently of WireGuard controller ordering.
-+func (m *Manager) PreferredRelay(local, remote string, controller bool) (string, error) {
-+	selected := remote
-+	switch m.netgoRole {
-+	case netGoUnmanaged:
-+		if controller {
-+			selected = local
-+		}
-+		return selected, nil
-+	case netGoClient:
-+		selected = local
-+	case netGoRoutingPeer:
-+	default:
-+		return "", errors.New("invalid NetGo relay role")
-+	}
-+	// Only Management-published endpoints are eligible. A peer cannot make the
-+	// privileged gateway dial an arbitrary address or a different site's relay.
-+	for _, allowed := range m.serverPicker.ServerURLs.Load().([]string) {
-+		if allowed != "" && selected == allowed {
-+			return selected, nil
-+		}
-+	}
-+	return "", errors.New("NetGo relay endpoint is not published by Management")
-+}
-diff --git a/shared/relay/client/netgo_selection_test.go b/shared/relay/client/netgo_selection_test.go
-new file mode 100644
-index 0000000..98e5a34
---- /dev/null
-+++ b/shared/relay/client/netgo_selection_test.go
-@@ -0,0 +1,67 @@
-+package client
-+
-+import (
-+	"context"
-+	"testing"
-+)
-+
-+func TestNetGoRelaySelectionBothControllerOrders(t *testing.T) {
-+	t.Setenv(netGoRoutingPeerEnv, "false")
-+	const local = "rels://192.0.2.1:18443"
-+	const auxiliary = "rels://198.51.100.1:28443"
-+	urls := []string{local, auxiliary}
-+	client := NewManager(WithNetGoClient(context.Background(), true), urls, "client", 1280)
-+	t.Setenv(netGoRoutingPeerEnv, "true")
-+	gateway := NewManager(context.Background(), urls, "gateway", 1280)
-+	for _, controller := range []bool{false, true} {
-+		for _, reachable := range urls {
-+			clientChoice, err := client.PreferredRelay(reachable, local, controller)
-+			if err != nil || clientChoice != reachable {
-+				t.Fatalf("client home=%s controller=%t: %s %v", reachable, controller, clientChoice, err)
-+			}
-+			gatewayChoice, err := gateway.PreferredRelay(local, reachable, !controller)
-+			if err != nil || gatewayChoice != clientChoice {
-+				t.Fatalf("peers disagree for controller=%t: client=%s gateway=%s err=%v", controller, clientChoice, gatewayChoice, err)
-+			}
-+		}
-+	}
-+}
-+
-+func TestNetGoRelaySelectionNoVPSAndRemovedEndpoints(t *testing.T) {
-+	t.Setenv(netGoRoutingPeerEnv, "true")
-+	const local = "rels://192.0.2.1:18443"
-+	manager := NewManager(context.Background(), []string{local}, "gateway", 1280)
-+	selected, err := manager.PreferredRelay(local, local, false)
-+	if err != nil || selected != local {
-+		t.Fatalf("standalone local relay rejected: %s %v", selected, err)
-+	}
-+	for _, foreign := range []string{"", "rels://other-site:18443", "rel://192.0.2.1:18443", "rels://192.0.2.1:18444"} {
-+		if _, err := manager.PreferredRelay(local, foreign, true); err == nil {
-+			t.Fatalf("unpublished relay accepted: %q", foreign)
-+		}
-+	}
-+	manager.serverPicker.ServerURLs.Store([]string{})
-+	if _, err := manager.PreferredRelay(local, local, true); err == nil {
-+		t.Fatal("removed relay remained selectable")
-+	}
-+}
-+
-+func TestNetGoRelaySelectionUnmanagedAndInvalidRole(t *testing.T) {
-+	t.Setenv(netGoRoutingPeerEnv, "false")
-+	manager := NewManager(context.Background(), []string{"local", "remote"}, "plain", 1280)
-+	for _, controller := range []bool{false, true} {
-+		want := "remote"
-+		if controller {
-+			want = "local"
-+		}
-+		got, err := manager.PreferredRelay("local", "remote", controller)
-+		if err != nil || got != want || manager.NetGoRelaySelection() {
-+			t.Fatalf("unmanaged selection changed: %s %v", got, err)
-+		}
-+	}
-+	t.Setenv(netGoRoutingPeerEnv, "invalid")
-+	manager = NewManager(context.Background(), []string{"local"}, "bad", 1280)
-+	if _, err := manager.PreferredRelay("local", "local", true); err == nil {
-+		t.Fatal("invalid role failed open")
-+	}
-+}
-diff --git a/client/android/netgo.go b/client/android/netgo.go
-new file mode 100644
---- /dev/null
-+++ b/client/android/netgo.go
-@@ -0,0 +1,53 @@
-+//go:build android
-+
-+package android
-+
-+import (
-+	"context"
-+	"errors"
-+	netgogrpc "github.com/netbirdio/netbird/client/grpc"
-+	"github.com/netbirdio/netbird/client/internal/auth"
-+	"github.com/netbirdio/netbird/client/system"
-+	"net/url"
-+	"strings"
-+	"golang.zx2c4.com/wireguard/wgctrl/wgtypes"
-+)
-+
-+// NewNetGoAuth uses the authenticated site's existing canonical authority,
-+// public trust material and candidate selector. It does not open an OAuth UI.
-+func NewNetGoAuth(path, origin, ca, addresses, kinds string) (*Auth, error) {
-+	target, err := url.Parse(origin)
-+	if err != nil || target.Scheme != "https" || target.Host == "" {
-+		return nil, errors.New("invalid_netgo_origin")
-+	}
-+	candidates := strings.Split(addresses, ";")
-+	types := strings.Split(kinds, ";")
-+	if len(candidates) != len(types) || len(candidates) > 16 {
-+		return nil, errors.New("invalid_netgo_candidates")
-+	}
-+	if err = netgogrpc.ConfigureNetGoCA(target.Host, ca); err != nil {
-+		return nil, err
-+	}
-+	if err = netgogrpc.ConfigureNetGoRoutes(target.Host, candidates, types...); err != nil {
-+		return nil, err
-+	}
-+	return NewAuth(path, origin, nil)
-+}
-+func (a *Auth) NetGoPublicKey() (string,error) {
-+	key,err:=wgtypes.ParseKey(a.config.PrivateKey)
-+	if err!=nil{return "",err}
-+	return key.PublicKey().String(),nil
-+}
-+func (a *Auth) NetGoLoginJWT(token, deviceName string) error {
-+	if token == "" || len(token) > 65536 {
-+		return errors.New("invalid_netgo_token")
-+	}
-+	connection, err := auth.NewAuth(a.ctx, a.config.PrivateKey, a.config.ManagementURL, a.config)
-+	if err != nil {
-+		return err
-+	}
-+	defer connection.Close()
-+	ctx := context.WithValue(a.ctx, system.DeviceNameCtxKey, deviceName)
-+	err, _ = connection.Login(ctx, "", token)
-+	return err
-+}
-diff --git a/client/cmd/netgo_rpc_stream_test.go b/client/cmd/netgo_rpc_stream_test.go
-new file mode 100644
---- /dev/null
-+++ b/client/cmd/netgo_rpc_stream_test.go
-@@ -0,0 +1,31 @@
-+package cmd
-+
-+import (
-+	"bytes"
-+	"encoding/json"
-+	"strings"
-+	"testing"
-+
-+	"github.com/spf13/cobra"
-+)
-+
-+func TestNetGoRPCFramedRequests(t *testing.T) {
-+	command := &cobra.Command{}
-+	command.SetIn(strings.NewReader("{invalid}\n{\"unknown\":true}\n"))
-+	var output bytes.Buffer
-+	command.SetOut(&output)
-+	if err := netgoRPCCmd.RunE(command, nil); err != nil {
-+		t.Fatal(err)
-+	}
-+	decoder := json.NewDecoder(&output)
-+	for range 2 {
-+		var result map[string]string
-+		if err := decoder.Decode(&result); err != nil || result["error"] != "engine_invalid_request" {
-+			t.Fatal(result, err)
-+		}
-+	}
-+	command.SetIn(strings.NewReader(strings.Repeat("x", 65537) + "\n"))
-+	if err := netgoRPCCmd.RunE(command, nil); err == nil {
-+		t.Fatal("unbounded frame accepted")
-+	}
-+}
-diff --git a/client/android/exec.go b/client/android/exec.go
---- a/client/android/exec.go
-+++ b/client/android/exec.go
-@@ -2,25 +2,10 @@
- 
- package android
- 
--import (
--	"fmt"
--	_ "unsafe"
--)
--
--// https://github.com/golang/go/pull/69543/commits/aad6b3b32c81795f86bc4a9e81aad94899daf520
--// In Android version 11 and earlier, pidfd-related system calls
--// are not allowed by the seccomp policy, which causes crashes due
--// to SIGSYS signals.
--
--//go:linkname checkPidfdOnce os.checkPidfdOnce
--var checkPidfdOnce func() error
--
--func execWorkaround(androidSDKVersion int) {
--	if androidSDKVersion > 30 { // above Android 11
--		return
--	}
--
--	checkPidfdOnce = func() error {
--		return fmt.Errorf("unsupported Android version")
--	}
--}
-+// NetGo requires Android 12+. No pre-Android-12 pidfd override is needed.
-+// Do not link to unexported Go runtime variables on supported versions.
-+func execWorkaround(api int) {
-+ if api<31 {
-+  panic("NetGo Android requires Android 12 or newer")
-+ }
-+}
-diff --git a/client/ios/NetBirdSDK/netgo.go b/client/ios/NetBirdSDK/netgo.go
-new file mode 100644
---- /dev/null
-+++ b/client/ios/NetBirdSDK/netgo.go
-@@ -0,0 +1,53 @@
-+//go:build ios
-+
-+package NetBirdSDK
-+
-+import (
-+	"context"
-+	"errors"
-+	netgogrpc "github.com/netbirdio/netbird/client/grpc"
-+	"github.com/netbirdio/netbird/client/internal/auth"
-+	"github.com/netbirdio/netbird/client/system"
-+	"net/url"
-+	"strings"
-+	"golang.zx2c4.com/wireguard/wgctrl/wgtypes"
-+)
-+
-+// NewNetGoAuth uses the authenticated site's existing canonical authority,
-+// public trust material and candidate selector. It does not open an OAuth UI.
-+func NewNetGoAuth(path, origin, ca, addresses, kinds string) (*Auth, error) {
-+	target, err := url.Parse(origin)
-+	if err != nil || target.Scheme != "https" || target.Host == "" {
-+		return nil, errors.New("invalid_netgo_origin")
-+	}
-+	candidates := strings.Split(addresses, ";")
-+	types := strings.Split(kinds, ";")
-+	if len(candidates) != len(types) || len(candidates) > 16 {
-+		return nil, errors.New("invalid_netgo_candidates")
-+	}
-+	if err = netgogrpc.ConfigureNetGoCA(target.Host, ca); err != nil {
-+		return nil, err
-+	}
-+	if err = netgogrpc.ConfigureNetGoRoutes(target.Host, candidates, types...); err != nil {
-+		return nil, err
-+	}
-+	return NewAuth(path, origin, nil)
-+}
-+func (a *Auth) NetGoPublicKey() (string,error) {
-+	key,err:=wgtypes.ParseKey(a.config.PrivateKey)
-+	if err!=nil{return "",err}
-+	return key.PublicKey().String(),nil
-+}
-+func (a *Auth) NetGoLoginJWT(token, deviceName string) error {
-+	if token == "" || len(token) > 65536 {
-+		return errors.New("invalid_netgo_token")
-+	}
-+	connection, err := auth.NewAuth(a.ctx, a.config.PrivateKey, a.config.ManagementURL, a.config)
-+	if err != nil {
-+		return err
-+	}
-+	defer connection.Close()
-+	ctx := context.WithValue(a.ctx, system.DeviceNameCtxKey, deviceName)
-+	err, _ = connection.Login(ctx, "", token)
-+	return err
 +}

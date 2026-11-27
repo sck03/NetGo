@@ -1,4 +1,5 @@
 #include "netgo_remote_host.h"
+#include "remote_control.hpp"
 #include "netgo_remote_ticket.h"
 #include "netgo_remote_clock.hpp"
 #include "netgo_remote_watchdog.hpp"
@@ -163,28 +164,35 @@ struct Monitor {
               try {
                   while (live()) {
                       auto next = monotonic_time_ms() + 3000;
-                      host.call("POST", std::string(base) + "/host/heartbeat", {{"boot", boot}});
-                      if (!live())
-                          break;
-                      auto s = session.snapshot();
-                      if (!s.second.empty()) {
-                          try {
-                              auto sent = monotonic_time_ms();
-                              auto a = host.call("GET", std::string(base) + "/sessions/" + s.second);
-                              if (a.at("session").value("state", "") == "closed")
+                      try {
+                          host.call("POST", std::string(base) + "/host/heartbeat", {{"boot", boot}});
+                          if (!live())
+                              break;
+                          auto s = session.snapshot();
+                          if (!s.second.empty()) {
+                              try {
+                                  auto sent = monotonic_time_ms();
+                                  auto a = host.call("GET", std::string(base) + "/sessions/" + s.second);
+                                  if (a.at("session").value("state", "") == "closed")
+                                      session.reject(s);
+                                  else {
+                                      std::lock_guard lock(snapshotMutex);
+                                      snapshotID = s.second;
+                                      snapshot = std::move(a);
+                                      observed = sent;
+                                  }
+                              } catch (const std::exception& error) {
+                                  if (netgo::remote::transient_control(error)) throw;
                                   session.reject(s);
-                              else {
-                                  std::lock_guard lock(snapshotMutex);
-                                  snapshotID = s.second;
-                                  snapshot = std::move(a);
-                                  observed = sent;
                               }
-                          } catch (...) {
-                              session.reject(s);
                           }
+                          if (!watchdog.refresh())
+                              break;
+                      } catch (const std::exception& error) {
+                          if (!netgo::remote::transient_control(error)) throw;
+                          for (int i=0;i<5&&live();++i) std::this_thread::sleep_for(std::chrono::milliseconds(50));
+                          continue;
                       }
-                      if (!watchdog.refresh())
-                          break;
                       while (live() && monotonic_time_ms() < next)
                           std::this_thread::sleep_for(std::chrono::milliseconds(50));
                   }

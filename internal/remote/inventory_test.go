@@ -44,7 +44,7 @@ func TestInventoryUsesServerStateAndEffectiveGrants(t *testing.T) {
 			if err := f.m.Store.Update(func(s *model.State) error { tc.change(f, s); return nil }); err != nil {
 				t.Fatal(err)
 			}
-			got, err := f.m.List(f.c)
+			got, err := f.m.List(f.c, "")
 			if err != nil || len(got.Hosts) != 1 {
 				t.Fatalf("inventory: %+v %v", got, err)
 			}
@@ -59,7 +59,7 @@ func TestInventoryUsesServerStateAndEffectiveGrants(t *testing.T) {
 func TestInventoryBusyAndRevocation(t *testing.T) {
 	f := setup(t)
 	a := f.acquire(t)
-	got, err := f.m.List(f.c)
+	got, err := f.m.List(f.c, "")
 	if err != nil || got.Hosts[0].Status != "busy" {
 		t.Fatalf("busy: %+v %v", got, err)
 	}
@@ -69,7 +69,7 @@ func TestInventoryBusyAndRevocation(t *testing.T) {
 	if err = f.m.Revoke(f.c, a.Session.ID); err != nil {
 		t.Fatal(err)
 	}
-	got, err = f.m.List(f.c)
+	got, err = f.m.List(f.c, "")
 	if err != nil || got.Hosts[0].Status != "ready" {
 		t.Fatalf("revoke: %+v %v", got, err)
 	}
@@ -150,5 +150,62 @@ func TestRemoteSweepLoadsOnlySessionDependencies(t *testing.T) {
 		if session.State != "closed" {
 			t.Fatal("expired session not closed")
 		}
+	}
+}
+
+func TestNativeInventoryPagesAreBoundedAndKeepOwnSessions(t *testing.T) {
+	f := setup(t)
+	a := f.acquire(t)
+	if err := f.m.Store.Update(func(st *model.State) error {
+		original := st.Hosts["host"]
+		for i := 0; i < 61; i++ {
+			id := fmt.Sprintf("native-%03d", i)
+			h := original
+			h.ID = id
+			st.Hosts[id] = h
+			st.Devices[id] = model.Device{ID: id, UserID: "owner"}
+		}
+		return nil
+	}); err != nil {
+		t.Fatal(err)
+	}
+	seen := map[string]bool{}
+	after := ""
+	for {
+		page, err := f.m.List(f.c, after)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if len(page.Hosts) > 50 || len(page.Sessions) != 1 || page.Sessions[0].ID != a.Session.ID {
+			t.Fatalf("unbounded or incomplete native page: %+v", page)
+		}
+		for _, h := range page.Hosts {
+			if seen[h.ID] {
+				t.Fatalf("duplicate host %s", h.ID)
+			}
+			seen[h.ID] = true
+		}
+		if page.NextAfter == "" {
+			break
+		}
+		if page.NextAfter <= after {
+			t.Fatal("cursor did not advance")
+		}
+		after = page.NextAfter
+	}
+	if len(seen) != 62 {
+		t.Fatalf("missing hosts: %d", len(seen))
+	}
+	if err := f.m.Store.Update(func(st *model.State) error {
+		u := st.Users[f.c.UserID]
+		u.Role = "user"
+		st.Users[u.ID] = u
+		return nil
+	}); err != nil {
+		t.Fatal(err)
+	}
+	page, err := f.m.List(f.c, "")
+	if err != nil || len(page.Hosts) != 1 || page.Hosts[0].ID != "host" {
+		t.Fatalf("ungranted hosts leaked: %+v %v", page, err)
 	}
 }

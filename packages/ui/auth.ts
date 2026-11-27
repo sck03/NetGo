@@ -28,6 +28,7 @@ export class AdminSession {
   private expiresAt = 0
   private generation = 0
   private refreshing: Promise<void> | null = null
+  private requests = new Set<Promise<unknown>>()
   private pending = new Set<AbortController>()
   private serverTime = 0
   private observedAt = 0
@@ -58,10 +59,6 @@ export class AdminSession {
       if (generation !== this.generation) throw Error('管理登录已取消')
       if (!response.ok) {
         if (response.status === 401 && token === this.token && key === this.key) {
-          // Rotation can already be committed while the refresh response is still in flight.
-          if (this.refreshing && path !== '/netgo/v2/auth/refresh') {
-            try { await this.refreshing } catch { /* A failed refresh cannot retain a rejected credential. */ }
-          }
           if (generation === this.generation && token === this.token && key === this.key) this.logout()
         }
         throw Error(result.error === 'site_not_ready' ? '站点网关尚未就绪，请先完成服务器初始化。' : (result.error || '请求失败'))
@@ -79,7 +76,12 @@ export class AdminSession {
   private refresh() {
     if (this.refreshing) return this.refreshing
     const generation = this.generation, refreshToken = this.refreshToken
-    const pending = this.send<AuthResult>('/netgo/v2/auth/refresh', 'POST', { refresh_token: refreshToken }).then(fresh => {
+    // Requests may recheck their credential after upstream IO. Drain them
+    // before rotation, keeping new requests behind the same barrier.
+    const pending = Promise.allSettled([...this.requests]).then(() => {
+      if (generation !== this.generation) throw Error('管理登录已取消')
+      return this.send<AuthResult>('/netgo/v2/auth/refresh', 'POST', { refresh_token: refreshToken })
+    }).then(fresh => {
       if (generation !== this.generation) throw Error('管理登录已取消')
       this.token = fresh.token
       this.refreshToken = fresh.refresh_token || ''
@@ -91,11 +93,16 @@ export class AdminSession {
 
   async request<T = unknown>(path: string, method = 'GET', input?: unknown): Promise<T> {
     const generation = this.generation
-    if (this.token && this.refreshToken && this.expiresAt - this.now() < 120000) {
+    if (this.refreshing) {
+      await this.refreshing
+    } else if (this.token && this.refreshToken && this.expiresAt - this.now() < 120000) {
       await this.refresh()
     }
     if (generation !== this.generation) throw Error('管理登录已取消')
-    return this.send<T>(path, method, input)
+    const pending = this.send<T>(path, method, input)
+    const requests = this.requests
+    requests.add(pending)
+    try { return await pending } finally { requests.delete(pending) }
   }
 
   async login(siteID: string, alias: string, password: string) {
@@ -136,6 +143,7 @@ export class AdminSession {
     for (const controller of this.pending) controller.abort()
     this.pending.clear()
     this.refreshing = null
+    this.requests = new Set()
     this.token = ''
     this.refreshToken = ''
     this.expiresAt = 0

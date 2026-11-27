@@ -17,9 +17,14 @@ Json safeDiagnostic(const Json& status, const Json& logs);
 void validateHealth(const Json& health,const std::string& siteID);
 struct HttpResponse { int status; std::string body; };
 HttpResponse decodeHttp(const std::string& raw);
+struct RequestOptions {
+ std::function<bool()> cancelled;
+ bool cleanup = false;
+};
 class Transport {
  Json profile_;
  std::shared_ptr<ssl_ctx_st> context_;
+ std::function<bool()> cancelled_;
  struct Link;
  // Independent persistent connections for probes, VPN and remote control.
  std::vector<std::array<std::shared_ptr<Link>, 3>> links_;
@@ -32,16 +37,16 @@ class Transport {
  struct ClockSample {std::chrono::system_clock::time_point server{};Clock::time_point received{};bool valid=false;};
  std::vector<ClockSample> clocks_;
  mutable std::mutex clockMutex_;
- Json requestAt(size_t index,const std::string& method,const std::string& path,const std::string& body,const std::string& headers);
- bool probe(size_t index);
+ Json requestAt(size_t index,const std::string& method,const std::string& path,const std::string& body,const std::string& headers,const RequestOptions& options = {});
+ bool probe(size_t index,const std::function<bool()>& cancelled = {});
 public:
- explicit Transport(Json profile,std::chrono::milliseconds cooldown=std::chrono::seconds(30));
+ explicit Transport(Json profile,std::chrono::milliseconds cooldown=std::chrono::seconds(30),std::function<bool()> cancelled = {});
  void select();
  void recover();
  std::string kind() const;
  std::string candidate() const;
  std::chrono::system_clock::time_point now() const;
- Json call(const std::string& method,const std::string& path,const Json& body,const std::string& seed = {},const std::string& token = {},const std::string& idempotency = {});
+ Json call(const std::string& method,const std::string& path,const Json& body,const std::string& seed = {},const std::string& token = {},const std::string& idempotency = {},const RequestOptions& options = {});
 };
 
 class Controller {

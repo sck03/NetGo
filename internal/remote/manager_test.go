@@ -281,7 +281,7 @@ func TestInspectOnlyCurrentSessionParticipants(t *testing.T) {
 
 func TestNextGenerationSurvivesClosedSessionsAndRestart(t *testing.T) {
 	f := setup(t)
-	list, err := f.m.List(f.c)
+	list, err := f.m.List(f.c, "")
 	if err != nil || list.NextGeneration != 1 {
 		t.Fatal(list.NextGeneration, err)
 	}
@@ -294,11 +294,11 @@ func TestNextGenerationSurvivesClosedSessionsAndRestart(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	list, err = f.m.List(f.c)
+	list, err = f.m.List(f.c, "")
 	if err != nil || list.NextGeneration != 2 {
 		t.Fatal(list.NextGeneration, err)
 	}
-	other, err := f.m.List(f.h)
+	other, err := f.m.List(f.h, "")
 	if err != nil || other.NextGeneration != 1 {
 		t.Fatal("generation leaked across devices", other.NextGeneration, err)
 	}
@@ -310,7 +310,7 @@ func TestNextGenerationSurvivesClosedSessionsAndRestart(t *testing.T) {
 	}); err != nil {
 		t.Fatal(err)
 	}
-	list, err = f.m.List(f.c)
+	list, err = f.m.List(f.c, "")
 	if err != nil || list.NextGeneration != 0 {
 		t.Fatal("generation overflow", list.NextGeneration, err)
 	}

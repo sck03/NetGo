@@ -15,26 +15,34 @@ type RemoteHistory struct {
 	Hosts      map[string]string     `json:"hosts"`
 }
 
-// Inventory loads active sessions and the generation watermark in one snapshot.
-// Closed session bodies never enter the frequently polled native response path.
-func (s *Store) RemoteInventory(c model.Credential) (model.State, uint64, error) {
+type NativeInventory struct {
+	State      model.State
+	Hosts      map[string]bool
+	NextAfter  string
+	Generation uint64
+}
+
+// Hosts, live dependencies and generation watermark share one SQL snapshot.
+func (s *Store) RemoteInventory(c model.Credential, after string) (NativeInventory, error) {
+	if !validSearch(after, "") {
+		return NativeInventory{}, errors.New("invalid_remote_page")
+	}
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	tx, err := s.db.Begin()
 	if err != nil {
-		return model.State{}, 0, err
+		return NativeInventory{}, err
 	}
 	defer tx.Rollback()
-	st, err := inventoryState(tx, c)
+	out, err := inventoryState(tx, c, after)
 	if err != nil {
-		return st, 0, err
+		return out, err
 	}
-	var generation uint64
-	if err = tx.QueryRow("SELECT coalesce(max(json_extract(data,'$.generation')),0) FROM remote_sessions WHERE controller_id=?", c.DeviceID).Scan(&generation); err != nil {
-		return st, 0, err
+	err = tx.QueryRow("SELECT coalesce(max(json_extract(data,'$.generation')),0) FROM remote_sessions WHERE controller_id=?", c.DeviceID).Scan(&out.Generation)
+	if err != nil {
+		return out, err
 	}
-	err = tx.Commit()
-	return st, generation, err
+	return out, tx.Commit()
 }
 
 func (s *Store) RemoteCleanupDue(now time.Time) (bool, error) {

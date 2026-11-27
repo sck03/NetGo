@@ -18,6 +18,19 @@ import (
 	"time"
 )
 
+func TestRemoteInventoryCursorWhitelist(t *testing.T) {
+	for _, path := range []string{"/netgo/v2/remote", "/netgo/v2/remote?after=device_2-abc"} {
+		if !remoteAllowed("GET", path) {
+			t.Fatalf("valid page rejected: %s", path)
+		}
+	}
+	for _, path := range []string{"/netgo/v2/remote?after=", "/netgo/v2/remote?after=one&after=two", "/netgo/v2/remote?admin=true", "/netgo/v2/remote?after=../admin"} {
+		if remoteAllowed("GET", path) {
+			t.Fatalf("invalid page accepted: %s", path)
+		}
+	}
+}
+
 func TestRemoteWorkerDoesNotWaitForVPNMaintenance(t *testing.T) {
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.URL.Path != "/netgo/v2/remote" {

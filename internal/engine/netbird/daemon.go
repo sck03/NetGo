@@ -53,7 +53,7 @@ func (d *Daemon) Close() error { return d.conn.Close() }
 func boolp(v bool) *bool       { return &v }
 func (d *Daemon) login(ctx context.Context, p site.Profile, mode, token string) (*pb.LoginResponse, error) {
 	name := "netgo-" + p.ID
-	md := metadata.Pairs("netgo-mode", mode)
+	md := metadata.Pairs("netgo-mode", mode, "netgo-gateway-ip", p.GatewayIP, "netgo-local-relay", p.LocalRelay)
 	for _, c := range p.Candidates {
 		md.Append("netgo-candidate", c.Address)
 		md.Append("netgo-candidate-kind", c.Kind)

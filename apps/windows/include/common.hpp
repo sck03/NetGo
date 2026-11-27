@@ -22,6 +22,7 @@ inline constexpr char appVersion[] = NETGO_BUILD_VERSION;
 using Json = nlohmann::json;
 using Clock = std::chrono::steady_clock;
 inline constexpr size_t maxJson = 1024 * 1024;
+inline constexpr size_t maxResponseJson = 4 * maxJson;
 struct Error : std::runtime_error { using std::runtime_error::runtime_error; };
 struct Handle {
  HANDLE value = nullptr;

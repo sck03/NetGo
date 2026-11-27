@@ -6,74 +6,36 @@ import (
 	"netgo/internal/model"
 )
 
-// Native inventory loads visible hosts and the complete dependencies needed to
-// evaluate their busy/authorization state. Unrelated accounts never get decoded.
-func inventoryState(tx *sql.Tx, c model.Credential) (model.State, error) {
+// Native inventory exposes each device's own grants and sessions. Admin-wide
+// authorization management belongs to the separate paged admin API.
+func inventoryState(tx *sql.Tx, c model.Credential, after string) (NativeInventory, error) {
+	out := NativeInventory{Hosts: map[string]bool{}}
 	st, err := read(tx, 0)
+	out.State = st
 	if err != nil {
-		return st, err
+		return out, err
 	}
 	if err = readRows(tx, "users", st.Users, "WHERE id=?", c.UserID); err != nil {
-		return st, err
+		return out, err
 	}
-	if st.Users[c.UserID].Role == "admin" {
-		st, err = read(tx, hosts|grants)
-		if err == nil {
-			err = readRows(tx, "remote_sessions", st.RemoteSessions, "WHERE state IN ('issued','active')")
-		}
-		if err == nil {
-			err = remoteDependencies(tx, &st, c)
-		}
-		return st, err
+	admin := st.Users[c.UserID].Role == "admin"
+	err = readRows(tx, "hosts", st.Hosts, `WHERE id>? AND (? OR id=? OR id IN (SELECT host_id FROM remote_grants WHERE user_id=?)) ORDER BY id LIMIT ?`, after, admin, c.DeviceID, c.UserID, adminPageSize+1)
+	if err != nil {
+		return out, err
 	}
-	if err = readRows(tx, "remote_grants", st.RemoteGrants, "WHERE user_id=?", c.UserID); err != nil {
-		return st, err
+	out.NextAfter = trimPage(st.Hosts, adminPageSize)
+	for id := range st.Hosts {
+		out.Hosts[id] = true
 	}
-	hostIDs := map[string]bool{c.DeviceID: true}
-	for _, g := range st.RemoteGrants {
-		hostIDs[g.HostID] = true
+	if err = readRows(tx, "remote_grants", st.RemoteGrants, "WHERE user_id=? AND host_id IN (SELECT value FROM json_each(?))", c.UserID, keyJSON(out.Hosts)); err != nil {
+		return out, err
 	}
-	if err = readRows(tx, "hosts", st.Hosts, "WHERE id IN (SELECT value FROM json_each(?))", keyJSON(hostIDs)); err != nil {
-		return st, err
+	// Include our own sessions on every page; other sessions only inform busy state.
+	if err = readRows(tx, "remote_sessions", st.RemoteSessions, "WHERE state IN ('issued','active') AND (controller_id=? OR host_id=? OR host_id IN (SELECT value FROM json_each(?)))", c.DeviceID, c.DeviceID, keyJSON(out.Hosts)); err != nil {
+		return out, err
 	}
-	if err = readRows(tx, "remote_sessions", st.RemoteSessions, "WHERE state IN ('issued','active') AND (controller_id=? OR host_id IN (SELECT value FROM json_each(?)))", c.DeviceID, keyJSON(hostIDs)); err != nil {
-		return st, err
-	}
-	deviceIDs := hostIDs
-	credentialIDs := map[string]bool{c.TokenHash: true}
-	grantIDs := map[string]bool{}
-	for _, r := range st.RemoteSessions {
-		deviceIDs[r.ControllerID] = true
-		deviceIDs[r.HostID] = true
-		credentialIDs[r.ControllerAuth] = true
-		grantIDs[r.GrantID] = true
-	}
-	userIDs := map[string]bool{c.UserID: true}
-	for _, load := range []func() error{
-		func() error {
-			return readRows(tx, "devices", st.Devices, "WHERE id IN (SELECT value FROM json_each(?))", keyJSON(deviceIDs))
-		},
-		func() error {
-			for _, d := range st.Devices {
-				userIDs[d.UserID] = true
-			}
-			return readRows(tx, "users", st.Users, "WHERE id IN (SELECT value FROM json_each(?))", keyJSON(userIDs))
-		},
-		func() error {
-			return readRows(tx, "credentials", st.Credentials, "WHERE id IN (SELECT value FROM json_each(?))", keyJSON(credentialIDs))
-		},
-		func() error {
-			return readRows(tx, "remote_grants", st.RemoteGrants, "WHERE id IN (SELECT value FROM json_each(?))", keyJSON(grantIDs))
-		},
-		func() error {
-			return readRows(tx, "vpn_leases", st.Leases, "WHERE device_id IN (SELECT value FROM json_each(?))", keyJSON(deviceIDs))
-		},
-	} {
-		if err = load(); err != nil {
-			return st, err
-		}
-	}
-	return st, nil
+	err = remoteDependencies(tx, &out.State, c)
+	return out, err
 }
 
 func keyJSON(keys map[string]bool) string {

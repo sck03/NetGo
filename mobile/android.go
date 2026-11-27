@@ -69,7 +69,7 @@ func (b *androidBackend) auth(p site.Profile) (*sdk.Auth, error) {
 		kinds = append(kinds, candidate.Kind)
 	}
 	path := filepath.Join(b.root, "netbird-"+p.ID+".json")
-	auth, err := sdk.NewNetGoAuth(path, p.Origin, p.CA, strings.Join(addresses, ";"), strings.Join(kinds, ";"))
+	auth, err := sdk.NewNetGoAuth(path, p.Origin, p.CA, strings.Join(addresses, ";"), strings.Join(kinds, ";"), p.GatewayIP, p.LocalRelay)
 	if err == nil {
 		b.mu.Lock()
 		b.config = path

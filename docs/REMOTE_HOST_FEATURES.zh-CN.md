@@ -46,3 +46,11 @@ Android/Apple 的文字框用于编辑本次要发送的草稿，点击发送后
 下一步真实设备验收须记录 GPU/驱动、实际编码后端、CPU/GPU/内存、帧延迟、不同 RTT 下传输速度、睡眠/网络变化和权限撤销。至少覆盖 Intel/AMD/NVIDIA Windows，Apple Silicon macOS，Linux X11 与 GNOME/KDE Wayland，以及 Android/iOS 文件选择器切换生命周期。当前测试没有代替这些项目。开发机 AMD RX 580 2048SP 已通过合成画面的 GPU NV12 → 硬件 H.264 → 解码 40/40 帧验证，未读取真实桌面；命令与证据见 [GPU 记录](https://github.com/sck03/NetGo/blob/92969551d3989395bcf2556702649ed9dc9c8e3b/docs/evidence/2026-11-26-remote-host/gpu-probe.txt)。
 
 实现与参考来源见 [设计决策 0006](adr/0006-remote-host-and-exchange.md)。当前验证结果见 [本轮交付记录](REMOTE_FEATURES_2026-11-26.zh-CN.md)。
+
+## 2026-11-27 更新
+
+原生主机列表使用每页 50 台的 cursor 接口，Windows、Linux 与移动/Apple 调用同步读取。跨平台适配属于代码一致性更新，不代表新增设备已实测。
+
+Windows 展示任务合并，最多保留最新已解码画面，不丢弃 H.264 参考包。源分辨率变化时重建编码器并维持本会话的协商尺寸；采集失效最多尝试恢复 3 秒。恢复期间释放按键并忽略新输入，授权仍由共享会话门禁控制。
+
+共享控制监视器区分暂时传输失败与明确授权拒绝，重试不延长原有 6 秒期限。已过期/撤销的会话必须重新申请。当前验证见 [重构记录](REFACTOR_2026-11-27.zh-CN.md)。

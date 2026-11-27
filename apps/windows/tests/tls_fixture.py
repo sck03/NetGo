@@ -36,7 +36,11 @@ def run(binary, isolation_only=False):
         def log_message(self,*args): pass
         def reply(self,value):
             data=json.dumps(value,separators=(",",":")).encode()
-            self.send_response(200);self.send_header("Content-Type","application/json");self.send_header("Content-Length",str(len(data)));self.end_headers();self.wfile.write(data)
+            try:
+                self.send_response(200);self.send_header("Content-Type","application/json");self.send_header("Content-Length",str(len(data)));self.end_headers();self.wfile.write(data)
+            except ConnectionError:
+                # The cancellation case deliberately closes a pending request.
+                if self.path != "/netgo/v2/sessions/slow/renew": raise
         def do_GET(self):
             events.append(("health",self.headers["Host"]))
             self.reply({"protocol":2,"site_id":"unavailable" if getattr(self.server,"wan",False) and not wan_ready.is_set() else "fixture",
@@ -137,6 +141,7 @@ def run(binary, isolation_only=False):
                     started=time.monotonic();subprocess.run([binary,"--tls",str(file)],check=True,timeout=10)
                     assert time.monotonic()-started < 6, "fallback exceeded concurrent probe window"
                     print("PASS seven stalled TLS candidates: bounded parallel fallback")
+                    subprocess.run([binary,"--tls-cancel",str(file)],check=True,timeout=10)
                     subprocess.run([binary,"--tls-recovery-load",str(file)],check=True,timeout=15)
                 finally:
                     p["Candidates"]=original;stall.shutdown();stall.server_close();stall_thread.join(timeout=3)

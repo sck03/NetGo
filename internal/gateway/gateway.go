@@ -30,6 +30,7 @@ type NFT struct {
 	Run                              func(context.Context, string) error
 	Inspect                          func(context.Context) error
 	Conntrack                        func(context.Context, string) error
+	Now                              func() time.Time
 	active                           map[string]string
 	pending                          map[string]bool
 	lastFull                         time.Time
@@ -39,7 +40,6 @@ type NFT struct {
 func (n *NFT) Apply(ctx context.Context, leases []model.Lease) error {
 	n.mu.Lock()
 	defer n.mu.Unlock()
-	now := time.Now()
 	var e error
 	// Refuse to overwrite an unowned table or operate beside flow offload.
 	if n.Inspect != nil {
@@ -62,23 +62,14 @@ func (n *NFT) Apply(ctx context.Context, leases []model.Lease) error {
 		}
 		return nil
 	}
-	next := map[string]string{}
-	for _, lease := range leases {
-		if !now.Before(lease.ExpiresAt) {
-			continue
-		}
-		b, err := json.Marshal(lease.Resources)
-		if err != nil {
-			return err
-		}
-		if _, exists := next[lease.IP]; exists {
-			return errors.New("duplicate lease IP")
-		}
-		next[lease.IP] = model.Hash(lease.ID + string(b))
+	now := n.now()
+	next, e := leaseMemberships(leases, now)
+	if e != nil {
+		return e
 	}
 	config, _ := json.Marshal([]any{n.Interface, n.LANInterface, n.Overlay, n.LocalCIDRs, n.Bypass})
 	if len(n.pending) == 0 && n.configuration == string(config) && !n.lastFull.IsZero() && now.Sub(n.lastFull) < time.Minute && reflect.DeepEqual(n.active, next) {
-		script, err := refreshMemberships(leases, n.Bypass.Enabled, now)
+		script, err := refreshMemberships(leases, n.Bypass.Enabled, n.now())
 		if err != nil {
 			return err
 		}
@@ -114,7 +105,7 @@ func (n *NFT) Apply(ctx context.Context, leases []model.Lease) error {
 				kept = append(kept, l)
 			}
 		}
-		guard, err := RenderBypass(n.Interface, n.LANInterface, n.Overlay, n.LocalCIDRs, n.Bypass, kept, time.Now())
+		guard, err := RenderBypass(n.Interface, n.LANInterface, n.Overlay, n.LocalCIDRs, n.Bypass, kept, n.now())
 		if err != nil {
 			return err
 		}
@@ -137,6 +128,16 @@ func (n *NFT) Apply(ctx context.Context, leases []model.Lease) error {
 			}
 		}
 	}
+	// Cleanup can outlast a lease. Rebuild relative deadlines before opening it.
+	now = n.now()
+	script, e = RenderBypass(n.Interface, n.LANInterface, n.Overlay, n.LocalCIDRs, n.Bypass, leases, now)
+	if e != nil {
+		return e
+	}
+	next, e = leaseMemberships(leases, now)
+	if e != nil {
+		return e
+	}
 	if e = apply(script); e != nil {
 		return e
 	}
@@ -148,6 +149,32 @@ func (n *NFT) Apply(ctx context.Context, leases []model.Lease) error {
 }
 
 const Owner = "NetGo lease gate v1"
+
+func (n *NFT) now() time.Time {
+	if n.Now != nil {
+		return n.Now()
+	}
+	return time.Now()
+}
+
+func leaseMemberships(leases []model.Lease, now time.Time) (map[string]string, error) {
+	next := make(map[string]string, len(leases))
+	for _, lease := range leases {
+		// Match the renderer's whole-second kernel timeout.
+		if lease.ExpiresAt.Sub(now) < time.Second {
+			continue
+		}
+		b, err := json.Marshal(lease.Resources)
+		if err != nil {
+			return nil, err
+		}
+		if _, exists := next[lease.IP]; exists {
+			return nil, errors.New("duplicate lease IP")
+		}
+		next[lease.IP] = model.Hash(lease.ID + string(b))
+	}
+	return next, nil
+}
 
 // Inspect is read-only. Offloaded flows can bypass the ordinary forward hook.
 // The administrator must disable conflicting offload before starting NetGo.

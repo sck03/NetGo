@@ -133,7 +133,7 @@ test('incompatible servers cannot receive administrator passwords', async t => {
   assert.throws(() => validateHealth(health, 'another'), /身份/)
 })
 
-test('a delayed 401 for the previous token cannot log out a refreshed session', async t => {
+test('rotation waits for an in-flight mutation and blocks later requests', async t => {
  const fixture = server(t)
  const upstream = globalThis.fetch
  let release, entered
@@ -150,32 +150,38 @@ test('a delayed 401 for the previous token cannot log out a refreshed session', 
  t.after(()=>Object.defineProperty(globalThis,'performance',{configurable:true,value:original}))
  const session=new AdminSession()
  await session.login('site','admin','password')
- const slow=session.request('/netgo/v2/admin/slow')
+ const slow=session.request('/netgo/v2/admin/slow','POST',{name:'new account'})
  await started;clock=2000
- await session.request('/netgo/v2/admin/state')
- release(new Response(JSON.stringify({error:'unauthorized'}),{status:401}))
- await assert.rejects(slow,/unauthorized/)
+ const fresh=session.request('/netgo/v2/admin/state')
+ const later=session.request('/netgo/v2/admin/state')
+ await new Promise(setImmediate)
+ assert.equal(fixture.refreshed(),false)
+ assert.equal(fixture.paths.filter(p=>p.endsWith('/state')).length,0)
+ release(new Response(JSON.stringify({created:true})))
+ assert.deepEqual(await slow,{created:true})
+ await Promise.all([fresh,later])
+ assert.equal(fixture.paths.filter(p=>p.endsWith('/refresh')).length,1)
  assert(session.active)
- await session.request('/netgo/v2/admin/state')
 })
 
-test('old-token rejection waits for an in-flight successful refresh', async t => {
+test('rejected credentials cancel a queued rotation without a deadlock', async t => {
  const fixture=server(t);const upstream=globalThis.fetch
- let rejectOld, releaseRefresh, slowEntered, refreshEntered
- const slowStarted=new Promise(r=>slowEntered=r), refreshStarted=new Promise(r=>refreshEntered=r)
+ let rejectOld, slowEntered
+ const slowStarted=new Promise(r=>slowEntered=r)
  globalThis.fetch=async (path,options)=>{
   if(path.endsWith('/slow')){slowEntered();return new Promise(r=>rejectOld=r)}
   const response=await upstream(path,options)
   if(path.endsWith('/exchange')){const body=await response.json();body.expires_at=new Date(fixture.serverTime()*1000+121000).toISOString();return new Response(JSON.stringify(body))}
-  if(path.endsWith('/refresh')){refreshEntered();return new Promise(r=>releaseRefresh=()=>r(response))}
   return response
  }
  const original=globalThis.performance;let clock=0
  Object.defineProperty(globalThis,'performance',{configurable:true,value:{now:()=>clock}})
  t.after(()=>Object.defineProperty(globalThis,'performance',{configurable:true,value:original}))
  const session=new AdminSession();await session.login('site','admin','password')
- const slow=session.request('/netgo/v2/admin/slow');const rejected=assert.rejects(slow,/unauthorized/);await slowStarted;clock=2000
- const fresh=session.request('/netgo/v2/admin/state');await refreshStarted
- rejectOld(new Response(JSON.stringify({error:'unauthorized'}),{status:401}));await new Promise(setImmediate)
- assert(session.active);releaseRefresh();await fresh;await rejected;assert(session.active)
+ const slow=session.request('/netgo/v2/admin/slow');const rejected=assert.rejects(slow,/取消/);await slowStarted;clock=2000
+ const fresh=assert.rejects(session.request('/netgo/v2/admin/state'),/取消/)
+ rejectOld(new Response(JSON.stringify({error:'unauthorized'}),{status:401}))
+ await Promise.all([fresh,rejected])
+ assert.equal(fixture.refreshed(),false)
+ assert.equal(session.active,false)
 })

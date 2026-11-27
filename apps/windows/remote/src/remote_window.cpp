@@ -46,7 +46,11 @@ void updateFont() {
 std::atomic_bool running = true, busy = false, closing = false, receiving = false;
 std::thread worker;
 std::mutex mutex;
-desktop::Frame frame;
+std::shared_ptr<const desktop::Frame> frame;
+std::atomic_bool updatePending = false;
+void postUpdate() {
+    if (!updatePending.exchange(true) && !PostMessageW(window, update, 0, 0)) updatePending = false;
+}
 std::string status = "正在加载远程主机…", site;
 Json hosts = Json::array();
 netgo::remote::InputQueue inputs;
@@ -71,7 +75,7 @@ void postStatus(std::string value) {
         std::lock_guard lock(mutex);
         status = std::move(value);
     }
-    PostMessageW(window, update, 0, 0);
+    postUpdate();
 }
 RECT displayRect() {
     RECT r{};
@@ -107,7 +111,7 @@ void layout() {
 }
 desktop::layout::Rect imageRectLocked() {
     auto r = displayRect();
-    return desktop::layout::fit({r.left, r.top, r.right, r.bottom}, frame.width, frame.height);
+    return desktop::layout::fit({r.left, r.top, r.right, r.bottom}, frame ? frame->width : 0, frame ? frame->height : 0);
 }
 desktop::layout::Rect imageRect() {
     std::lock_guard lock(mutex);
@@ -229,10 +233,10 @@ desktop::Callbacks callbacks() {
                     std::lock_guard lock(mutex);
                     if (!running || closing)
                         return;
-                    frame = std::move(value);
+                    frame = std::make_shared<const desktop::Frame>(std::move(value));
                 }
                 receiving = true;
-                PostMessageW(window, update, 0, 0);
+                postUpdate();
             },
             [](const std::string &user, uint32_t caps) {
                 auto request = std::make_shared<Consent>();
@@ -522,8 +526,10 @@ LRESULT CALLBACK proc(HWND h, UINT m, WPARAM w, LPARAM l) {
         return 0;
     }
     case update: {
-        std::lock_guard lock(mutex);
-        SetWindowTextW(notice, wide(status).c_str());
+        updatePending = false;
+        std::string text;
+        { std::lock_guard lock(mutex); text = status; }
+        SetWindowTextW(notice, wide(text).c_str());
         EnableWindow(fullButton, fullscreen || (viewing && receiving));
         auto rect = displayRect();
         InvalidateRect(h, &rect, FALSE);
@@ -628,19 +634,20 @@ LRESULT CALLBACK proc(HWND h, UINT m, WPARAM w, LPARAM l) {
         auto brush = CreateSolidBrush(RGB(20, 32, 44));
         FillRect(dc, &area, brush);
         DeleteObject(brush);
-        std::lock_guard lock(mutex);
-        auto r = imageRectLocked();
-        if (!frame.bgra.empty()) {
+        std::shared_ptr<const desktop::Frame> visible;
+        { std::lock_guard lock(mutex); visible = frame; }
+        auto r = desktop::layout::fit({area.left,area.top,area.right,area.bottom},visible ? visible->width : 0,visible ? visible->height : 0);
+        if (visible && !visible->bgra.empty()) {
             BITMAPINFO info{};
             info.bmiHeader.biSize = sizeof(BITMAPINFOHEADER);
-            info.bmiHeader.biWidth = LONG(frame.width);
-            info.bmiHeader.biHeight = -LONG(frame.height);
+            info.bmiHeader.biWidth = LONG(visible->width);
+            info.bmiHeader.biHeight = -LONG(visible->height);
             info.bmiHeader.biPlanes = 1;
             info.bmiHeader.biBitCount = 32;
             info.bmiHeader.biCompression = BI_RGB;
             SetStretchBltMode(dc, COLORONCOLOR);
-            StretchDIBits(dc, r.left, r.top, r.right - r.left, r.bottom - r.top, 0, 0, int(frame.width),
-                          int(frame.height), frame.bgra.data(), &info, DIB_RGB_COLORS, SRCCOPY);
+            StretchDIBits(dc, r.left, r.top, r.right - r.left, r.bottom - r.top, 0, 0, int(visible->width),
+                          int(visible->height), visible->bgra.data(), &info, DIB_RGB_COLORS, SRCCOPY);
         } else {
             SetBkMode(dc, TRANSPARENT);
             SetTextColor(dc, RGB(180, 202, 220));

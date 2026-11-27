@@ -43,24 +43,50 @@ func grantActive(g model.RemoteGrant, now time.Time) bool {
 }
 
 type Inventory struct {
+	NextAfter      string                `json:"next_after"`
 	Hosts          []HostSummary         `json:"hosts"`
 	Grants         []GrantSummary        `json:"grants"`
 	Sessions       []model.RemoteSession `json:"sessions"`
 	NextGeneration uint64                `json:"next_generation"`
 }
 
-func (m *Manager) List(c model.Credential) (Inventory, error) {
-	state, lastGeneration, err := m.Store.RemoteInventory(c)
+func (m *Manager) List(c model.Credential, after string) (Inventory, error) {
+	page, err := m.Store.RemoteInventory(c, after)
 	if err != nil {
 		return Inventory{}, err
 	}
-	return m.inventory(c, state, lastGeneration)
+	out, err := m.inventory(c, page.State, page.Generation)
+	if err != nil {
+		return out, err
+	}
+	hosts := out.Hosts[:0]
+	for _, h := range out.Hosts {
+		if page.Hosts[h.ID] {
+			hosts = append(hosts, h)
+		}
+	}
+	out.Hosts = hosts
+	grants := out.Grants[:0]
+	for _, g := range out.Grants {
+		if page.Hosts[g.HostID] && g.UserID == c.UserID {
+			grants = append(grants, g)
+		}
+	}
+	out.Grants = grants
+	sessions := out.Sessions[:0]
+	for _, session := range out.Sessions {
+		if session.ControllerID == c.DeviceID || session.HostID == c.DeviceID {
+			sessions = append(sessions, session)
+		}
+	}
+	out.Sessions = sessions
+	out.NextAfter = page.NextAfter
+	return out, nil
 }
 
 type InventoryPage struct {
 	Inventory
-	NextAfter string            `json:"next_after"`
-	Users     map[string]string `json:"users"`
+	Users map[string]string `json:"users"`
 }
 
 func (m *Manager) AdminList(c model.Credential, after, search string) (InventoryPage, error) {
@@ -76,7 +102,8 @@ func (m *Manager) AdminList(c model.Credential, after, search string) (Inventory
 	for id, u := range st.Users {
 		labels[id] = u.Alias
 	}
-	return InventoryPage{Inventory: inventory, NextAfter: next, Users: labels}, err
+	inventory.NextAfter = next
+	return InventoryPage{Inventory: inventory, Users: labels}, err
 }
 
 func (m *Manager) inventory(c model.Credential, state model.State, lastGeneration uint64) (Inventory, error) {

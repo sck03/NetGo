@@ -35,7 +35,7 @@ Json pipeCall(const Json& request,const std::function<bool()>& active) {
  ULONG pid=0;if(!GetNamedPipeServerProcessId(h,&pid))throw Error("agent_identity_failed");
  Handle process(OpenProcess(PROCESS_QUERY_LIMITED_INFORMATION,FALSE,pid));if(!process.value||sid(process)!=sid())throw Error("agent_identity_failed");
  std::string b=request.dump();if(b.size()>maxJson)throw Error("ipc_too_large");DWORD size=DWORD(b.size());
- if(!io(h,true,&size,4,nullptr,45000,active)||!io(h,true,b.data(),size,nullptr,45000,active)||!io(h,false,&size,4,nullptr,45000,active)||!size||size>maxJson)throw Error("ipc_failed");
+ if(!io(h,true,&size,4,nullptr,45000,active)||!io(h,true,b.data(),size,nullptr,45000,active)||!io(h,false,&size,4,nullptr,45000,active)||!size||size>maxResponseJson)throw Error("ipc_failed");
  b.assign(size,'\0');if(!io(h,false,b.data(),size,nullptr,45000,active))throw Error("ipc_failed");
  BYTE ack=1;io(h,true,&ack,1,nullptr,3000);
  auto out=Json::parse(b);wipe(b);
@@ -72,7 +72,8 @@ void servePipe(std::atomic_bool& stop,const std::function<Json(const Json&)>& di
    if(io(pipe,false,b.data(),count,&stop,5000)) {
     try{result=dispatch(Json::parse(b));}catch(const std::exception&){result={{"error","invalid_request"}};}
     wipe(b);auto output=result.dump();DWORD n=DWORD(output.size());
-    if(n<=maxJson){io(pipe,true,&n,4,nullptr,5000);io(pipe,true,output.data(),n,nullptr,5000);BYTE ack=0;io(pipe,false,&ack,1,nullptr,3000);}
+    if(n>maxResponseJson){output=Json({{"error","ipc_response_too_large"}}).dump();n=DWORD(output.size());}
+    if(n<=maxResponseJson){io(pipe,true,&n,4,nullptr,5000);io(pipe,true,output.data(),n,nullptr,5000);BYTE ack=0;io(pipe,false,&ack,1,nullptr,3000);}
     wipe(output);
    }
   }

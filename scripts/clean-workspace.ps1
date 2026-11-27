@@ -14,6 +14,7 @@ $taskTargets = @(
     '.cache/toolchain/go-build', '.cache/toolchain/go', '.cache/toolchain/npm-cache',
     '.cache/toolchain/tmp', '.cache/toolchain/gradle', '.cache/toolchain/android-local',
     '.cache/refactor-native', '.cache/refactor-linux', '.cache/refactor-server', '.cache/apple-tests',
+    '.cache/refactor-native-build', '.cache/audit-linux-build', '.cache/audit-remote-core', '.cache/audit-web-dist',
     'apps/android/.gradle', 'apps/android/.kotlin', 'apps/android/.cxx',
     'apps/android/build', 'apps/android/app/build', 'apps/android/app/.cxx',
     'apps/android/app/libs/netgo-mobile.aar', 'apps/android/app/libs/netgo-mobile-sources.jar',
@@ -22,7 +23,14 @@ $taskTargets = @(
 if ($IncludeTestData) {
     # Generated installer fixtures; these are not installed station data.
     $taskTargets += @('.cache/installer-lab', '.cache/cleanup-before.json', '.cache/cleanup-after.json',
-        '.cache/cleanup-plan.json', '.cache/cleanup-recycled.json', '.cache/cleanup-measurement.json')
+        '.cache/cleanup-plan.json', '.cache/cleanup-recycled.json', '.cache/cleanup-measurement.json',
+        '.cache/audit-probes', '.cache/audit-relay-probe')
+    $reportRoot = Join-Path $taskRoot '.cache'
+    if (Test-Path -LiteralPath $reportRoot) {
+        Get-ChildItem -LiteralPath $reportRoot -File | Where-Object { $_.Name -match '^(audit|refactor)-[a-z0-9-]+[.](txt|log)$' } | ForEach-Object {
+            $taskTargets += '.cache/' + $_.Name
+        }
+    }
 }
 if ($IncludeSDK) {
     $taskTargets += @('.tools/android/ndk', '.tools/android/platforms', '.tools/android/build-tools',
@@ -30,6 +38,7 @@ if ($IncludeSDK) {
 }
 
 if ($IncludeToolchains) {
+    $taskTargets += '.cache/audit-tools'
     $taskTargets += @('.tools/go', '.tools/android', '.tools/native-json', '.tools/openssl-native', '.tools/openssl-source',
         '.tools/wintun-package', '.tools/wintun-0.14.1.zip')
     $toolRoot = Join-Path $taskRoot '.tools'

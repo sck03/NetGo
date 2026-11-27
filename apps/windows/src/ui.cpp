@@ -7,6 +7,7 @@
 #include <algorithm>
 #include "ui.hpp"
 #include "ui_worker.hpp"
+#include "ui_preferences.hpp"
 #include "startup.hpp"
 
 using namespace netgo;
@@ -74,7 +75,8 @@ void fonts() {
         DeleteObject(oldTitle);
 }
 std::map<int, HWND> controls;
-Json sites = Json::array(), currentStatus = Json::object(), preferences = Json::object();
+Json sites = Json::array(), currentStatus = Json::object();
+UiPreferences preferences;
 std::string chosen;
 bool saved = false, exiting = false, firstLoad = true, pending = false, logsPending = false;
 std::atomic_bool polling = false;
@@ -289,8 +291,7 @@ void launchUnattended() {
     ShellExecuteW(window, L"open", binary.c_str(), args.c_str(), executableDir().c_str(), SW_SHOWMINIMIZED);
 }
 void persist() {
-    secureDirectory(dataRoot());
-    atomicFile(dataRoot() / L".preferences", preferences.dump(2));
+    preferences.save();
 }
 void tray(bool add) {
     NOTIFYICONDATAW n{};
@@ -321,7 +322,7 @@ void refreshSelection() {
         submit({{"action", "credential-info"}, {"site", chosen}});
     for (int id : {Connect, Edit, Alias, Password, Remember, Replace, Internet, ShowPassword})
         EnableWindow(controls[id], p != nullptr && !active());
-    preferences["selected"] = chosen;
+    preferences.selected = chosen;
     persist();
 }
 void drawStatus(Json status) {
@@ -426,7 +427,7 @@ void command(int id) {
         wipe(password);
         set(Password, L"");
         drawStatus(currentStatus);
-        preferences["selected"] = chosen;
+        preferences.selected = chosen;
         persist();
         break;
     }
@@ -527,32 +528,32 @@ void command(int id) {
         break;
     }
     case MenuAutoStart: {
-        bool enabled = !preferences.value("startup", false);
+        bool enabled = !preferences.startup;
         startup(enabled);
-        preferences["startup"] = enabled;
+        preferences.startup = enabled;
         persist();
         CheckMenuItem(GetMenu(window), MenuAutoStart, MF_BYCOMMAND | (enabled ? MF_CHECKED : MF_UNCHECKED));
         break;
     }
     case MenuAutoConnect: {
-        bool enabled = !(preferences.value("auto_connect", false) &&
-                         preferences.value("auto_connect_site", "") == chosen);
+        bool enabled = !(preferences.autoConnect &&
+                         preferences.autoConnectSite == chosen);
         if (enabled && (!selected() || !saved))
             throw Error("auto_connect_requires_saved_password");
-        preferences["auto_connect"] = enabled;
-        preferences["auto_connect_site"] = enabled ? chosen : "";
+        preferences.autoConnect = enabled;
+        preferences.autoConnectSite = enabled ? chosen : "";
         persist();
         break;
     }
     case MenuTray: {
-        bool enabled = !preferences.value("close_to_tray", true);
-        preferences["close_to_tray"] = enabled;
+        bool enabled = !preferences.closeToTray;
+        preferences.closeToTray = enabled;
         persist();
         CheckMenuItem(GetMenu(window), MenuTray, MF_BYCOMMAND | (enabled ? MF_CHECKED : MF_UNCHECKED));
         break;
     }
     case MenuMinimizeTray: {
-        preferences["minimize_to_tray"] = !preferences.value("minimize_to_tray", false);
+        preferences.minimizeToTray = !preferences.minimizeToTray;
         persist();
         break;
     }
@@ -653,11 +654,11 @@ void createUI() {
     AppendMenuW(view, MF_STRING, Log, L"查看日志\tCtrl+L");
     AppendMenuW(view, MF_STRING, 300, L"导出诊断…");
     AppendMenuW(view, MF_STRING, MenuRemote, L"远程桌面…");
-    AppendMenuW(options, MF_STRING | (preferences.value("startup", false) ? MF_CHECKED : 0), MenuAutoStart,
+    AppendMenuW(options, MF_STRING | (preferences.startup ? MF_CHECKED : 0), MenuAutoStart,
                 L"登录 Windows 后启动");
-    AppendMenuW(options, MF_STRING | (preferences.value("auto_connect", false) ? MF_CHECKED : 0),
+    AppendMenuW(options, MF_STRING | (preferences.autoConnect ? MF_CHECKED : 0),
                 MenuAutoConnect, L"启动后使用已保存凭据连接");
-    AppendMenuW(options, MF_STRING | (preferences.value("close_to_tray", true) ? MF_CHECKED : 0), MenuTray,
+    AppendMenuW(options, MF_STRING | (preferences.closeToTray ? MF_CHECKED : 0), MenuTray,
                 L"关闭窗口时保留托盘");
     AppendMenuW(options, MF_STRING, MenuMinimizeTray, L"最小化到托盘");
     if (std::filesystem::is_regular_file(executableDir() / L"netgo-portable.json"))
@@ -734,7 +735,7 @@ LRESULT CALLBACK proc(HWND h, UINT m, WPARAM w, LPARAM l) {
             createUI();
             return 0;
         case WM_SIZE:
-            if (w == SIZE_MINIMIZED && preferences.value("minimize_to_tray", false))
+            if (w == SIZE_MINIMIZED && preferences.minimizeToTray)
                 ShowWindow(h, SW_HIDE);
             else if (controls.contains(StatusDetail) && controls.contains(Resources))
                 layout();
@@ -819,13 +820,13 @@ LRESULT CALLBACK proc(HWND h, UINT m, WPARAM w, LPARAM l) {
                                         : MF_GRAYED));
             EnableMenuItem(menu, MenuExport, MF_BYCOMMAND | (selected() ? MF_ENABLED : MF_GRAYED));
             CheckMenuItem(menu, MenuAutoConnect,
-                          MF_BYCOMMAND | ((preferences.value("auto_connect", false) &&
-                                           preferences.value("auto_connect_site", "") == chosen)
+                          MF_BYCOMMAND | ((preferences.autoConnect &&
+                                           preferences.autoConnectSite == chosen)
                                               ? MF_CHECKED
                                               : MF_UNCHECKED));
             CheckMenuItem(menu, MenuMinimizeTray,
                           MF_BYCOMMAND |
-                              (preferences.value("minimize_to_tray", false) ? MF_CHECKED : MF_UNCHECKED));
+                              (preferences.minimizeToTray ? MF_CHECKED : MF_UNCHECKED));
             break;
         }
         case DM_GETDEFID:
@@ -914,8 +915,8 @@ LRESULT CALLBACK proc(HWND h, UINT m, WPARAM w, LPARAM l) {
                 SendMessageW(controls[Remember], BM_SETCHECK, saved ? BST_CHECKED : BST_UNCHECKED, 0);
                 if (firstLoad) {
                     firstLoad = false;
-                    if (saved && preferences.value("auto_connect", false) &&
-                        preferences.value("auto_connect_site", "") == chosen && !active())
+                    if (saved && preferences.autoConnect &&
+                        preferences.autoConnectSite == chosen && !active())
                         command(Connect);
                 }
             } else if (r->action == "forget") {
@@ -941,7 +942,7 @@ LRESULT CALLBACK proc(HWND h, UINT m, WPARAM w, LPARAM l) {
             return 0;
         }
         case WM_CLOSE:
-            if (preferences.value("close_to_tray", true)) {
+            if (preferences.closeToTray) {
                 ShowWindow(h, SW_HIDE);
                 return 0;
             }
@@ -997,22 +998,14 @@ int desktopMain(HINSTANCE instance, PWSTR args, int show) {
         InitCommonControlsEx(&common);
         WSADATA data{};
         WSAStartup(MAKEWORD(2, 2), &data);
-        try {
-            preferences = Json::parse(readFile(dataRoot() / L".preferences", 8192));
-        } catch (...) {
-            preferences = Json::object();
-        }
-        chosen = preferences.value("selected", "");
+        preferences = UiPreferences::load();
+        chosen = preferences.selected;
         auto remoteSite = unattendedSite();
         if (!remoteSite.empty()) {
-            preferences["auto_connect"] = true;
-            preferences["auto_connect_site"] = remoteSite;
+            preferences.autoConnect = true;
+            preferences.autoConnectSite = remoteSite;
         }
-        if (preferences.value("auto_connect", false)) {
-            if (!preferences.contains("auto_connect_site"))
-                preferences["auto_connect_site"] = chosen;
-            chosen = preferences.value("auto_connect_site", chosen);
-        }
+        if (preferences.autoConnect) chosen = preferences.autoConnectSite;
         launchAgent();
         WNDCLASSW c{};
         c.hInstance = instance;

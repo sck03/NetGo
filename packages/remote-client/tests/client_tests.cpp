@@ -1,4 +1,5 @@
 #include "netgo_remote_client.h"
+#include "remote_inventory.hpp"
 #include "netgo_remote_ticket.h"
 #include "netgo_remote_clock.hpp"
 #include "remote_transport.hpp"
@@ -61,6 +62,9 @@ struct Fixture {
    else if(std::string(path)=="/netgo/v2/remote/sessions"){auto request=Json::parse(body);check(request.at("capabilities")== (f.requested?f.requested:f.caps),"view-only negotiation");check(request.at("generation")==17,"server generation ignored");f.issue(request.at("generation"),1);value=f.authorization;if(f.cancelOnIssue)f.active=false;}
    else if(std::string(method)=="DELETE"){++f.deletes;value={{"revoked",true}};}
    else {if(std::string(path).find("/renew")!=std::string::npos)f.issue(f.authorization.at("session").at("generation"),f.authorization.at("session").at("sequence").get<uint64_t>()+1);else f.authorization["session"]["state"]=f.accepted?"active":"issued";value=f.authorization;}
+   // Lose the first committed renewal reply. The monitor must re-read the
+   // sequence and recover within its original watchdog deadline.
+   if(f.exerciseRenewal&&!f.slowControl&&std::string(path).find("/renew")!=std::string::npos&&f.renewalCalls==1)return -1;
    auto text=value.dump();if(text.size()>capacity)return -1;std::copy(text.begin(),text.end(),output);*length=text.size();return 0;
   }catch(...){return -1;}};
   o.sign=[](void* p,const uint8_t* bytes,size_t size,uint8_t output[64])->int32_t{try{auto& f=*static_cast<Fixture*>(p);sign(f.badProof?f.hostSeed:f.controllerSeed,bytes,size,output);return 0;}catch(...){return -1;}};
@@ -71,6 +75,19 @@ struct Fixture {
 };
 }
 int main(){try{
+ {
+  int calls=0;
+  auto inventory=netgo::remote::inventory([&](const std::string& path){
+   ++calls;
+   if(calls==1){check(path=="/netgo/v2/remote","first inventory page");return Json{{"hosts",Json::array({{{"id","a"}}})},{"next_after","a"},{"next_generation",9}};}
+   check(path=="/netgo/v2/remote?after=a","inventory cursor forwarding");
+   return Json{{"hosts",Json::array({{{"id","b"}}})},{"next_after",""},{"next_generation",9}};
+  });
+  check(calls==2&&inventory["hosts"].size()==2,"inventory pages lost hosts");
+  bool rejected=false;
+  try{netgo::remote::inventory([](const std::string&){return Json{{"hosts",Json::array()},{"next_after","same"}};});}catch(...){rejected=true;}
+  check(rejected,"nonadvancing inventory cursor accepted");
+ }
 #ifdef _WIN32
  WSADATA ws{};check(WSAStartup(MAKEWORD(2,2),&ws)==0,"winsock");
 #endif

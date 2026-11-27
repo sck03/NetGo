@@ -106,8 +106,24 @@ object NetGoRuntime {
         hosts.value = emptyList()
         execute {
             try {
-                val data = JSONObject(it.remoteCall(site, "GET", "/netgo/v2/remote", "", "")).getJSONArray("hosts")
-                val result = (0 until data.length()).map { data.getJSONObject(it) }.filter { h -> h.optInt("available_capabilities") and 1 != 0 }.map { h -> RemoteHost(h.getString("id"), h.getString("name"), h.optString("status"), h.optInt("available_capabilities")) }
+                val result = mutableListOf<RemoteHost>()
+                var after = ""
+                var pages = 0
+                do {
+                    check(version == epoch.get() && request == hostRequest.get() && client === it) { "remote_cancelled" }
+                    val path = "/netgo/v2/remote" + if (after.isEmpty()) "" else "?after=$after"
+                    val page = JSONObject(it.remoteCall(site, "GET", path, "", ""))
+                    val data = page.getJSONArray("hosts")
+                    for (index in 0 until data.length()) {
+                        val host = data.getJSONObject(index)
+                        if (host.optInt("available_capabilities") and 1 != 0) result.add(RemoteHost(host.getString("id"),host.getString("name"),host.optString("status"),host.optInt("available_capabilities")))
+                    }
+                    val next = page.getString("next_after")
+                    check(next.isEmpty() || (next > after && Regex("[A-Za-z0-9_-]{1,128}").matches(next))) { "remote_invalid_page" }
+                    pages++
+                    check(next.isEmpty() || pages < 200) { "remote_inventory_too_large" }
+                    after = next
+                } while (after.isNotEmpty())
                 if (version == epoch.get() && request == hostRequest.get() && client === it) { hosts.value = result; if(result.isEmpty()) message.value = "暂无已授权主机" }
             } catch (e: Exception) { if (request == hostRequest.get()) hosts.value = emptyList(); throw e }
         }

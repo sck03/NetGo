@@ -1,3 +1,4 @@
+#include "remote_inventory.hpp"
 #include "remote_runtime.hpp"
 #include "connection.hpp"
 #include "remote_transport.hpp"
@@ -35,6 +36,13 @@ Json call(const std::string &site, const std::string &method, const std::string 
                      {"body", body},
                      {"idempotency", idem}},
                     active);
+}
+int32_t controlError(const std::exception& error, char* output, size_t capacity, size_t* length) noexcept {
+    try {
+        auto text=Json({{"error",error.what()}}).dump();
+        if(text.size()>capacity) return -1;
+        std::copy(text.begin(),text.end(),output);*length=text.size();return 0;
+    } catch(...) { return -1; }
 }
 Json context(const std::string &site, const std::function<bool()> &active = {}) {
     return pipeCall({{"action", "remote-context"}, {"site", site}}, active);
@@ -157,6 +165,12 @@ struct Capture {
     std::unique_ptr<video::GpuEncoder> gpu;
     std::unique_ptr<video::Codec> software;
     bool selected = false;
+    unsigned sourceWidth = 0, sourceHeight = 0;
+    void resetEncoder() {
+        input.release();
+        texture.Reset(); gpu.reset(); software.reset(); selected = false;
+        packets.clear(); error.clear();
+    }
     std::deque<remote::Message> packets;
     std::string error;
     std::function<bool()> allowed;
@@ -169,9 +183,12 @@ struct Capture {
                 throw Error("remote_closed");
             if (s.clockwise_rotation || s.protected_content_masked)
                 throw Error("remote_display_unavailable");
+            // Keep the negotiated stream dimensions. Rebuild capture/encoding
+            // when the source mode changes, without changing ticket ownership.
+            if (c.sourceWidth != s.width || c.sourceHeight != s.height) c.resetEncoder();
+            c.sourceWidth = s.width; c.sourceHeight = s.height;
             auto size = video::fit_size(s.width, s.height);
-            if (c.frame.width && (c.frame.width != size.width || c.frame.height != size.height))
-                throw Error("remote_display_changed");
+            if (c.frame.width) { size.width = c.frame.width; size.height = c.frame.height; }
             c.frame.width = size.width;
             c.frame.height = size.height;
             auto bitrate = std::clamp(size.width * size.height * fps / 6u, 800'000u, 6'000'000u);
@@ -233,7 +250,7 @@ struct Capture {
 } // namespace
 
 Json inventory(const std::string &site, const std::function<bool()> &active) {
-    return call(site, "GET", base, nullptr, {}, active);
+    return remote::inventory([&](const std::string& path){return call(site, "GET", path, nullptr, {}, active);});
 }
 
 std::string clipboardText(const std::optional<std::string> &value) {
@@ -303,6 +320,8 @@ void host(const std::string &site, Callbacks cb) {
         std::unique_ptr<Capture> capture;
         std::unique_ptr<audio::Stream> audio;
         Clock::time_point next;
+        Clock::time_point captureLost{};
+        bool captureReady = true;
     };
     Host h{site, std::move(cb), {}, {}, {}, {}};
     auto exchange = dataRoot() / L"Exchange";
@@ -348,8 +367,8 @@ void host(const std::string &site, Callbacks cb) {
             std::copy(text.begin(), text.end(), output);
             *length = text.size();
             return 0;
-        } catch (...) {
-            return -1;
+        } catch (const std::exception& error) {
+            return controlError(error, output, capacity, length);
         }
     };
     o.consent = [](void *p, const char *user, uint32_t caps) -> int32_t {
@@ -362,6 +381,8 @@ void host(const std::string &site, Callbacks cb) {
             h.capture->allowed = h.cb.running;
             h.capture->status = h.cb.status;
             h.source = std::make_unique<capture::DesktopCapture>();
+            h.captureLost = {};
+            h.captureReady = true;
             if (h.source->open() != capture::Result::frame)
                 return -1;
             auto end = Clock::now() + std::chrono::seconds(3);
@@ -389,15 +410,28 @@ void host(const std::string &site, Callbacks cb) {
             auto &h = *static_cast<Host *>(p);
             *length = 0;
             if (h.capture->packets.empty()) {
-                if (h.capture->gpu) {
+                if (h.capture->gpu && h.captureReady) {
                     for (auto &packet : h.capture->gpu->drain())
                         h.capture->packets.push_back({remote::Kind::video, std::move(packet.h264)});
                 }
                 if (Clock::now() >= h.next) {
                     h.next = Clock::now() + std::chrono::milliseconds(1000 / fps);
+                    if (h.captureLost != Clock::time_point{} && Clock::now()-h.captureLost > std::chrono::seconds(3)) throw Error("remote_capture_lost");
+                    if (!h.captureReady) {
+                        h.next = Clock::now()+std::chrono::milliseconds(250);
+                        if (h.source->open()!=capture::Result::frame) return 0;
+                        h.capture->resetEncoder();
+                        h.captureReady = true;
+                    }
                     auto r = h.source->next(Capture::read, h.capture.get(), 5);
-                    if (r != capture::Result::frame && r != capture::Result::timeout)
-                        throw Error("remote_capture_lost");
+                    if (r != capture::Result::frame && r != capture::Result::timeout) {
+                        h.capture->input.release();
+                        if (h.captureLost == Clock::time_point{}) h.captureLost = Clock::now();
+                        h.captureReady = false;
+                        h.cb.status("显示设备变化，正在恢复画面…");
+                        return 0;
+                    }
+                    if (r == capture::Result::frame) h.captureLost = {};
                     if (!h.capture->error.empty())
                         throw Error(h.capture->error);
                 }
@@ -425,7 +459,9 @@ void host(const std::string &site, Callbacks cb) {
     };
     o.input = [](void *p, const char *json, size_t size) -> int32_t {
         try {
-            static_cast<Host *>(p)->capture->input.apply(Json::parse(json, json + size));
+            auto& h = *static_cast<Host *>(p);
+            if (h.captureLost != Clock::time_point{}) return 0;
+            h.capture->input.apply(Json::parse(json, json + size));
             return 0;
         } catch (...) {
             return -1;
@@ -508,8 +544,8 @@ void view(const std::string &site, const std::string &hostID, uint32_t capabilit
             std::copy(text.begin(), text.end(), output);
             *length = text.size();
             return 0;
-        } catch (...) {
-            return -1;
+        } catch (const std::exception& error) {
+            return controlError(error, output, capacity, length);
         }
     };
     options.sign = [](void *p, const uint8_t *bytes, size_t size, uint8_t output[64]) -> int32_t {

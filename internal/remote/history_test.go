@@ -25,7 +25,7 @@ func TestInventoryExcludesHistoryAndHistoryIsBounded(t *testing.T) {
 	}); err != nil {
 		t.Fatal(err)
 	}
-	inv, err := f.m.List(f.c)
+	inv, err := f.m.List(f.c, "")
 	if err != nil {
 		t.Fatal(err)
 	}

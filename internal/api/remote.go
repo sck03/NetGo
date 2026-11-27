@@ -36,7 +36,7 @@ func (s *Server) remoteRoutes(secured func(string, bool, http.HandlerFunc)) {
 		reply(w, 200, page)
 	})
 	register("GET /netgo/v2/remote", false, func(w http.ResponseWriter, r *http.Request) {
-		v, e := s.Remote.List(credential(r))
+		v, e := s.Remote.List(credential(r), r.URL.Query().Get("after"))
 		if e != nil {
 			failure(w, e)
 			return

@@ -1,3 +1,4 @@
+#include "remote_inventory.hpp"
 #include "client.hpp"
 #include "frame_presenter.hpp"
 #include "operation_epoch.hpp"
@@ -878,12 +879,12 @@ void activate(GtkApplication *app, void *) {
                          auto version = state->epoch.current();
                          auto site = state->site;
                          task([version, site] {
-                             auto result = call("POST", "/desktop/remote/call",
+                             auto result = netgo::remote::inventory([&](const std::string& path){ return call("POST", "/desktop/remote/call",
                                                 {{"site", site},
                                                  {"method", "GET"},
-                                                 {"path", "/netgo/v2/remote"},
+                                                 {"path", path},
                                                  {"body", nullptr},
-                                                 {"idempotency", ""}});
+                                                 {"idempotency", ""}}); });
                              mainThread([result = std::move(result), version] {
                                  if (!state->alive || !state->epoch.matches(version))
                                      return;

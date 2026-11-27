@@ -72,7 +72,7 @@ func (b *iosBackend) auth(p site.Profile) (*sdk.Auth, error) {
 		kinds = append(kinds, candidate.Kind)
 	}
 	b.config = filepath.Join(b.root, "netbird-"+p.ID+".json")
-	return sdk.NewNetGoAuth(b.config, p.Origin, p.CA, strings.Join(addresses, ";"), strings.Join(kinds, ";"))
+	return sdk.NewNetGoAuth(b.config, p.Origin, p.CA, strings.Join(addresses, ";"), strings.Join(kinds, ";"), p.GatewayIP, p.LocalRelay)
 }
 func (b *iosBackend) ConfigureInternet(ctx context.Context, enabled bool, dns []string) error {
 	if err := ctx.Err(); err != nil {

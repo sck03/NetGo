@@ -1,4 +1,5 @@
 #include "connection.hpp"
+#include "ui_preferences.hpp"
 #include <iostream>
 #include <openssl/evp.h>
 #include <sddl.h>
@@ -12,6 +13,13 @@ int main(int argc,char** argv){
   require(OpenSSL_version_num()==OPENSSL_VERSION_NUMBER,"OpenSSL header/library version mismatch");
   std::cout<<"Linked "<<OpenSSL_version(OPENSSL_VERSION)<<'\n';
   WSADATA wsa{};WSAStartup(MAKEWORD(2,2),&wsa);
+  {
+   auto invalid=UiPreferences::decode(Json{{"selected",4},{"startup","yes"},{"auto_connect",true},{"close_to_tray",nullptr}});
+   require(invalid.selected.empty()&&!invalid.startup&&!invalid.autoConnect&&invalid.closeToTray,"corrupt preferences changed startup behavior");
+   auto valid=UiPreferences::decode(Json{{"selected","site"},{"auto_connect",true},{"auto_connect_site","site"},{"minimize_to_tray",true}});
+   require(valid.autoConnect&&valid.autoConnectSite=="site"&&valid.minimizeToTray,"typed preferences lost configured site");
+   require(!UiPreferences::decode(Json::array()).autoConnect,"non-object preferences enabled auto-connect");
+  }
   {
    auto original=profile();auto changed=original;
    const auto saved=Json({{"alias","user"},{"password","test-secret"},{"profile",profileTrustIdentity(original)}}).dump();
@@ -47,6 +55,19 @@ int main(int argc,char** argv){
    require(first.at("connection")==second.at("connection"),"remote connection was not reused");
    require(slow.get().at("verified")==true,"slow VPN request failed");
    std::cout<<"PASS isolated remote heartbeat during slow VPN request: "<<elapsed<<" ms\n";return 0;
+  }
+  if(argc==3&&std::string(argv[1])=="--tls-cancel"){
+   auto p=Json::parse(readFile(wide(argv[2])));std::atomic_bool cancel=false;
+   Transport transport(p,std::chrono::seconds(30),[&]{return cancel.load();});
+   auto started=Clock::now();transport.select();
+   require(Clock::now()-started<std::chrono::milliseconds(1800),"winner waited for losing probes");
+   std::string seed(32,'a');
+   auto slow=std::async(std::launch::async,[&]{rejects([&]{transport.call("POST","/netgo/v2/sessions/slow/renew",{{"native",true}},seed,"fixture-token");},"cancelled HTTP succeeded");});
+   Sleep(150);started=Clock::now();cancel=true;slow.get();
+   require(Clock::now()-started<std::chrono::milliseconds(500),"cancelled HTTP kept waiting");
+   auto cleaned=transport.call("POST","/fixture",{{"native",true}},seed,"fixture-token","",{{},true});
+   require(cleaned.at("verified")==true,"cleanup inherited normal cancellation");
+   std::cout<<"PASS losing probe cancellation, in-flight HTTP cancellation and independent cleanup\n";return 0;
   }
   if(argc==3&&std::string(argv[1])=="--tls-recovery-load"){
    auto p=Json::parse(readFile(wide(argv[2])));Transport transport(p,std::chrono::milliseconds(0));

@@ -118,12 +118,12 @@ void Controller::run(uint64_t gen,Json p,std::string alias,std::string password,
   closeRemote();
   if(remoteWorker.joinable())remoteWorker.join();
   std::atomic_bool cleanupCancel=false;
-  if(transport&&!token.empty()&&lease.contains("id"))try{transport->call("DELETE","/netgo/v2/sessions/"+lease["id"].get<std::string>(),nullptr,seed,token);}catch(...){}
+  if(transport&&!token.empty()&&lease.contains("id"))try{transport->call("DELETE","/netgo/v2/sessions/"+lease["id"].get<std::string>(),nullptr,seed,token,"",{{},true});}catch(...){}
   if(prepared)try{engineCall({{"action","down"}},cleanupCancel);cleanupFailed_=false;}catch(...){cleanupFailed_=true;}
   wipe(password);wipe(seed);wipe(token);wipe(refresh);wipe(jwt);
  };
  try {
-  transport=std::make_unique<Transport>(p);transport->select();check();
+  transport=std::make_unique<Transport>(p,std::chrono::seconds(30),[&]{return cancel_.load()||remoteStop.load();});transport->select();check();
   state(gen,"authenticating","",{{"control",transport->kind()},{"control_candidate",transport->candidate()}});
   std::string id=p.at("ID");seed=credentialRead("device/"+scope);
   if(seed.empty()){seed.resize(32);if(RAND_bytes(reinterpret_cast<unsigned char*>(seed.data()),32)!=1)throw Error("random_failed");credentialWrite("device/"+scope,seed);}
@@ -141,7 +141,7 @@ void Controller::run(uint64_t gen,Json p,std::string alias,std::string password,
   auto authExpires=parseTime(auth.at("expires_at"));jwt=auth.at("id_token");auth=Json::object();
   auto next=transport->call("GET","/netgo/v2/site",nullptr,seed,token);validateProfileUpdate(p,next);next["Name"]=p["Name"];check();
   if(next!=p){
-   auto updated=std::make_unique<Transport>(next);updated->select();check();
+   auto updated=std::make_unique<Transport>(next,std::chrono::seconds(30),[&]{return cancel_.load()||remoteStop.load();});updated->select();check();
    atomicFile(root_/wide(id+".json"),next.dump(2));p=std::move(next);transport=std::move(updated);
    state(gen,"authenticating","",{{"control",transport->kind()},{"control_candidate",transport->candidate()}});
   }
@@ -163,7 +163,7 @@ void Controller::run(uint64_t gen,Json p,std::string alias,std::string password,
    if(!job||job->abandoned)return;
    try{
     check();auto method=job->request.value("method",""),path=job->request.value("path","");
-    bool allowed=(method=="GET"&&path=="/netgo/v2/remote")||(method=="PUT"&&path=="/netgo/v2/remote/host")||(method=="POST"&&(path=="/netgo/v2/remote/host/heartbeat"||path=="/netgo/v2/remote/sessions"));
+    bool allowed=(method=="GET"&&std::regex_match(path,std::regex(R"(^/netgo/v2/remote(\?after=[A-Za-z0-9_-]{1,128})?$)")))||(method=="PUT"&&path=="/netgo/v2/remote/host")||(method=="POST"&&(path=="/netgo/v2/remote/host/heartbeat"||path=="/netgo/v2/remote/sessions"));
     allowed=allowed||((method=="POST"||method=="DELETE")&&std::regex_match(path,std::regex(method=="POST"?R"(^/netgo/v2/remote/sessions/[A-Za-z0-9_-]{22}/(consume|renew)$)":R"(^/netgo/v2/remote/sessions/[A-Za-z0-9_-]{22}$)")));
     allowed=allowed||(method=="GET"&&std::regex_match(path,std::regex(R"(^/netgo/v2/remote/sessions/[A-Za-z0-9_-]{22}$)")));
     if(!allowed)throw Error("remote_invalid_operation");
@@ -174,7 +174,7 @@ void Controller::run(uint64_t gen,Json p,std::string alias,std::string password,
     }
     check();
     if (remoteStop || job->abandoned) throw Error("cancelled");
-    auto value=transport->call(method,path,job->request.value("body",Json()),seed,token,job->request.value("idempotency",""));
+    auto value=transport->call(method,path,job->request.value("body",Json()),seed,token,job->request.value("idempotency",""),{[&]{return job->abandoned.load();}});
     check();job->result.set_value(std::move(value));
    }catch(const std::exception& e){job->result.set_value({{"error",e.what()}});}
   };

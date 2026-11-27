@@ -218,15 +218,26 @@ struct HostItem: Identifiable { let id: String; let name: String; let status: St
     func loadHosts() {
         guard remoteReady, let request=request else{return}
         hostEpoch &+= 1; let version=epoch, query=hostEpoch; hosts=[]
-        let body=encode(["Site":selected,"Method":"GET","Path":"/netgo/v2/remote","Body":NSNull(),"Idempotency":""])
+        let site=selected
         DispatchQueue.global().async { [weak self] in
             do {
-                let raw=try request("POST","/desktop/remote/call",body)
-                let object=try JSONSerialization.jsonObject(with:Data(raw.utf8)) as? [String:Any] ?? [:]
-                let hosts=(object["hosts"] as? [[String:Any]] ?? []).compactMap { item -> HostItem? in
-                    guard let id=item["id"] as? String, let caps=item["available_capabilities"] as? Int, caps & 1 != 0 else{return nil}
-                    return HostItem(id:id,name:item["name"] as? String ?? id,status:item["status"] as? String ?? "offline",capabilities:caps)
-                }
+                var hosts: [HostItem] = []
+                var after = ""
+                var pages = 0
+                repeat {
+                    let path = "/netgo/v2/remote" + (after.isEmpty ? "" : "?after=" + after)
+                    let data = try JSONSerialization.data(withJSONObject:["Site":site,"Method":"GET","Path":path,"Body":NSNull(),"Idempotency":""])
+                    let raw = try request("POST","/desktop/remote/call",String(decoding:data,as:UTF8.self))
+                    let object = try JSONSerialization.jsonObject(with:Data(raw.utf8)) as? [String:Any] ?? [:]
+                    hosts += (object["hosts"] as? [[String:Any]] ?? []).compactMap { item -> HostItem? in
+                        guard let id=item["id"] as? String, let caps=item["available_capabilities"] as? Int, caps & 1 != 0 else{return nil}
+                        return HostItem(id:id,name:item["name"] as? String ?? id,status:item["status"] as? String ?? "offline",capabilities:caps)
+                    }
+                    let next = object["next_after"] as? String ?? ""
+                    pages += 1
+                    guard next.isEmpty || (next > after && next.range(of:"^[A-Za-z0-9_-]{1,128}$",options:.regularExpression) != nil && pages < 200) else { throw NSError(domain:"NetGo",code:1,userInfo:[NSLocalizedDescriptionKey:"remote_invalid_page"]) }
+                    after = next
+                } while !after.isEmpty
                 Task { @MainActor in guard let self=self,version==self.epoch,query==self.hostEpoch else{return};self.hosts=hosts;if hosts.isEmpty{self.message="暂无已授权主机"} }
             } catch { Task { @MainActor in guard let self=self,version==self.epoch,query==self.hostEpoch else{return};self.hosts=[];self.message=error.localizedDescription } }
         }

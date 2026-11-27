@@ -1,3 +1,5 @@
+#include "remote_inventory.hpp"
+#include "remote_control.hpp"
 #include "netgo_remote_client.h"
 #include "remote_transport.hpp"
 #include "netgo_remote_ticket.h"
@@ -212,33 +214,42 @@ struct Monitor {
                 uint64_t sequence = 0;
                 while (live()) {
                     const auto nextPoll = netgo::remote::monotonic_time_ms() + 3000;
-                    // Observe host consumption once. Renewal itself revalidates the
-                    // live authorization and returns the next sequence atomically.
-                    if (!sequence) {
-                        auto a = client.call("GET", std::string(base) + "/sessions/" + session);
-                        if (!live()) break;
-                        require(a.at("session").value("state", "") != "closed", "remote_revoked");
-                        if (a.at("session").value("state", "") == "active")
-                            sequence = a.at("session").at("sequence").get<uint64_t>();
-                    }
-                    if (sequence) {
-                        auto requested = netgo::remote::monotonic_time_ms();
-                        auto fresh =
-                            client.call("POST", std::string(base) + "/sessions/" + session + "/renew",
-                                        {{"sequence", sequence}});
-                        if (!live())
+                    try {
+                        // Observe host consumption once. Renewal itself revalidates the
+                        // live authorization and returns the next sequence atomically.
+                        if (!sequence) {
+                            auto a = client.call("GET", std::string(base) + "/sessions/" + session);
+                            if (!live()) break;
+                            require(a.at("session").value("state", "") != "closed", "remote_revoked");
+                            if (a.at("session").value("state", "") == "active")
+                                sequence = a.at("session").at("sequence").get<uint64_t>();
+                        }
+                        if (sequence) {
+                            auto requested = netgo::remote::monotonic_time_ms();
+                            auto fresh =
+                                client.call("POST", std::string(base) + "/sessions/" + session + "/renew",
+                                            {{"sequence", sequence}});
+                            if (!live())
+                                break;
+                            const auto nextSequence = fresh.at("session").at("sequence").get<uint64_t>();
+                            require(nextSequence > sequence && fresh.at("session").value("state", "") == "active", "remote_renewal_invalid");
+                            sequence = nextSequence;
+                            fresh["netgo_requested_mono_ms"] = requested;
+                            std::lock_guard lock(mutex);
+                            renewal = std::move(fresh);
+                        }
+                        // Request time is part of the polling interval. Adding three more seconds
+                        // after slow successful calls can expire our unchanged six-second watchdog.
+                        if (!watchdog.refresh())
                             break;
-                        const auto nextSequence = fresh.at("session").at("sequence").get<uint64_t>();
-                        require(nextSequence > sequence && fresh.at("session").value("state", "") == "active", "remote_renewal_invalid");
-                        sequence = nextSequence;
-                        fresh["netgo_requested_mono_ms"] = requested;
-                        std::lock_guard lock(mutex);
-                        renewal = std::move(fresh);
+                    } catch (const std::exception& error) {
+                        if (!netgo::remote::transient_control(error)) throw;
+                        // The renewal may have committed before its reply was lost.
+                        // Re-read its sequence; never replay a mutation blindly.
+                        sequence = 0;
+                        for (int i=0;i<5&&live();++i) std::this_thread::sleep_for(std::chrono::milliseconds(50));
+                        continue;
                     }
-                    // Request time is part of the polling interval. Adding three more seconds
-                    // after slow successful calls can expire our unchanged six-second watchdog.
-                    if (!watchdog.refresh())
-                        break;
                     while (live() && netgo::remote::monotonic_time_ms() < nextPoll)
                         std::this_thread::sleep_for(std::chrono::milliseconds(100));
                 }
@@ -262,7 +273,7 @@ struct Monitor {
 void run(ng_remote_client &c) {
     auto ctx = c.call("CONTEXT", "");
     require(ctx.at("site_id") == c.site, "remote_site_mismatch");
-    auto inventory = c.call("GET", base);
+    auto inventory = netgo::remote::inventory([&](const std::string& path){return c.call("GET",path);},c.host);
     uint32_t available = 0;
     bool found = false;
     for (const auto &h : inventory.at("hosts"))

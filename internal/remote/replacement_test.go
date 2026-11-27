@@ -57,7 +57,8 @@ func TestInventoryLoadsOnlyVisibleDependencies(t *testing.T) {
 	}); err != nil {
 		t.Fatal(err)
 	}
-	state, _, err := f.m.Store.RemoteInventory(f.c)
+	page, err := f.m.Store.RemoteInventory(f.c, "")
+ state := page.State
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -67,7 +68,7 @@ func TestInventoryLoadsOnlyVisibleDependencies(t *testing.T) {
 	if _, ok := state.Devices["unrelated"]; ok {
 		t.Fatal("loaded unrelated device")
 	}
-	inventory, err := f.m.List(f.c)
+	inventory, err := f.m.List(f.c, "")
 	if err != nil {
 		t.Fatal(err)
 	}

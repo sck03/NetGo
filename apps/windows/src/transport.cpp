@@ -57,7 +57,7 @@ static void windowsRoots(X509_STORE* store) {
   }CertCloseStore(roots,0);
  }
 }
-Transport::Transport(Json p,std::chrono::milliseconds cooldown):profile_(std::move(p)),context_(SSL_CTX_new(TLS_client_method()),SSL_CTX_free),cooldown_(cooldown) {
+Transport::Transport(Json p,std::chrono::milliseconds cooldown,std::function<bool()> cancelled):profile_(std::move(p)),context_(SSL_CTX_new(TLS_client_method()),SSL_CTX_free),cancelled_(std::move(cancelled)),cooldown_(cooldown) {
  validateProfile(profile_);if(!context_)throw Error("tls_initialization_failed");
  for(size_t i=0;i<profile_["Candidates"].size();++i)
   links_.push_back({std::make_shared<Link>(),std::make_shared<Link>(),std::make_shared<Link>()});
@@ -71,21 +71,32 @@ Transport::Transport(Json p,std::chrono::milliseconds cooldown):profile_(std::mo
   if(!count)throw Error("invalid_ca");
  }
 }
-Json Transport::requestAt(size_t index,const std::string& method,const std::string& path,const std::string& body,const std::string& headers) {
- auto deadline=Clock::now()+std::chrono::seconds(path=="/netgo/v2/health"?3:path=="/netgo/v2/auth/refresh"?4:20);
+Json Transport::requestAt(size_t index,const std::string& method,const std::string& path,const std::string& body,const std::string& headers,const RequestOptions& options) {
+ auto deadline=Clock::now()+std::chrono::seconds(path=="/netgo/v2/health"?3:options.cleanup||path=="/netgo/v2/auth/refresh"?4:20);
+ auto cancelled=[&]{return (!options.cleanup&&cancelled_&&cancelled_())||(options.cancelled&&options.cancelled());};
+ auto check=[&]{if(cancelled())throw Error("cancelled");if(Clock::now()>=deadline)throw Error("control_timeout");};
+ check();
  const size_t lane = path == "/netgo/v2/health" ? 0 :
-     (path == "/netgo/v2/remote" || path.starts_with("/netgo/v2/remote/")) ? 2 : 1;
+     (path == "/netgo/v2/remote" || path.starts_with("/netgo/v2/remote?") || path.starts_with("/netgo/v2/remote/")) ? 2 : 1;
  auto& link=*links_.at(index).at(lane);
  std::unique_lock serial(link.mutex, std::defer_lock);
- if(!serial.try_lock_until(deadline))throw Error("control_timeout");
+ while(!serial.try_lock_for(std::chrono::milliseconds(25)))check();
+ check();
  struct Failure { Link& link; bool reusable=false; ~Failure(){if(!reusable)link.reset();} } failure{link};
  if(Clock::now()-link.used>std::chrono::seconds(30))link.reset();
+ auto waitSocket=[&](SOCKET socket,bool read){
+  for(;;){
+   check();
+   fd_set set,except;FD_ZERO(&set);FD_ZERO(&except);FD_SET(socket,&set);FD_SET(socket,&except);
+   timeval wait{0,25000};
+   int ready=::select(0,read?&set:nullptr,read?nullptr:&set,&except,&wait);
+   if(ready<0||FD_ISSET(socket,&except))throw Error("control_unreachable");
+   if(ready>0)return;
+  }
+ };
  auto waitTLS=[&](int error){
   if(error!=SSL_ERROR_WANT_READ&&error!=SSL_ERROR_WANT_WRITE)throw Error("control_tls_failed");
-  auto left=std::chrono::duration_cast<std::chrono::microseconds>(deadline-Clock::now()).count();
-  if(left<=0)throw Error("control_timeout");
-  fd_set set;FD_ZERO(&set);FD_SET(link.socket,&set);timeval wait{long(left/1000000),long(left%1000000)};
-  if(::select(0,error==SSL_ERROR_WANT_READ?&set:nullptr,error==SSL_ERROR_WANT_WRITE?&set:nullptr,nullptr,&wait)<=0)throw Error("control_timeout");
+  waitSocket(link.socket,error==SSL_ERROR_WANT_READ);
  };
  if(!link.tls){
  auto target=address(profile_["Candidates"].at(index).at("Address"));
@@ -100,24 +111,31 @@ Json Transport::requestAt(size_t index,const std::string& method,const std::stri
  auto dnsHost=wide(target.host),dnsPort=wide(std::to_string(target.port));
  int resolved=GetAddrInfoExW(dnsHost.c_str(),dnsPort.c_str(),NS_DNS,nullptr,&hints,&list,nullptr,&operation,nullptr,&query);
  if(resolved==WSA_IO_PENDING){
-  if(WaitForSingleObject(completion,2000)!=WAIT_OBJECT_0){cancelQuery(&query);WaitForSingleObject(completion,INFINITE);resolved=WSAETIMEDOUT;}
+  const auto dnsDeadline=std::min(deadline,Clock::now()+std::chrono::seconds(2));
+  bool abort=false;
+  while(WaitForSingleObject(completion,25)!=WAIT_OBJECT_0){
+   if(cancelled()||Clock::now()>=dnsDeadline){abort=true;cancelQuery(&query);break;}
+  }
+  // The OS owns OVERLAPPED/list until completion, including cancellation.
+  if(abort){WaitForSingleObject(completion,INFINITE);resolved=WSAETIMEDOUT;}
   else resolved=queryResult(&operation);
  }
  std::unique_ptr<ADDRINFOEXW,decltype(&FreeAddrInfoExW)> addrs(list,FreeAddrInfoExW);
+ check();
  if(resolved!=0)throw Error("control_dns_failed");
  SOCKET raw=INVALID_SOCKET;
  for(auto a=list;a;a=a->ai_next) {
+  check();
   SOCKET candidate=socket(a->ai_family,a->ai_socktype,a->ai_protocol);if(candidate==INVALID_SOCKET)continue;
   if(!protectControlSocket(candidate,a->ai_addr,profile_.value("GatewayIP",""))){closesocket(candidate);continue;}
   u_long nonblock=1;ioctlsocket(candidate,FIONBIO,&nonblock);int e=::connect(candidate,a->ai_addr,int(a->ai_addrlen));
   if(e==SOCKET_ERROR&&WSAGetLastError()!=WSAEWOULDBLOCK){closesocket(candidate);continue;}
-  auto remaining=std::chrono::duration_cast<std::chrono::microseconds>(deadline-Clock::now()).count();
-  if(remaining<=0){closesocket(candidate);break;}
-  fd_set write,except;FD_ZERO(&write);FD_ZERO(&except);FD_SET(candidate,&write);FD_SET(candidate,&except);timeval wait{long(remaining/1000000),long(remaining%1000000)};
-  if(::select(0,nullptr,&write,&except,&wait)>0&&!FD_ISSET(candidate,&except)){
+  try {
+   waitSocket(candidate,false);
    int error=0,len=sizeof(error);getsockopt(candidate,SOL_SOCKET,SO_ERROR,reinterpret_cast<char*>(&error),&len);
    if(!error){raw=candidate;break;}
-  }closesocket(candidate);
+  }catch(...){closesocket(candidate);check();continue;}
+  closesocket(candidate);
  }
  if(raw==INVALID_SOCKET)throw Error("control_unreachable");
  link.socket=raw;
@@ -127,7 +145,7 @@ Json Transport::requestAt(size_t index,const std::string& method,const std::stri
  auto param=SSL_get0_param(tls.get());X509_VERIFY_PARAM_set_hostflags(param,X509_CHECK_FLAG_NO_PARTIAL_WILDCARDS);
  if((ip?X509_VERIFY_PARAM_set1_ip_asc(param,host.c_str()):X509_VERIFY_PARAM_set1_host(param,host.c_str(),0))!=1)throw Error("tls_identity_failed");
  link.tls=std::move(tls);
- for(;;){int result=SSL_connect(link.tls.get());if(result==1)break;waitTLS(SSL_get_error(link.tls.get(),result));}
+ for(;;){check();int result=SSL_connect(link.tls.get());if(result==1)break;waitTLS(SSL_get_error(link.tls.get(),result));}
  if(SSL_get_verify_result(link.tls.get())!=X509_V_OK)throw Error("tls_certificate_failed");
  }
  auto* tls=link.tls.get();
@@ -136,6 +154,7 @@ Json Transport::requestAt(size_t index,const std::string& method,const std::stri
  size_t pos=0;
  try {
   while(pos<req.size()){
+   check();
    int result=SSL_write(tls,req.data()+pos,int(req.size()-pos));
    if(result>0)pos+=size_t(result);else waitTLS(SSL_get_error(tls,result));
   }
@@ -143,6 +162,7 @@ Json Transport::requestAt(size_t index,const std::string& method,const std::stri
  wipe(req);
  std::string rawResponse;char buffer[8192];bool framed=false,closed=false;
  while(Clock::now()<deadline){
+  check();
   int count=SSL_read(tls,buffer,sizeof(buffer));
   if(count<=0){
    int error=SSL_get_error(tls,count);
@@ -172,8 +192,8 @@ Json Transport::requestAt(size_t index,const std::string& method,const std::stri
  if(response.body.empty())return Json::object();
  return Json::parse(response.body);
 }
-bool Transport::probe(size_t i) {
- try{auto h=requestAt(i,"GET","/netgo/v2/health","","");validateHealth(h,profile_.at("ID"));
+bool Transport::probe(size_t i,const std::function<bool()>& cancelled) {
+ try{auto h=requestAt(i,"GET","/netgo/v2/health","","",{cancelled});validateHealth(h,profile_.at("ID"));
   {std::lock_guard lock(clockMutex_);clocks_.resize(profile_["Candidates"].size());clocks_[i]={std::chrono::system_clock::time_point(std::chrono::seconds(h["server_unix"].get<int64_t>())),Clock::now(),true};}
   return true;}
  catch(const std::exception& e){if(std::string(e.what())=="protocol_incompatible")incompatible_=true;return false;}
@@ -181,23 +201,28 @@ bool Transport::probe(size_t i) {
 void Transport::select() {
  incompatible_=false;
  std::mutex mutex;std::condition_variable ready;size_t winner=SIZE_MAX,finished=0;
- std::vector<std::thread> probes;
+ std::atomic_bool stop=false;
+ std::vector<std::jthread> probes;
  for(size_t i=0;i<profile_["Candidates"].size();++i)probes.emplace_back([&,i]{
   if(profile_["Candidates"][i]["Kind"]=="auxiliary"){
-   std::unique_lock lock(mutex);if(ready.wait_for(lock,std::chrono::milliseconds(800),[&]{return winner!=SIZE_MAX;})){++finished;ready.notify_all();return;}
+   std::unique_lock lock(mutex);
+   const auto until=Clock::now()+std::chrono::milliseconds(800);
+   while(!stop&&!(cancelled_&&cancelled_())&&Clock::now()<until)ready.wait_for(lock,std::chrono::milliseconds(25));
+   if(stop||(cancelled_&&cancelled_())){++finished;ready.notify_all();return;}
   }
-  bool success=probe(i);
-  {std::lock_guard lock(mutex);if(success&&winner==SIZE_MAX)winner=i;++finished;}ready.notify_all();
+  bool success=probe(i,[&]{return stop.load();});
+  {std::lock_guard lock(mutex);if(success&&winner==SIZE_MAX){winner=i;stop=true;}++finished;}ready.notify_all();
  });
  {std::unique_lock lock(mutex);ready.wait_for(lock,std::chrono::seconds(10),[&]{return winner!=SIZE_MAX||finished==probes.size();});}
  for(auto& thread:probes)thread.join();
+ if(cancelled_&&cancelled_())throw Error("cancelled");
  if(winner==SIZE_MAX)throw Error(incompatible_?"protocol_incompatible":"no_trusted_control_entry");
  selected_=winner;switched_=Clock::now();directSuccess_=0;directCandidate_=SIZE_MAX;
 }
 void Transport::recover() {
  if(!probe(selected_)){select();directSuccess_=0;return;}
  if(kind()=="auxiliary"&&Clock::now()-switched_>=cooldown_){
-  std::vector<unsigned char> healthy(profile_["Candidates"].size(),0);std::vector<std::thread> probes;
+  std::vector<unsigned char> healthy(profile_["Candidates"].size(),0);std::vector<std::jthread> probes;
   for(size_t i=0;i<healthy.size();++i)if(profile_["Candidates"][i]["Kind"]=="direct")probes.emplace_back([&,i]{healthy[i]=probe(i)?1:0;});
   for(auto& thread:probes)thread.join();
   size_t chosen=SIZE_MAX;
@@ -215,13 +240,13 @@ std::chrono::system_clock::time_point Transport::now() const {
  if(selected>=clocks_.size()||!clocks_[selected].valid)return std::chrono::system_clock::now();
  const auto& sample=clocks_[selected];return sample.server+std::chrono::duration_cast<std::chrono::system_clock::duration>(Clock::now()-sample.received);
 }
-Json Transport::call(const std::string& method,const std::string& path,const Json& value,const std::string& seed,const std::string& token,const std::string& idem) {
+Json Transport::call(const std::string& method,const std::string& path,const Json& value,const std::string& seed,const std::string& token,const std::string& idem,const RequestOptions& options) {
  std::string body=value.is_null()?"":value.dump(),headers="X-NetGo-Protocol: 2\r\n";
  if(!idem.empty())headers+="Idempotency-Key: "+idem+"\r\n";
  if(!token.empty()){
   auto stamp=std::to_string(std::chrono::duration_cast<std::chrono::seconds>(now().time_since_epoch()).count()),nonce=randomID();
   headers+="Authorization: Bearer "+token+"\r\nX-NetGo-Time: "+stamp+"\r\nX-NetGo-Nonce: "+nonce+"\r\nX-NetGo-Signature: "+signature(seed,signedMessage(method,path,stamp,nonce,body,token))+"\r\n";
  }
- try{auto result=requestAt(selected_,method,path,body,headers);wipe(body);wipe(headers);return result;}catch(...){wipe(body);wipe(headers);throw;}
+ try{auto result=requestAt(selected_,method,path,body,headers,options);wipe(body);wipe(headers);return result;}catch(...){wipe(body);wipe(headers);throw;}
 }
 }

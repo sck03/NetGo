@@ -7,7 +7,7 @@ import ListPager from './ListPager.vue'
 import UserPicker from './UserPicker.vue'
 import type { RemoteHost as Host, RemoteGrant as Grant, RemoteInventory, AdminRequest } from '../../../packages/ui/contracts'
 const props = defineProps<{ request: AdminRequest }>()
-const inventory = ref<RemoteInventory>({ hosts: [], grants: [], sessions: [], users: {}, next_after: '' })
+const inventory = ref<RemoteInventory>({ hosts: [], grants: [], sessions: [], users: {}, next_after: '', next_generation: 0 })
 const after = ref('')
 const error = ref(''), loadError = ref(''), notice = ref(''), busy = ref(false), loading = ref(false), loaded = ref(false)
 const search = ref(''), statusFilter = ref('all'), updated = ref('')

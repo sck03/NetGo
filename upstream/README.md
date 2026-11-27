@@ -14,3 +14,11 @@
 Windows 完整检查使用 scripts/verify.ps1；Debian 使用 `python3 -B scripts/verify-linux.py --output 新目录`，可先加 --plan 查看命令。前者为 15 段，后者为 13 段原生检查；两者都记录源码、日志与构建文件摘要。打包必须指定完整验证的 --verification，拒绝过期证据或检查后的二进制变化。构建通过不代表真实网络或生产发行通过。
 
 上游 AGPL 目录为 management、signal、relay、combined；保留原始许可证与完整补丁/源码。客户端和其余目录按上游 BSD-3-Clause。其他依赖各自许可见 THIRD_PARTY_NOTICES.md。此清单不把上游内部依赖的冻结误称为全部最新版本。
+
+## 当前 NetGo 补丁契约
+
+`netgo-rpc routes` 支持空集合并按 CIDR 去重；已配置资源但 Management 尚未下发路由返回 `authorized_route_unavailable`。候选类别须明确传入，不再支持按位置推断类别。
+
+Login metadata 与移动 SDK 传递 GatewayIP 和 LocalRelay 到按站点 authority 隔离的 Relay 上下文。网关链路保持客户端主导；普通客户端链路选用一致的中继，所有端点仍要求由 Management 发布。补丁内包含空路由、重复路由、双客户端中继一致性、非法拓扑、候选类别缺失与 authority 隔离回归。
+
+本次源码补丁已重新生成并由 `prepare-upstream.py` 核对完整源码及固定 Dex replacement。服务端实际内核/中继部署与跨设备验收仍以运行环境证据为准。
