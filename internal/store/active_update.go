@@ -13,8 +13,8 @@ func (s *Store) VPNUpdate(fn func(*model.State) error) error {
 }
 
 // Host/grant changes close live sessions. Closed history is immutable on these
-// paths and has no dependency on a grant row; issuance still uses RemoteUpdate
-// because generation replay checks include retained history.
+// paths and has no dependency on a grant row. Issuance uses RemoteAcquireUpdate
+// with SQL generation/capacity checks over retained history.
 func (s *Store) RemotePolicyUpdate(fn func(*model.State) error) error {
 	return s.activeUpdate(remoteTables&^(remoteSessions|remoteOperations), fn)
 }

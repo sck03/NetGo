@@ -1,8 +1,8 @@
 # 远程桌面与原生多平台实施方案
 
-版本：2.4。修订日期：2026-11-27（Asia/Shanghai）。继承 EXECUTION_PLAN 的模块边界与验收范围；当前代码及本轮有限验证以 [稳定性重构记录](REFACTOR_STABILITY_2026-11-27.zh-CN.md) 为准。下述带日期的阶段说明保留历史状态。
+版本：2.4。修订日期：2026-11-27（Asia/Shanghai）。继承 EXECUTION_PLAN 的模块边界与验收范围；当前代码及本轮有限验证以 [当前重构记录](REFACTOR_CURRENT.zh-CN.md) 为准。下述带日期的阶段说明保留历史状态。
 
-本轮远控修复：服务端返回 server_unix_ms / next_generation，双方票据门禁使用可信服务端时间与包含休眠的系统单调时钟。共享 TLS 接收改为有总期限的分片读取；Windows 采用保持比例的最高720p软件配置、独立停止按钮与按实际画面映射的输入。详见 [本轮记录](evidence/2026-11-24-remote/REPORT.zh-CN.md)。这些实现不代替跨设备与全部平台验收。
+本轮远控修复：服务端返回 server_unix_ms / next_generation，双方票据门禁使用可信服务端时间与包含休眠的系统单调时钟。共享 TLS 接收改为有总期限的分片读取；Windows 采用保持比例的最高720p软件配置、独立停止按钮与按实际画面映射的输入。详见 [本轮记录](https://github.com/sck03/NetGo/blob/cc36472058c310b7812089df60abdcc5d513e625/docs/evidence/2026-11-24-remote/REPORT.zh-CN.md)。这些实现不代替跨设备与全部平台验收。
 
 2026-11-24 范围修订：用户已要求同时推进可运行的 macOS/iOS 客户端。SwiftUI、Keychain、原生媒体桥接和 iOS Packet Tunnel 已实现并通过 GitHub 构建；设备签名和实机 VPN/媒体仍需相应环境。五个客户端、LAN 服务端和 VPS 使用七个独立脚本/工作流，见 BUILD_CLIENTS。共享核心、平台网络/媒体适配和节点维护分模块，最终节点维护无需 Python。
 
@@ -12,7 +12,7 @@ v2.2 增加 [统一集成契约](INTEGRATION_CONTRACT.zh-CN.md)：单客户端�
 
 用户在会话 `01a2075c-f461-7531-b0ff-0d0de8d06a52` 最后明确要求：参考远控分析增加远程桌面和各原生客户端；目前未生产部署，可以用新数据库与新接口，不兼容旧开发数据；最后清理并推送 GitHub main。本文件据此覆盖旧方案中“其他客户端以后再做”的限制。
 
-2026-11-24 阶段源码为 0.3.0-dev、API v2、SQLite schema 2（当前版本已升级 schema 4，见 [审查落实记录](REFACTOR_DELIVERY_2026-11-26.zh-CN.md)）；服务端主机/授权/票据/会话已实现，Windows 已接媒体与输入/音频，Linux GTK 查看器已编译。旧 0.2.4-dev 报告仅提供历史 VPN 证据。Android/Apple、完整跨设备媒体与各平台验收未完成，不能将源码实现或阶段包写成五平台全部交付。
+2026-11-24 阶段源码为 0.3.0-dev、API v2、SQLite schema 2（当前版本已升级 schema 5，见 [审查落实记录](https://github.com/sck03/NetGo/blob/cc36472058c310b7812089df60abdcc5d513e625/docs/REFACTOR_DELIVERY_2026-11-26.zh-CN.md)）；服务端主机/授权/票据/会话已实现，Windows 已接媒体与输入/音频，Linux GTK 查看器已编译。旧 0.2.4-dev 报告仅提供历史 VPN 证据。Android/Apple、完整跨设备媒体与各平台验收未完成，不能将源码实现或阶段包写成五平台全部交付。
 
 用户再次确认未正式部署，允许重构及新数据/接口。因此 v1 只作为可运行的开发基线与切换前实验对象；不开发 v1↔v2 桥接、不双写、不增加旧 DTO/接口兼容分支。新版本一次采用新库和契约；完成空库初始化/回退演练并经运行验证后，旧开发程序与数据库可按归属清理。归档用于恢复，不是数据迁移要求。
 
@@ -106,7 +106,7 @@ RD0 已定位并修复现有 VPS 失败机制：原 `WorkerRelay.preferredRelayS
 
 ## 5. 新数据库与切换
 
-当前 schema 4 使用新的 NetGo SQLite 数据目录，规范化实体至少包括 users、devices、hosts、remote_grants、vpn_leases、remote_sessions、ticket_nonces、operation_keys、audit_events。声明外键、唯一键和状态约束，WAL/事务下串行化票据消费和并发控制。仍只保存 IdP/NetBird 对象引用，不跨库修改上游数据。
+当前 schema 5 使用新的 NetGo SQLite 数据目录，规范化实体至少包括 users、devices、hosts、remote_grants、vpn_leases、remote_sessions、ticket_nonces、operation_keys、audit_events。声明外键、唯一键和状态约束，WAL/事务下串行化票据消费和并发控制。仍只保存 IdP/NetBird 对象引用，不跨库修改上游数据。
 
 允许不兼容不等于允许无条件删除。实施顺序：停止本项目写入 → 归档 NetGo/上游身份/证书与所属规则清单 → 验证归档可读 → 在新目录初始化 → 成套部署 v2 → 空状态首次登录/注册/远控 → 根据摘要核验恢复旧开发栈。执行工具需显式 `--fresh-state` 与归档路径；遇到非空新目录、归档失败或外部拥有对象则停止。普通 install/upgrade 不隐式重置数据库。
 
@@ -162,7 +162,7 @@ C ABI 使用 opaque handle、定宽整数、结构体 size/version 与明确的�
 python3 -B scripts/verify-linux.py --output .cache/verification-新的唯一目录
 ```
 
-两者现在包括 VPN 基线与 `remote-core` 独立阶段；Linux 还运行门禁 ASan/UBSan，Windows 编译采集适配并运行不采图的边界检查。实际桌面采集显式使用 `apps/windows/remote/README.md` 中的 `--run`，不宣称媒体或远控端到端验收。Android、macOS 与 iOS 已有独立构建脚本和云工作流，准确入口见 [各平台构建说明](BUILD_CLIENTS.zh-CN.md)，本轮结果见 [重构验证记录](REFACTOR_2026-11-25.zh-CN.md)。现有真实实验入口在 `tests/network`；密码/私钥文件仅置于受保护实验目录，不提交。
+两者现在包括 VPN 基线与 `remote-core` 独立阶段；Linux 还运行门禁 ASan/UBSan，Windows 编译采集适配并运行不采图的边界检查。实际桌面采集显式使用 `apps/windows/remote/README.md` 中的 `--run`，不宣称媒体或远控端到端验收。Android、macOS 与 iOS 已有独立构建脚本和云工作流，准确入口见 [各平台构建说明](BUILD_CLIENTS.zh-CN.md)，本轮结果见 [重构验证记录](https://github.com/sck03/NetGo/blob/cc36472058c310b7812089df60abdcc5d513e625/docs/REFACTOR_2026-11-25.zh-CN.md)。现有真实实验入口在 `tests/network`；密码/私钥文件仅置于受保护实验目录，不提交。
 
 ## 8. 新增验收（与 A01–A33 并列，不能互相替代）
 

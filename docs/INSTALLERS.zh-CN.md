@@ -1,6 +1,6 @@
 # LAN 与 VPS 一键安装、配置和卸载
 
-LAN 使用独立脚本 **install-server.sh**、快捷菜单 **ng**；VPS 使用 **install-vps.sh**、快捷菜单 **ngv**。程序安装和日常维护由 Go 实现，最终用户不需要 Python、Node 或 Go 编译器。当前支持 Debian 12/13、amd64/arm64、systemd，使用 API v2 / schema 4。
+LAN 使用独立脚本 **install-server.sh**、快捷菜单 **ng**；VPS 使用 **install-vps.sh**、快捷菜单 **ngv**。程序安装和日常维护由 Go 实现，最终用户不需要 Python、Node 或 Go 编译器。当前支持 Debian 12/13、amd64/arm64、systemd，使用 API v2 / schema 5。
 
 ## 当前下载状态
 
@@ -161,6 +161,6 @@ curl -fL https://raw.githubusercontent.com/sck03/NetGo/main/install-vps.sh -o in
 
 客户端不再要求本机与服务端时差小于 30 秒，使用可信服务端时间与单调经过时间；证书、签名、防重放、撤权及租约期限仍有效。
 
-LAN/VPS 安装维护与部分 VPN 场景已实测；七个平台构建已通过。远程桌面完整跨设备、Windows UAC/锁屏/多屏、Apple/移动设备和长期运行验收尚未完成，见 [本轮报告](evidence/2026-11-24-platforms/REPORT.zh-CN.md)。
+历史提交的 LAN/VPS 安装维护与部分 VPN 场景已实测，七个平台构建曾通过；当前变更的验证范围见 [当前重构记录](REFACTOR_CURRENT.zh-CN.md)。远程桌面完整跨设备、Windows UAC/锁屏/多屏、Apple/移动设备和长期运行验收尚未完成，见 [本轮报告](https://github.com/sck03/NetGo/blob/cc36472058c310b7812089df60abdcc5d513e625/docs/evidence/2026-11-24-platforms/REPORT.zh-CN.md)。
 
 菜单体验参考 [sing-box-yg](https://github.com/yonggekkk/sing-box-yg/tree/b13f9435c4792fccf04d4fbc73e24a1948abff1b) 与 [sing-box-vpn](https://github.com/sck03/sing-box-vpn/tree/2a046930fdad1d49823f5dd75495b1c91e152802)，安装逻辑独立实现。开发构建入口见 [构建说明](BUILD_CLIENTS.zh-CN.md)。

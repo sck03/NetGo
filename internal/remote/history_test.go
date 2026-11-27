@@ -12,7 +12,7 @@ import (
 func TestInventoryExcludesHistoryAndHistoryIsBounded(t *testing.T) {
 	f := setup(t)
 	a := f.acquire(t)
-	if err := f.m.Store.RemoteUpdate(func(st *model.State) error {
+	if err := f.m.Store.Update(func(st *model.State) error {
 		for i := 0; i < 2500; i++ {
 			r := a.Session
 			r.ID = fmt.Sprintf("closed-session-%08d", i)
@@ -62,7 +62,7 @@ func TestHistoryUsesCreationTimeAndRetainsItAcrossRenewal(t *testing.T) {
 	if err = f.m.Revoke(f.c, a.Session.ID); err != nil {
 		t.Fatal(err)
 	}
-	if err = f.m.Store.RemoteUpdate(func(st *model.State) error {
+	if err = f.m.Store.Update(func(st *model.State) error {
 		for i, id := range []string{"z-oldest", "a-newest", "m-middle"} {
 			r := a.Session
 			r.ID = id
@@ -79,7 +79,7 @@ func TestHistoryUsesCreationTimeAndRetainsItAcrossRenewal(t *testing.T) {
 	if err != nil || len(first.Sessions) != 2 || first.Sessions[0].ID != a.Session.ID || first.Sessions[1].ID != "a-newest" {
 		t.Fatal("history not chronological", first, err)
 	}
-	if err = f.m.Store.RemoteUpdate(func(st *model.State) error { delete(st.RemoteSessions, "a-newest"); return nil }); err != nil {
+	if err = f.m.Store.Update(func(st *model.State) error { delete(st.RemoteSessions, "a-newest"); return nil }); err != nil {
 		t.Fatal(err)
 	}
 	next, err := f.m.Store.RemoteHistory(first.NextBefore, 2)

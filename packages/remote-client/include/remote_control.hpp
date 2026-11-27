@@ -9,6 +9,7 @@ inline bool transient_control(const std::exception& error) {
  const std::string_view code(error.what());
  return code == "remote_control_failed" || code == "control_timeout" ||
         code == "control_unreachable" || code == "control_dns_failed" ||
-        code == "control_tls_failed" || code == "ipc_failed";
+        code == "control_tls_failed" || code == "ipc_failed" ||
+        code == "context deadline exceeded" || code == "remote_busy";
 }
 }

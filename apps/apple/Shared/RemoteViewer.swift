@@ -38,11 +38,9 @@ final class RemoteViewer {
             options.active = { ctx in let v = Unmanaged<RemoteViewer>.fromOpaque(ctx!).takeUnretainedValue(); v.lock.lock(); defer { v.lock.unlock() }; return v.running ? 1 : 0 }
             options.control = { ctx, method, path, body, key, out, capacity, length in
                 let v = Unmanaged<RemoteViewer>.fromOpaque(ctx!).takeUnretainedValue()
-                do {
-                    let result = try v.call(String(cString: method!),String(cString: path!),String(cString: body!),String(cString: key!))
-                    let data = Data(result.utf8); guard data.count <= capacity else { return -1 }
-                    data.withUnsafeBytes { memcpy(out!,$0.baseAddress!,data.count) }; length!.pointee = data.count; return 0
-                } catch { return -1 }
+                return remoteControlReply(output: out, capacity: capacity, length: length) {
+                    try v.call(String(cString: method!),String(cString: path!),String(cString: body!),String(cString: key!))
+                }
             }
             options.sign = { ctx, message, size, signature in
                 let v = Unmanaged<RemoteViewer>.fromOpaque(ctx!).takeUnretainedValue()

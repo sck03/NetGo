@@ -23,7 +23,11 @@ final class MediaPlayer {
         return queue.sync { guard current(version) else{return false};return decode(bytes,time:time,version:version) }
     }
     private func decode(_ bytes: Data, time: Int64, version: UInt64) -> Bool {
-        let data = [UInt8](bytes)
+        return bytes.withUnsafeBytes { (data: UnsafeRawBufferPointer) in
+            decodeBuffer(data, time: time, version: version)
+        }
+    }
+    private func decodeBuffer(_ data: UnsafeRawBufferPointer, time: Int64, version: UInt64) -> Bool {
         var starts: [(Int,Int)] = [], index = 0
         while index + 3 < data.count {
             if data[index] == 0 && data[index+1] == 0 && data[index+2] == 1 { starts.append((index,index+3)); index += 3 }
@@ -31,14 +35,21 @@ final class MediaPlayer {
             else { index += 1 }
         }
         guard !starts.isEmpty else { return false }
-        var frame = Data()
+        var frame = Data(capacity: data.count + starts.count * 4)
         for n in starts.indices {
             let end = n + 1 < starts.count ? starts[n+1].0 : data.count
-            let nal = Data(data[starts[n].1..<end]); guard let first = nal.first else { continue }
-            if first & 31 == 7 { if sps != nal { sps = nal; format = nil }; continue }
-            if first & 31 == 8 { if pps != nal { pps = nal; format = nil }; continue }
-            var size = UInt32(nal.count).bigEndian
-            withUnsafeBytes(of: &size) { frame.append(contentsOf: $0) }; frame.append(nal)
+            let start = starts[n].1
+            guard start < end else { continue }
+            let type = data[start] & 31
+            if type == 7 || type == 8 {
+                let nal = Data(bytes: data.baseAddress!.advanced(by: start), count: end - start)
+                if type == 7 { if sps != nal { sps = nal; format = nil } }
+                else if pps != nal { pps = nal; format = nil }
+                continue
+            }
+            var size = UInt32(end - start).bigEndian
+            withUnsafeBytes(of: &size) { frame.append(contentsOf: $0) }
+            frame.append(data.baseAddress!.advanced(by: start).assumingMemoryBound(to: UInt8.self), count: end - start)
         }
         if format == nil && !sps.isEmpty && !pps.isEmpty {
             sps.withUnsafeBytes { a in pps.withUnsafeBytes { b in

@@ -1,5 +1,7 @@
 package model
 
+import "time"
+
 // PruneDependencies applies domain ownership invariants in the same transaction
 // as the mutation. Storage adapters persist the result without owning policy.
 func PruneDependencies(before, st *State) {
@@ -63,7 +65,8 @@ func PruneDependencies(before, st *State) {
 		_, oldHost := before.Hosts[r.HostID]
 		_, oldController := before.Devices[r.ControllerID]
 		if !u && oldUser || !h && oldHost || !c && oldController || c && d.DeletePending {
-			delete(st.RemoteSessions, id)
+			r.Close(time.Now())
+			st.RemoteSessions[id] = r
 		}
 	}
 }

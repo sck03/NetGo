@@ -35,8 +35,13 @@ final class DesktopRuntime {
             model.request = { method, route, body in
                 var output = [CChar](repeating:0,count:1_048_576), size = 0
                 let result = ng_apple_ipc(path,method,route,body,&output,output.count,&size)
-                guard result == 0 else { throw NSError(domain:"NetGo",code:Int(result),userInfo:[NSLocalizedDescriptionKey:"连接服务暂不可用，请查看网络安装状态"]) }
-                return String(decoding:output.prefix(size).map{UInt8(bitPattern:$0)},as:UTF8.self)
+                let text = String(decoding:output.prefix(size).map{UInt8(bitPattern:$0)},as:UTF8.self)
+                guard result == 0 else {
+                    let response = try? JSONSerialization.jsonObject(with: Data(text.utf8)) as? [String:Any]
+                    let code = result > 0 ? (response?["error"] as? String ?? "remote_invalid_control_response") : "ipc_failed"
+                    throw NSError(domain:"NetGo",code:Int(result),userInfo:[NSLocalizedDescriptionKey:code])
+                }
+                return text
             }
             let request = model.request
             model.importAction = { _, raw, approved in

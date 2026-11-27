@@ -4,9 +4,9 @@ NetGo 将账号、权限、管理网页和 VPN 网关部署在局域网 Debian �
 
 客户端推荐 **导入管理员导出的站点文件 → 登录 → 选择资源或设备**。导入会带入所有连接参数；需要特殊配置时仍可手工新建服务器。Windows 日常只打开 **NetGo.exe**，首次网络授权由程序发起。
 
-当前为 **0.3.0-dev / API v2 / schema 4 开发版**。LAN/VPS 的 VPN、账号授权、旁路由出口及安装维护已有实机验证；此前七个平台的构建已通过；本次提交的复验状态单独记录。远程桌面已接入部分平台和共享会话组件，**两台设备之间完整的画面、键鼠、音频及恢复流程尚未完成实机验收**。构建成功不表示全部远控或全部设备功能已可稳定使用。
+当前为 **0.3.0-dev / API v2 / schema 5 开发版**。LAN/VPS 的 VPN、账号授权、旁路由出口及安装维护已有实机验证；此前七个平台的构建已通过；本次提交的复验状态单独记录。远程桌面已接入部分平台和共享会话组件，**两台设备之间完整的画面、键鼠、音频及恢复流程尚未完成实机验收**。构建成功不表示全部远控或全部设备功能已可稳定使用。
 
-当前 Windows 引擎取消、Agent 恢复、站点引导与窗口隔离、远控异步文件和帧缓冲复用、服务端活动事务及清理结果见 [稳定性重构记录](docs/REFACTOR_STABILITY_2026-11-27.zh-CN.md)。schema 1/2/3 数据库会被拒绝打开，需要新目录初始化；不提供自动迁移或双写。客户端、服务端及上游补丁一起构建和更新。远控支持观看、输入、音频、剪贴板、上传、下载六项独立权限，实际能力以主机协商结果为准；Windows、macOS、Linux 可作为被控端，可选择本地同意或明确启用无人值守。有效 VPN 会话、设备、管理审计、原生远控主机列表与已结束的远控记录分别分页。仅使用远控的账号无需配置 LAN 资源。
+当前账号一致性、管理员保护、远控历史、客户端错误传递与资源优化见 [当前重构记录](docs/REFACTOR_CURRENT.zh-CN.md)。schema 1–4 数据库会在修改前被拒绝，需要在新目录初始化；不提供迁移或双写。客户端、服务端和上游补丁一起构建和更新。远控支持观看、输入、音频、剪贴板、上传、下载六项独立权限，实际能力以主机协商结果为准。Linux 查看端支持接收音频；Linux/macOS 被控端暂不提供系统音频采集。已结束的远控记录独立保留 24 小时，删除设备或账号不会删除这些记录。
 
 ## 1. 下载哪个包
 
@@ -168,7 +168,7 @@ SSH 端口用于管理员登录机器，与 NetGo 客户端入口无关。共享
 - [安装、卸载与离线参数](docs/INSTALLERS.zh-CN.md)
 - [Windows 客户端与字段对照](docs/WINDOWS_CLIENT.zh-CN.md)
 - [五客户端、LAN/VPS 的独立构建](docs/BUILD_CLIENTS.zh-CN.md)
-- [本轮实机与七平台构建记录](docs/evidence/2026-11-24-platforms/REPORT.zh-CN.md)
+- [历史实机与七平台构建记录](https://github.com/sck03/NetGo/blob/cc36472058c310b7812089df60abdcc5d513e625/docs/evidence/2026-11-24-platforms/REPORT.zh-CN.md)
 - [当前进度](docs/PROGRESS.zh-CN.md)、[任务清单](docs/IMPLEMENTATION_BACKLOG.zh-CN.md)
 - [完整执行方案](docs/EXECUTION_PLAN.zh-CN.md)、[远控多平台方案](docs/REMOTE_NATIVE_PLAN.zh-CN.md)
 - [固定版本](upstream/versions.lock.json)、[第三方通知](THIRD_PARTY_NOTICES.md)

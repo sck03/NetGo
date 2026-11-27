@@ -37,7 +37,8 @@ extern "C" int32_t ng_apple_ipc(const char* socket,const char* method,const char
  if(body&&*body){curl_easy_setopt(handle,CURLOPT_POSTFIELDS,body);curl_easy_setopt(handle,CURLOPT_POSTFIELDSIZE,long(std::strlen(body)));}
  auto result=curl_easy_perform(handle);long status=0;curl_easy_getinfo(handle,CURLINFO_RESPONSE_CODE,&status);
  curl_slist_free_all(headers);curl_easy_cleanup(handle);*length=reply.size;
- return result==CURLE_OK&&status>=200&&status<300?0:-4;
+ if(result!=CURLE_OK)return -4;
+ return status>=200&&status<300?0:int32_t(status);
 }
 #else
 extern "C" int32_t ng_apple_ipc(const char*,const char*,const char*,const char*,char*,size_t,size_t*){return -1;}

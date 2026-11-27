@@ -21,6 +21,10 @@ func TestConcurrentUserCreationPreservesUniqueAlias(t *testing.T) {
 	defer db.Close()
 	var calls atomic.Int32
 	upstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Method == "GET" && r.URL.Path == "/api/users" {
+			w.Write([]byte(`[]`))
+			return
+		}
 		if r.Method != "POST" || r.URL.Path != "/api/users" {
 			t.Errorf("unexpected management request: %s %s", r.Method, r.URL.Path)
 		}

@@ -5,6 +5,7 @@ import (
 	"netgo/internal/model"
 	"strings"
 	"testing"
+	"time"
 )
 
 func TestUserChoicesPagesAndSearch(t *testing.T) {
@@ -41,5 +42,25 @@ func TestUserChoicesPagesAndSearch(t *testing.T) {
 	}
 	if _, err = s.UserChoices("", strings.Repeat("名", 129)); err == nil {
 		t.Fatal("oversized search accepted")
+	}
+}
+
+func TestUserChoicesExcludeInactiveAccounts(t *testing.T) {
+	s, err := Open(":memory:")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer s.Close()
+	if err = s.Update(func(st *model.State) error {
+		st.Users["active"] = model.User{ID: "active", Alias: "active"}
+		st.Users["disabled"] = model.User{ID: "disabled", Alias: "disabled", Disabled: true}
+		st.Users["expired"] = model.User{ID: "expired", Alias: "expired", ExpiresAt: time.Now().Add(-time.Minute)}
+		return nil
+	}); err != nil {
+		t.Fatal(err)
+	}
+	page, err := s.UserChoices("", "")
+	if err != nil || len(page.Users) != 1 || page.Users[0].ID != "active" {
+		t.Fatal(page, err)
 	}
 }

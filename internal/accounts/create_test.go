@@ -36,6 +36,10 @@ func TestCreateCompensationSurvivesRestartAndProtectsCommittedUsers(t *testing.T
 	}
 	status, deletes := http.StatusServiceUnavailable, 0
 	up := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Method == "GET" {
+			w.Write([]byte(`[]`))
+			return
+		}
 		if r.Method == "POST" {
 			if err := db.Update(func(st *model.State) error { delete(st.Credentials, credential.TokenHash); return nil }); err != nil {
 				t.Error(err)
@@ -78,7 +82,7 @@ func TestCreateCompensationSurvivesRestartAndProtectsCommittedUsers(t *testing.T
 	if _, err = db.AccountCleanup("created"); !errors.Is(err, model.ErrNotFound) {
 		t.Fatal("completed job retained", err)
 	}
-	if err = db.QueueAccountCleanup("committed"); err != nil {
+	if err = db.ReserveAccountCreation(store.AccountCleanup{ID: "committed"}); err != nil {
 		t.Fatal(err)
 	}
 	if err = db.Update(func(st *model.State) error { st.Users["committed"] = model.User{ID: "committed"}; return nil }); err != nil {
@@ -90,7 +94,7 @@ func TestCreateCompensationSurvivesRestartAndProtectsCommittedUsers(t *testing.T
 	if _, err = db.User("committed"); err != nil {
 		t.Fatal(err)
 	}
-	if err = db.QueueAccountCleanup("committed"); !errors.Is(err, model.ErrConflict) {
+	if err = db.ReserveAccountCreation(store.AccountCleanup{ID: "committed"}); !errors.Is(err, model.ErrConflict) {
 		t.Fatal("existing account ownership claimed", err)
 	}
 }

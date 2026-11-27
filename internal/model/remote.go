@@ -61,6 +61,7 @@ func (r *RemoteSession) Close(now time.Time) {
 		r.State = "closed"
 		r.ClosedAt = now.UTC()
 	}
+	r.ControllerAuth = ""
 }
 
 type RemoteOperation struct {

@@ -9,7 +9,7 @@ ScreenCast portal session and PipeWire. System selection happens before host
 registration. Input capability reflects the actual portal grant. Persistent
 restore tokens are used only for explicit unattended opt-in; compositor policy
 still controls restoration. No arbitrary Wayland input or permission bypass is
-attempted. Linux audio hosting is not advertised.
+attempted. Linux audio hosting is not advertised. Viewer audio playback is optional and uses the existing GStreamer stack; it is negotiated only when the remote host supports AUDIO. The appsrc queue is capped at 19,200 bytes and playback errors stop the session. Disable the playback checkbox if the desktop has no working audio sink.
 
 H.264 encoding tries GStreamer VA, NVIDIA and then x264. Distribution plugins,
 GPU drivers and actual negotiated buffer memory decide hardware availability;
@@ -22,7 +22,7 @@ install GStreamer core/base development headers, gio-unix, X11 and XTest.
 For Ubuntu 24.04 the runtime host dependencies include:
 
     sudo apt install libgtk-4-1 libcurl4 libavcodec60 libavutil58 libswscale7 \
-      libx11-6 libxtst6 gstreamer1.0-plugins-good gstreamer1.0-plugins-bad \
+      libx11-6 libxtst6 gstreamer1.0-plugins-base gstreamer1.0-plugins-good gstreamer1.0-plugins-bad \
       gstreamer1.0-plugins-ugly gstreamer1.0-pipewire
 
 Install the desktop's matching xdg-desktop-portal backend for Wayland. Hardware

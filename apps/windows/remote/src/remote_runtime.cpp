@@ -1,3 +1,4 @@
+#include "remote_control_reply.hpp"
 #include "remote_inventory.hpp"
 #include "remote_runtime.hpp"
 #include "connection.hpp"
@@ -37,13 +38,7 @@ Json call(const std::string &site, const std::string &method, const std::string 
                      {"idempotency", idem}},
                     active);
 }
-int32_t controlError(const std::exception& error, char* output, size_t capacity, size_t* length) noexcept {
-    try {
-        auto text=Json({{"error",error.what()}}).dump();
-        if(text.size()>capacity) return -1;
-        std::copy(text.begin(),text.end(),output);*length=text.size();return 0;
-    } catch(...) { return -1; }
-}
+using netgo::remote::control_error;
 Json context(const std::string &site, const std::function<bool()> &active = {}) {
     return pipeCall({{"action", "remote-context"}, {"site", site}}, active);
 }
@@ -369,7 +364,7 @@ void host(const std::string &site, Callbacks cb) {
             *length = text.size();
             return 0;
         } catch (const std::exception& error) {
-            return controlError(error, output, capacity, length);
+            return control_error(error, output, capacity, length);
         }
     };
     o.consent = [](void *p, const char *user, uint32_t caps) -> int32_t {
@@ -559,7 +554,7 @@ void view(const std::string &site, const std::string &hostID, uint32_t capabilit
             *length = text.size();
             return 0;
         } catch (const std::exception& error) {
-            return controlError(error, output, capacity, length);
+            return control_error(error, output, capacity, length);
         }
     };
     options.sign = [](void *p, const uint8_t *bytes, size_t size, uint8_t output[64]) -> int32_t {

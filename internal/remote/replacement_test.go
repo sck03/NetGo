@@ -14,7 +14,7 @@ func TestExpiredSessionReplacementKeepsHostUnique(t *testing.T) {
 	last := ""
 	for i := uint64(1); i <= 128; i++ {
 		if last != "" {
-			if e := f.m.Store.RemoteUpdate(func(st *model.State) error {
+			if e := f.m.Store.Update(func(st *model.State) error {
 				r := st.RemoteSessions[last]
 				r.ExpiresAt = f.now.Add(-time.Second)
 				st.RemoteSessions[last] = r
@@ -58,7 +58,7 @@ func TestInventoryLoadsOnlyVisibleDependencies(t *testing.T) {
 		t.Fatal(err)
 	}
 	page, err := f.m.Store.RemoteInventory(f.c, "")
- state := page.State
+	state := page.State
 	if err != nil {
 		t.Fatal(err)
 	}

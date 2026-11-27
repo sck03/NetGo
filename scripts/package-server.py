@@ -37,7 +37,7 @@ def main():
     release=json.loads((ROOT/f'dist/linux-{arch}/release.json').read_text())
     version=release['version']
     if version!=build['version']:raise ValueError('Server executable version differs from requested package version')
-    if release!=dict(version=version,protocol=2,schema=4,os='linux',arch=arch):
+    if release!=dict(version=version,protocol=2,schema=5,os='linux',arch=arch):
         raise ValueError('incompatible server release')
     args.output.mkdir(parents=True,exist_ok=True)
     source=Path(subprocess.check_output([sys.executable,'-B',str(ROOT/'scripts/prepare-upstream.py'),'--path-only'],text=True).strip())

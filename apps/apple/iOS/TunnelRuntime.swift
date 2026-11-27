@@ -52,13 +52,13 @@ final class TunnelRuntime: ObservableObject {
         model.request = { [weak self] method, path, body in
             guard let session = self?.snapshot()?.connection as? NETunnelProviderSession,
                   session.status == .connected || session.status == .reasserting else {
-                throw NSError(domain: "NetGo", code: 1, userInfo: [NSLocalizedDescriptionKey: "VPN 未连接"])
+                throw NSError(domain: "NetGo", code: 1, userInfo: [NSLocalizedDescriptionKey: "remote_site_disconnected"])
             }
             let request = try JSONSerialization.data(withJSONObject: ["method": method, "path": path, "body": body])
             let signal = DispatchSemaphore(value: 0), response = TunnelResponse()
             try session.sendProviderMessage(request) { data in response.store(data); signal.signal() }
             guard signal.wait(timeout: .now() + 22) == .success, let data = response.load() else {
-                throw NSError(domain: "NetGo", code: 2, userInfo: [NSLocalizedDescriptionKey: "VPN 服务未响应"])
+                throw NSError(domain: "NetGo", code: 2, userInfo: [NSLocalizedDescriptionKey: "ipc_failed"])
             }
             if let object = try JSONSerialization.jsonObject(with: data) as? [String: Any], let error = object["error"] as? String {
                 throw NSError(domain: "NetGo", code: 3, userInfo: [NSLocalizedDescriptionKey: error])

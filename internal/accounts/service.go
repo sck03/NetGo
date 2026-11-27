@@ -12,6 +12,7 @@ import (
 	"netgo/internal/session"
 	"netgo/internal/site"
 	"netgo/internal/store"
+	"slices"
 	"strings"
 	"time"
 )
@@ -44,11 +45,23 @@ func protectAdmin(st *model.State, u model.User) error {
 		return nil
 	}
 	for _, other := range st.Users {
-		if other.ID != u.ID && other.Role == "admin" && other.Active(time.Now()) {
+		if other.ID != u.ID && permanentAdmin(other) {
 			return nil
 		}
 	}
-	return errors.New("last administrator cannot be disabled or deleted")
+	return errors.New("last_permanent_administrator")
+}
+
+func permanentAdmin(u model.User) bool {
+	return u.Role == "admin" && !u.Disabled && !u.DeletePending && u.ExpiresAt.IsZero()
+}
+
+// Metadata is not authority. Keeping this comparison explicit prevents new
+// display fields from accidentally revoking credentials and VPN sessions.
+func sameAccess(a, b model.User) bool {
+	return a.Role == b.Role && a.Disabled == b.Disabled && a.DeletePending == b.DeletePending &&
+		a.ExpiresAt.Equal(b.ExpiresAt) && a.MaxDevices == b.MaxDevices &&
+		a.MaxSessions == b.MaxSessions && slices.Equal(a.Resources, b.Resources)
 }
 func (s *Service) Update(ctx context.Context, u model.User) (model.User, error) {
 	u.Name = strings.TrimSpace(u.Name)
@@ -61,7 +74,7 @@ func (s *Service) Update(ctx context.Context, u model.User) (model.User, error) 
 	if !site.ValidID(u.Alias) || (u.Role != "admin" && u.Role != "user") || u.MaxDevices < 1 || u.MaxDevices > 100 || u.MaxSessions < 1 || u.MaxSessions > 100 {
 		return u, errors.New("invalid user")
 	}
-	e := s.Sessions.MutateUser(ctx, u.ID, func(st *model.State) error {
+	e := s.Sessions.EditUser(ctx, u.ID, func(st *model.State) error {
 		if err := authorization.CheckAdmin(ctx, st); err != nil {
 			return err
 		}
@@ -95,15 +108,20 @@ func (s *Service) Update(ctx context.Context, u model.User) (model.User, error) 
 			}
 		}
 		u.Resources = resources
-		if old.Role == "admin" && (u.Role != "admin" || !u.Active(time.Now())) {
+		slices.Sort(u.Resources)
+		old.Resources = slices.Clone(old.Resources)
+		slices.Sort(old.Resources)
+		if old.Role == "admin" && !permanentAdmin(u) {
 			if e := protectAdmin(st, old); e != nil {
 				return e
 			}
 		}
 		u.AuthRevision = old.AuthRevision
 		st.Users[u.ID] = u
-		if e := st.InvalidateUser(u.ID); e != nil {
-			return e
+		if !sameAccess(old, u) {
+			if e := st.InvalidateUser(u.ID); e != nil {
+				return e
+			}
 		}
 		u = st.Users[u.ID]
 		st.Record(authorization.Actor(ctx), "user.update", u.ID)

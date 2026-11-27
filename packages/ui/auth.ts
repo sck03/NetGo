@@ -1,4 +1,5 @@
 import type { User } from './models.generated'
+import { requestError } from './errors.ts'
 type AuthResult = { token: string; refresh_token?: string; expires_at: string; user: User }
 type Health = { site_id: string; server_unix: number; protocol: number; capabilities: string[] }
 const enc = new TextEncoder()
@@ -61,7 +62,7 @@ export class AdminSession {
         if (response.status === 401 && token === this.token && key === this.key) {
           if (generation === this.generation && token === this.token && key === this.key) this.logout()
         }
-        throw Error(result.error === 'site_not_ready' ? '站点网关尚未就绪，请先完成服务器初始化。' : (result.error || '请求失败'))
+        throw Error(requestError(result.error))
       }
       return result as T
     } catch (error) {

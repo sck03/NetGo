@@ -97,4 +97,4 @@ P0/P2 可以使用最小原生客户端验证协议与网络，但不能替代�
 
 `tests/network/run.py` 提供 init、collect、verify、review、report、metrics；完整命令见 `tests/network/README.zh-CN.md`。退出码零保持 REVIEW-REQUIRED；超时、失败和输出超限仍保存证据。PASS 必须人工核对全部用例要求，并绑定当次证据摘要。自动化自测不能被审阅为真实网络 PASS，新失败不能被旧 PASS 掩盖。
 
-本轮已建立 `docs/evidence/2026-11-22-review/network/` 及 `network-summary/`，33 项均为 NOT-RUN。部署生成、HTTP/TLS、IPC、签名和故障注入单元测试保存在独立自动验证报告中。
+2026-11-22 的审查记录曾建立 network/network-summary，33 项均为 NOT-RUN；相关记录见 [历史验证索引](HISTORY.zh-CN.md)。部署生成、HTTP/TLS、IPC、签名和故障注入单元测试保存在独立自动验证报告中。

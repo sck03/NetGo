@@ -8,14 +8,23 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"net/http/httptrace"
 	"net/url"
 	"netgo/internal/session"
+	"sync/atomic"
 )
 
 type HTTPError struct{ Status int }
 
 func (e *HTTPError) Error() string   { return fmt.Sprintf("management returned HTTP %d", e.Status) }
 func (e *HTTPError) HTTPStatus() int { return e.Status }
+
+// A connection failure before GotConn cannot have changed upstream state. Once
+// a connection was obtained, treat the result as unknown even if writing failed.
+type RequestFailure struct{ connected bool }
+
+func (e *RequestFailure) Error() string                 { return "management unavailable" }
+func (e *RequestFailure) RequestMayHaveCommitted() bool { return e.connected }
 
 type Management struct {
 	URL, Token string
@@ -33,9 +42,19 @@ func (m *Management) Request(ctx context.Context, method, path string, in, out a
 	}
 	req.Header.Set("Authorization", "Token "+m.Token)
 	req.Header.Set("Content-Type", "application/json")
+	var connected atomic.Bool
+	if m.Client.Transport != nil {
+		if _, standard := m.Client.Transport.(*http.Transport); !standard {
+			// A custom RoundTripper need not emit httptrace callbacks.
+			connected.Store(true)
+		}
+	}
+	req = req.WithContext(httptrace.WithClientTrace(req.Context(), &httptrace.ClientTrace{
+		GotConn: func(httptrace.GotConnInfo) { connected.Store(true) },
+	}))
 	resp, e := m.Client.Do(req)
 	if e != nil {
-		return nil, errors.New("management unavailable")
+		return nil, &RequestFailure{connected: connected.Load()}
 	}
 	defer resp.Body.Close()
 	if resp.StatusCode < 200 || resp.StatusCode >= 300 {

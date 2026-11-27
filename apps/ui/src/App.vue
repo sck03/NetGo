@@ -58,7 +58,7 @@ function logout() { admin.logout() }
 async function saveUser(u: User) {
   return action(async () => {
     await admin.request('/netgo/v2/admin/users/' + encodeURIComponent(u.id), 'PUT', u)
-    await refresh(true); notice.value = '账号设置已保存，旧会话已撤销。'
+    await refresh(true); notice.value = '账号设置已保存；权限变更需重新连接，仅修改显示名称不影响已有连接。'
   })
 }
 async function createUser(account: { Alias: string; Email: string; Name: string }) {
@@ -128,6 +128,7 @@ onUnmounted(() => { if (timer) clearInterval(timer); stateQuery.invalidate(); au
         <button v-if="error" class="secondary" @click="action(() => refresh(true))">重新加载</button>
       </section>
       <template v-else-if="page === 'overview'">
+        <p v-if="state.counts?.account_cleanups" class="alert" role="status">有 {{ state.counts.account_cleanups }} 项账号创建正在核对或清理，后台会自动重试。请勿重复创建同一用户名或邮箱。</p>
         <div class="stats"><section class="card"><span>账号</span><strong>{{ state.counts?.users || 0 }}</strong></section><section class="card"><span>局域网资源</span><strong>{{ state.counts?.resources || 0 }}</strong></section><section class="card"><span>有效租约</span><strong>{{ state.counts?.leases || 0 }}</strong></section></div>
         <section class="card"><h3>从这里开始</h3><div class="quick-start">
           <button class="secondary" @click="page = 'resources'"><strong>1 · 添加资源</strong><small>选择网页、文件共享或终端等常用服务</small></button>

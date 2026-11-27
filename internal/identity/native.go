@@ -36,6 +36,8 @@ type Dex struct {
 	Origin, LocalURL, Secret string
 	Client                   *http.Client
 	CheckUser                func(context.Context, string) error
+	verifierOnce             sync.Once
+	verifier                 *oidc.IDTokenVerifier
 }
 
 func (d *Dex) Authorize(ctx context.Context, email, password, nonce, challenge string) (string, error) {
@@ -79,10 +81,13 @@ func (d *Dex) token(ctx context.Context, f url.Values) (Tokens, error) {
 		return t, model.ErrUnauthorized
 	}
 	// JWKS is fetched locally, while issuer/audience validation uses the canonical identity.
-	ctx = oidc.ClientContext(ctx, d.Client)
-	keys := oidc.NewRemoteKeySet(ctx, d.LocalURL+"/oauth2/keys")
-	v := oidc.NewVerifier(d.Origin+"/oauth2", keys, &oidc.Config{ClientID: "netbird-cli"})
-	id, e := v.Verify(ctx, t.IDToken)
+	d.verifierOnce.Do(func() {
+		// A verifier belongs to this immutable provider configuration, not to the
+		// first request's cancellation scope. RemoteKeySet handles key rotation.
+		keys := oidc.NewRemoteKeySet(oidc.ClientContext(context.Background(), d.Client), d.LocalURL+"/oauth2/keys")
+		d.verifier = oidc.NewVerifier(d.Origin+"/oauth2", keys, &oidc.Config{ClientID: "netbird-cli"})
+	})
+	id, e := d.verifier.Verify(ctx, t.IDToken)
 	if e != nil {
 		return Tokens{}, model.ErrUnauthorized
 	}

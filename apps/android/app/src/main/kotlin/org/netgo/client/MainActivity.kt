@@ -56,6 +56,7 @@ class MainActivity : ComponentActivity() {
     val status by NetGoRuntime.status.collectAsState(); val message by NetGoRuntime.message.collectAsState()
     var site by remember { mutableStateOf(NetGoRuntime.selectedSite) }; var alias by remember { mutableStateOf("") }; var password by remember { mutableStateOf("") }
     var select by remember { mutableStateOf(false) }; var target by remember { mutableStateOf("") }
+    var remoteAttempt by remember { mutableLongStateOf(0L) }
     var internet by remember { mutableStateOf(false) }; var replace by remember { mutableStateOf(false) }
     var viewOnly by remember { mutableStateOf(false) }; var audio by remember { mutableStateOf(true) }
     var pendingImport by remember { mutableStateOf<String?>(null) }
@@ -95,12 +96,14 @@ class MainActivity : ComponentActivity() {
         OutlinedButton(onClick = { NetGoRuntime.selectedSite = site; NetGoRuntime.refreshHosts() }, enabled = status.optBoolean("remote_ready")) { Text("更新远程主机") }
         Row { Checkbox(checked = viewOnly, onCheckedChange = { viewOnly = it }, enabled = target.isEmpty()); Text("仅观看") }
         Row { Checkbox(checked = audio, onCheckedChange = { audio = it }, enabled = target.isEmpty()); Text("播放对方声音（主机支持时）") }
-        hosts.forEach { host -> OutlinedButton(enabled = host.ready, onClick = { NativeRemote.stopCurrent(); target = host.id }) { Text(host.label) } }
+        hosts.forEach { host -> OutlinedButton(enabled = host.ready, onClick = { NativeRemote.stopCurrent(); target = host.id; remoteAttempt++ }) { Text(host.label) } }
         LaunchedEffect(site, status.optBoolean("remote_ready")) { if (!status.optBoolean("remote_ready")) target = "" }
         status.optJSONObject("lease")?.optJSONArray("resources")?.let { values ->
             if (values.length() > 0) Text("已授权资源")
             for (index in 0 until values.length()) { val resource = values.getJSONObject(index); Text(resource.optString("name") + " · " + resource.optString("cidr")) }
         }
-        if (target.isNotEmpty()) RemoteScreen(site, target, viewOnly, audio) { target = "" }
+        if (target.isNotEmpty()) key(site, target, remoteAttempt) {
+            RemoteScreen(site, target, viewOnly, audio) { target = "" }
+        }
     } }
 }

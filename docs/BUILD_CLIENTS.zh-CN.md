@@ -1,6 +1,6 @@
 # 各平台构建与 Releases 发布
 
-2026-11-27 审查修复的构建和必要验证范围见 [交付记录](REFACTOR_REVIEW_2026-11-27.zh-CN.md)。共享管理页 DTO 使用 `npm run contracts`（等价于 `go generate ./internal/contracts`）生成；修改 Go 模型后更新已提交的 `packages/ui/models.generated.ts`，并运行 `go test ./internal/contracts` 与 `npm run build`。仅构建 Web 不要求现场生成，因为生成文件已入库。
+2026-11-27 审查修复的构建和必要验证范围见 [交付记录](https://github.com/sck03/NetGo/blob/cc36472058c310b7812089df60abdcc5d513e625/docs/REFACTOR_REVIEW_2026-11-27.zh-CN.md)。共享管理页 DTO 使用 `npm run contracts`（等价于 `go generate ./internal/contracts`）生成；修改 Go 模型后更新已提交的 `packages/ui/models.generated.ts`，并运行 `go test ./internal/contracts` 与 `npm run build`。仅构建 Web 不要求现场生成，因为生成文件已入库。
 
 清理允许清单包含 `.cache/review`、当前 audit/refactor 构建产物；`-IncludeTestData` 还包含审查探针和文本日志，`-IncludeToolchains` 包含审查使用的 Go/Node 及已下载 OpenSSL 源码，但 OpenSSL 存在未提交工作时拒绝删除。源码、可恢复用户配置和当前嵌入式 Web 页面不随构建缓存删除。`upstream-verified-*` 源码须先将变更保存到补丁并通过 `prepare-upstream.py` 完整核验，再单独清理，避免丢失未归档的补丁修改。
 
@@ -26,7 +26,7 @@ macOS 构建脚本在原生构建前运行独立的连接协调器回归，覆�
 | Apple build_number | macOS/iOS Bundle 构建号 | 1 |
 | iOS sdk | both、iphoneos 设备版、iphonesimulator 模拟器版 | both |
 
-版本会传给程序内版本信息、Windows 文件属性、Android versionName、Apple Bundle 信息和包名。Apple 标准版本字段使用数字部分，NetGoBuildVersion 保留完整版本及预发布后缀。API v2/schema 4 与发行版本号分别管理。
+版本会传给程序内版本信息、Windows 文件属性、Android versionName、Apple Bundle 信息和包名。Apple 标准版本字段使用数字部分，NetGoBuildVersion 保留完整版本及预发布后缀。API v2/schema 5 与发行版本号分别管理。
 
 自动 push 构建使用 VERSION 文件的版本，**不发布 Releases**。只有手动运行且勾选 publish 才进入具有 `contents: write` 权限的发布任务。失败的构建不进入发布。
 
@@ -94,6 +94,6 @@ Windows 构建需要 UCRT64 GCC/CMake/Ninja 和 Python cryptography；Linux桌�
 
 构建和发布成功不代表完整设备验收。未签名 APK/IPA 仍需签名；Apple 真机、跨设备远控、UAC/锁屏/多屏和长期运行状态见 [进度](PROGRESS.zh-CN.md)。安装使用说明见 [INSTALLERS](INSTALLERS.zh-CN.md)。
 
-本轮参数、产物及发布控制验证见 [工作流验证记录](evidence/2026-11-24-workflows/REPORT.zh-CN.md)。
+历史参数、产物及发布控制验证见 [工作流验证记录](https://github.com/sck03/NetGo/blob/cc36472058c310b7812089df60abdcc5d513e625/docs/evidence/2026-11-24-workflows/REPORT.zh-CN.md)。
 
 2026-11-25 补记：Android 构建要求本机已安装 JDK 17（设置 JAVA_HOME），CI 通过 setup-java 明确提供。已移除多余的 Foojay 自动下载工具链插件，避免插件仓库解析失败阻断已有 JDK 的构建。其他锁定工具链不变。

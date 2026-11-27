@@ -306,6 +306,27 @@ func (m *Manager) Revoke(ctx context.Context, actor, id string) error {
 func (m *Manager) MutateUser(ctx context.Context, user string, fn func(*model.State) error) error {
 	return m.mutateScope(ctx, func(l model.Lease) bool { return l.UserID == user }, fn)
 }
+
+// EditUser shares the same commit fence as revocation, but preserves leases when
+// the account service changes metadata without advancing its authority revision.
+func (m *Manager) EditUser(ctx context.Context, user string, fn func(*model.State) error) error {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	return m.update(ctx, func(st *model.State) error {
+		before := st.Users[user].AuthRevision
+		if err := fn(st); err != nil {
+			return err
+		}
+		if after, exists := st.Users[user]; !exists || after.AuthRevision != before {
+			for id, lease := range st.Leases {
+				if lease.UserID == user {
+					delete(st.Leases, id)
+				}
+			}
+		}
+		return nil
+	})
+}
 func (m *Manager) MutateResource(ctx context.Context, resource string, fn func(*model.State) error) error {
 	return m.mutateScope(ctx, func(l model.Lease) bool {
 		for _, r := range l.Resources {

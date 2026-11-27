@@ -34,10 +34,11 @@ onUnmounted(() => { alive = false; query.invalidate(); if (timer) clearTimeout(t
   <div>
     <label>查找账号<input v-model="search" type="search" maxlength="128" :disabled="disabled" placeholder="用户名或显示名称"></label>
     <label>账号<select :value="modelValue" :disabled="disabled || busy" required @change="emit('update:modelValue', ($event.target as HTMLSelectElement).value)">
-      <option value="" disabled>选择账号</option>
+      <option value="" disabled>选择可用账号</option>
       <option v-if="modelValue && !selectedOnPage" :value="modelValue">{{ selectedLabel }}</option>
       <option v-for="user in page.users" :key="user.id" :value="user.id">{{ userLabel(user) }}</option>
     </select></label>
+    <small class="muted">仅列出启用且未到期的账号；已有授权仍保留原账号名称。</small>
     <p v-if="error" class="alert error" role="alert">{{ error }}</p>
     <ListPager :after="after" :next="page.next_after" :busy="disabled || busy" @navigate="load" />
   </div>

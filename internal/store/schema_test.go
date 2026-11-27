@@ -36,12 +36,12 @@ func TestRejectOldDatabaseWithoutModification(t *testing.T) {
 }
 
 func TestRejectPreviousSchemaWithoutMigration(t *testing.T) {
-	path := filepath.Join(t.TempDir(), "schema3.db")
+	path := filepath.Join(t.TempDir(), "schema4.db")
 	db, err := sql.Open("sqlite", path)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if _, err = db.Exec("CREATE TABLE metadata(id INTEGER); PRAGMA application_id=1313296178; PRAGMA user_version=3"); err != nil {
+	if _, err = db.Exec("CREATE TABLE metadata(id INTEGER); PRAGMA application_id=1313296178; PRAGMA user_version=4"); err != nil {
 		t.Fatal(err)
 	}
 	db.Close()
@@ -49,7 +49,7 @@ func TestRejectPreviousSchemaWithoutMigration(t *testing.T) {
 		if s != nil {
 			s.Close()
 		}
-		t.Fatal("accepted schema 3", err)
+		t.Fatal("accepted schema 4", err)
 	}
 	db, err = sql.Open("sqlite", path)
 	if err != nil {
@@ -57,7 +57,7 @@ func TestRejectPreviousSchemaWithoutMigration(t *testing.T) {
 	}
 	defer db.Close()
 	var version int
-	if err = db.QueryRow("PRAGMA user_version").Scan(&version); err != nil || version != 3 {
+	if err = db.QueryRow("PRAGMA user_version").Scan(&version); err != nil || version != 4 {
 		t.Fatal("old database changed", version, err)
 	}
 }

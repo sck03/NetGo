@@ -23,12 +23,13 @@ func (s *Store) AdminSummary(now time.Time) (model.State, map[string]int, error)
 		if err != nil {
 			return st, err
 		}
-		var users, resources, devices, leases int
+		var users, resources, devices, leases, cleanups int
 		err = tx.QueryRow(`SELECT (SELECT count(*) FROM users),
    (SELECT count(*) FROM resources WHERE json_extract(data,'$.protocol')<>'internet'),
    (SELECT count(*) FROM devices WHERE coalesce(json_extract(data,'$.client_type'),'')<>'admin'),
-	   (SELECT count(*) FROM vpn_leases l JOIN users u ON l.user_id=u.id WHERE `+activeLeaseFilter+`)`, now.UTC().Format(time.RFC3339Nano), now.UTC().Format(time.RFC3339Nano)).Scan(&users, &resources, &devices, &leases)
-		counts = map[string]int{"users": users, "resources": resources, "devices": devices, "leases": leases}
+		   (SELECT count(*) FROM vpn_leases l JOIN users u ON l.user_id=u.id WHERE `+activeLeaseFilter+`),
+		   (SELECT count(*) FROM account_cleanups)`, now.UTC().Format(time.RFC3339Nano), now.UTC().Format(time.RFC3339Nano)).Scan(&users, &resources, &devices, &leases, &cleanups)
+		counts = map[string]int{"users": users, "resources": resources, "devices": devices, "leases": leases, "account_cleanups": cleanups}
 		return st, err
 	})
 	return st, counts, err

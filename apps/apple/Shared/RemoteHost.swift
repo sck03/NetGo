@@ -31,11 +31,13 @@ final class RemoteHost {
             o.active = { ctx in let h=Unmanaged<RemoteHost>.fromOpaque(ctx!).takeUnretainedValue(); h.lock.lock(); defer { h.lock.unlock() };return h.running ? 1:0 }
             o.control = { ctx,method,path,body,_,output,capacity,length in
                 let h=Unmanaged<RemoteHost>.fromOpaque(ctx!).takeUnretainedValue()
-                do { guard let call=h.control else { return -1 };let verb=String(cString:method!);let value:String
+                guard let call=h.control else { return -1 }
+                return remoteControlReply(output: output, capacity: capacity, length: length) {
+                    let verb=String(cString:method!);let value:String
                     if verb=="CONTEXT" { value=try call("LOCAL_CONTEXT","","","") }
                     else { let request:[String:Any] = ["Site":h.site,"Method":verb,"Path":String(cString:path!),"Body":(try? JSONSerialization.jsonObject(with:Data(String(cString:body!).utf8))) ?? NSNull(),"Idempotency":""];let payload=String(decoding:try JSONSerialization.data(withJSONObject:request),as:UTF8.self);value=try call("LOCAL_CALL","",payload,"") }
-                    let data=Data(value.utf8);guard data.count<=capacity else { return -1 };data.withUnsafeBytes { if let p=$0.baseAddress { memcpy(output!,p,data.count) } };length!.pointee=data.count;return 0
-                } catch { return -1 }
+                    return value
+                }
             }
             o.consent = { ctx,user,caps in
                 let h=Unmanaged<RemoteHost>.fromOpaque(ctx!).takeUnretainedValue();let reply=HostConsent();let account=String(cString:user!)

@@ -3,18 +3,22 @@ package accounts
 import (
 	"context"
 	"errors"
+	"fmt"
 	"net/http"
-	"net/url"
 	"netgo/internal/authorization"
 	"netgo/internal/model"
 	"netgo/internal/site"
+	"netgo/internal/store"
 	"strings"
 	"time"
 )
 
 func (s *Service) Create(ctx context.Context, b NewUser) (Created, error) {
+	ctx, cancel := context.WithTimeout(ctx, 20*time.Second)
+	defer cancel()
 	var result Created
 	b.Name = strings.TrimSpace(b.Name)
+	b.Email = strings.TrimSpace(b.Email)
 	if b.Name == "" {
 		b.Name = b.Alias
 	}
@@ -44,11 +48,39 @@ func (s *Service) Create(ctx context.Context, b NewUser) (Created, error) {
 	if s.Management == nil {
 		return result, errors.New("management unavailable")
 	}
-	if _, err := s.Management.Request(ctx, "POST", "/users", map[string]any{"email": b.Email, "name": b.Name, "role": "user", "auto_groups": []string{}, "is_service_user": false}, &upstream); err != nil {
+	// Do not claim pre-existing upstream identities. The durable reservation is
+	// written before the POST, including when its response never reaches us.
+	if id, err := s.findCreated(ctx, b.Email, ""); err != nil {
+		return result, err
+	} else if id != "" {
+		return result, model.ErrConflict
+	}
+	intent := store.AccountCleanup{ID: model.ID(), Alias: b.Alias, Email: b.Email, Name: b.Name, Pending: true}
+	// Another service process must not reconcile a live request. HTTP clients
+	// have bounded deadlines; this grace period also covers shutdown and restart.
+	intent.CleanupAfter = time.Now().UTC().Add(10 * time.Minute)
+	if err := s.Store.ReserveAccountCreation(intent); err != nil {
+		if errors.Is(err, model.ErrConflict) {
+			return result, errors.New("account_creation_pending")
+		}
 		return result, err
 	}
+	if _, err := s.Management.Request(ctx, "POST", "/users", map[string]any{"email": b.Email, "name": b.Name, "role": "user", "auto_groups": []string{}, "is_service_user": false}, &upstream); err != nil {
+		var outcome interface{ RequestMayHaveCommitted() bool }
+		if errors.As(err, &outcome) && !outcome.RequestMayHaveCommitted() {
+			return result, errors.Join(err, s.Store.FinishAccountCleanup(intent.ID))
+		}
+		var status interface{ HTTPStatus() int }
+		if errors.As(err, &status) && status.HTTPStatus() >= 400 && status.HTTPStatus() < 500 && status.HTTPStatus() != http.StatusRequestTimeout {
+			return result, errors.Join(err, s.Store.FinishAccountCleanup(intent.ID))
+		}
+		// The request may still be executing upstream. Never blindly retry POST
+		// or forget a result-unknown operation after an empty lookup.
+		_ = s.Store.DeferAccountCleanup(intent, time.Now().UTC())
+		return result, fmt.Errorf("account_creation_uncertain: %w", err)
+	}
 	if upstream.ID == "" {
-		return result, errors.New("management returned no user ID")
+		return result, errors.New("account_creation_uncertain")
 	}
 	// Retry and creation share ownership of this ID. No network request runs
 	// under a database or session lock.
@@ -57,7 +89,7 @@ func (s *Service) Create(ctx context.Context, b NewUser) (Created, error) {
 		return result, model.ErrConflict
 	}
 	defer finish()
-	if err := s.Store.QueueAccountCleanup(upstream.ID); err != nil {
+	if err := s.Store.ResolveAccountCreation(intent, upstream.ID); err != nil {
 		if errors.Is(err, model.ErrConflict) {
 			return result, err
 		}
@@ -72,6 +104,9 @@ func (s *Service) Create(ctx context.Context, b NewUser) (Created, error) {
 	}
 	u := model.User{ID: upstream.ID, Alias: b.Alias, Name: b.Name, Email: b.Email, Role: "user", MaxDevices: 3, MaxSessions: 1, Resources: []string{}}
 	err := s.Store.Update(func(st *model.State) error {
+		if err := ctx.Err(); err != nil {
+			return err
+		}
 		if _, exists := st.Users[u.ID]; exists {
 			return model.ErrConflict
 		}
@@ -94,58 +129,4 @@ func (s *Service) Create(ctx context.Context, b NewUser) (Created, error) {
 	// removes the job. A successful creation must still return its password.
 	_ = s.Store.FinishAccountCleanup(u.ID)
 	return Created{u, upstream.Password}, nil
-}
-
-func (s *Service) deleteCreated(ctx context.Context, id string) error {
-	if s.Management == nil {
-		return errors.New("management unavailable")
-	}
-	_, err := s.Management.Request(ctx, "DELETE", "/users/"+url.PathEscape(id), nil, nil)
-	var status interface{ HTTPStatus() int }
-	if errors.As(err, &status) && status.HTTPStatus() == http.StatusNotFound {
-		return nil
-	}
-	return err
-}
-
-// Called with the per-ID creation lock held. Check local ownership even after a
-// restart: a crash may leave a cleanup job beside a successfully committed user.
-func (s *Service) cleanupCreated(ctx context.Context, id string) error {
-	item, err := s.Store.AccountCleanup(id)
-	if errors.Is(err, model.ErrNotFound) {
-		return nil
-	}
-	if err != nil {
-		return err
-	}
-	_, err = s.Store.User(id)
-	if err == nil {
-		return s.Store.FinishAccountCleanup(id)
-	}
-	if !errors.Is(err, model.ErrNotFound) {
-		return err
-	}
-	attempt, cancel := context.WithTimeout(ctx, 2*time.Second)
-	defer cancel()
-	if err = s.deleteCreated(attempt, id); err == nil {
-		return s.Store.FinishAccountCleanup(id)
-	}
-	return errors.Join(err, s.Store.DeferAccountCleanup(item, time.Now().UTC()))
-}
-
-func (s *Service) retryCreated(ctx context.Context) error {
-	items, err := s.Store.PendingAccountCleanups(time.Now(), 16)
-	if err != nil {
-		return err
-	}
-	for _, item := range items {
-		if ctx.Err() != nil {
-			return errors.Join(err, ctx.Err())
-		}
-		if release, ok := s.work.Try("created:" + item.ID); ok {
-			err = errors.Join(err, s.cleanupCreated(ctx, item.ID))
-			release()
-		}
-	}
-	return err
 }

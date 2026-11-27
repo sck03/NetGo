@@ -32,6 +32,7 @@ struct Env {
 struct Session {
     JavaVM *vm = nullptr;
     jobject object = nullptr;
+    jmethodID videoMethod = nullptr, audioMethod = nullptr;
     std::string site, host;
     uint32_t capabilities = NG_REMOTE_VIEW;
     std::atomic_bool active = true;
@@ -139,7 +140,7 @@ int32_t packet(Session &s, const char *name, const uint8_t *bytes, size_t size, 
     if (!env.value || !s.active)
         return -1;
     bool video = std::strcmp(name, "onVideo") == 0;
-    auto id = method(env.value, s, name, video ? "([BJ)Z" : "([B)Z");
+    auto id = video ? s.videoMethod : s.audioMethod;
     if (!id || !healthy(env.value))
         return -1;
     auto data = env.value->NewByteArray(jsize(size));
@@ -152,6 +153,9 @@ int32_t packet(Session &s, const char *name, const uint8_t *bytes, size_t size, 
     return healthy(env.value) && ok ? 0 : -1;
 }
 void run(jlong handle, std::shared_ptr<Session> s) {
+    // Keep the worker attached for its lifetime. Callback Env instances borrow
+    // this attachment; other native threads still attach/detach independently.
+    Env worker(s->vm);
     ng_remote_client_options o{};
     o.struct_size = sizeof(o);
     o.abi_version = NG_REMOTE_CLIENT_ABI;
@@ -248,7 +252,11 @@ extern "C" JNIEXPORT jlong JNICALL Java_org_netgo_client_NativeRemote_startNativ
         s->object = env->NewGlobalRef(object);
         s->site = text(env, site);
         s->host = text(env, host);
-        if (!s->object || s->site.empty() || s->site.size() > 63 || s->host.empty() || s->host.size() > 128) {
+        if (s->object) {
+            s->videoMethod = method(env, *s, "onVideo", "([BJ)Z");
+            s->audioMethod = method(env, *s, "onAudio", "([B)Z");
+        }
+        if (!healthy(env) || !s->object || !s->videoMethod || !s->audioMethod || s->site.empty() || s->site.size() > 63 || s->host.empty() || s->host.size() > 128) {
             if (s->object)
                 env->DeleteGlobalRef(s->object);
             return 0;

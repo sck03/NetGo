@@ -22,4 +22,4 @@ Caddy/frp 纳入 Linux 组件构建与所有权清单。TLS/443 使用 netgo-cad
 
 ## 证据
 
-共用配置契约在 Go/C++ 执行；另覆盖认证撤销、密码维护故障、配置同步失败、回退版本、协议拒绝、日志脱敏、证书告警和 Debian 预检查。实际命令、版本及限制见 `docs/evidence/2026-11-22-completion/REPORT.zh-CN.md`。
+共用配置契约在 Go/C++ 执行；另覆盖认证撤销、密码维护故障、配置同步失败、回退版本、协议拒绝、日志脱敏、证书告警和 Debian 预检查。历史命令、版本及限制见 [历史验证索引](../HISTORY.zh-CN.md)，当前验证见 [当前重构记录](../REFACTOR_CURRENT.zh-CN.md)。

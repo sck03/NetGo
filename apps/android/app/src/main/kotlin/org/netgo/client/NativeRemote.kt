@@ -6,6 +6,7 @@ import androidx.annotation.Keep
 import org.json.JSONObject
 import org.json.JSONArray
 import org.netgo.runtime.mobile.Client
+import java.util.concurrent.atomic.AtomicReference
 
 @Keep
 class NativeRemote(private val site: String, private val host: String, private val surface: Surface, private val controlClient: Client, private val requestedCapabilities: Int) {
@@ -30,13 +31,25 @@ class NativeRemote(private val site: String, private val host: String, private v
     private external fun startNative(site: String, host: String, capabilities: Int): Long
     private external fun cancelNative(handle: Long)
     private external fun inputNative(handle: Long, json: ByteArray): Boolean
-    fun start() { handle = startNative(site, host, requestedCapabilities); current = this }
+    fun start() {
+        handle = startNative(site, host, requestedCapabilities)
+        if (handle == 0L) { onStatus("remote_client_failed"); onClosed() }
+        else {
+            current.set(this)
+            if (!active) { cancelNative(handle); current.compareAndSet(this, null) }
+        }
+    }
     private fun sendInput(value: String): Boolean = active && capabilities and 2 != 0 && handle != 0L && inputNative(handle, value.toByteArray(Charsets.UTF_8))
     fun send(value: JSONObject): Boolean = sendInput(value.toString())
     fun key(code: Int): Boolean = sendInput(JSONArray().put(JSONObject().put("type","key").put("code",code).put("down",true)).put(JSONObject().put("type","key").put("code",code).put("down",false)).toString())
-    fun stop() { active = false; if (handle != 0L) cancelNative(handle); if (current === this) current = null }
-    @Keep fun control(method: String, path: String, body: String, key: String): ByteArray =
+    fun stop() { active = false; if (handle != 0L) cancelNative(handle); current.compareAndSet(this, null) }
+    // The native core owns retry policy. Preserve terminal authorization errors
+    // instead of letting JNI clear them into an indistinguishable transport error.
+    @Keep fun control(method: String, path: String, body: String, key: String): ByteArray = try {
         (if (method == "CONTEXT") controlClient.remoteContext(site) else controlClient.remoteCall(site, method, path, body, key)).toByteArray(Charsets.UTF_8)
+    } catch (error: Exception) {
+        JSONObject().put("error", error.message ?: "remote_invalid_control_response").toString().toByteArray(Charsets.UTF_8)
+    }
     @Keep fun sign(message: ByteArray): ByteArray = controlClient.signPossession(site, message)
     @Keep fun onFormat(width: Int, height: Int, fps: Int, caps: Int): Boolean = try {
         if (!active || width !in 2..4096 || height !in 2..2160) false else {
@@ -105,13 +118,13 @@ class NativeRemote(private val site: String, private val host: String, private v
         android.os.Handler(android.os.Looper.getMainLooper()).post {
             capabilitiesChanged?.invoke(0); finished?.invoke()
         }
-        if (current === this) current = null
+        current.compareAndSet(this, null)
     }
     companion object {
         init { System.loadLibrary("netgo-remote-jni") }
         external fun textLimitNative(): Int
-        @Volatile private var current: NativeRemote? = null
-        fun stopCurrent() { current?.stop() }
-        fun releaseCurrentInput() { current?.send(JSONObject().put("type", "release")) }
+        private val current = AtomicReference<NativeRemote?>(null)
+        fun stopCurrent() { current.getAndSet(null)?.stop() }
+        fun releaseCurrentInput() { current.get()?.send(JSONObject().put("type", "release")) }
     }
 }

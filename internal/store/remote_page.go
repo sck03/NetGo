@@ -6,6 +6,7 @@ import (
 	"errors"
 	"netgo/internal/model"
 	"strings"
+	"time"
 	"unicode/utf8"
 )
 
@@ -68,9 +69,12 @@ func (s *Store) UserChoices(after, search string) (UserChoices, error) {
 		return page, errors.New("invalid_user_page")
 	}
 	rows, err := s.db.Query(`SELECT id,json_extract(data,'$.alias'),coalesce(json_extract(data,'$.name'),'') FROM users
-        WHERE id>? AND coalesce(json_extract(data,'$.delete_pending'),0)=0 AND
+        WHERE id>? AND coalesce(json_extract(data,'$.delete_pending'),0)=0
+        AND coalesce(json_extract(data,'$.disabled'),0)=0
+        AND (coalesce(json_extract(data,'$.expires_at'),'0001-01-01T00:00:00Z')='0001-01-01T00:00:00Z'
+             OR julianday(json_extract(data,'$.expires_at'))>julianday(?)) AND
         instr(lower(coalesce(json_extract(data,'$.alias'),'')||' '||coalesce(json_extract(data,'$.name'),'')),lower(?))>0
-        ORDER BY id LIMIT ?`, after, strings.TrimSpace(search), adminPageSize+1)
+        ORDER BY id LIMIT ?`, after, time.Now().UTC().Format(time.RFC3339Nano), strings.TrimSpace(search), adminPageSize+1)
 	if err != nil {
 		return page, err
 	}

@@ -81,7 +81,7 @@ I01–I10 尚未完成。门禁单元测试、采集探针、VPN 网络测试分
 
 - 概览和诊断轮询 `GET /netgo/v2/admin/summary`，只返回 counts、策略版本/错误与运行指标。列表使用 `GET /netgo/v2/admin/state?section=users|resources|sessions|devices&after=<cursor>`，每页 50 项、响应 next_after。sessions 按有效租约分页并附对应设备/账号标签，devices 单独分页；两者游标互不影响，过期或已停用账号的租约不显示为有效会话。用户编辑加载完整资源选项；远控管理页使用独立主机分页和可搜索账号选择接口，`section=remote` 已移除。缺少 section 的旧全量接口不再支持；未使用的 `/netgo/v2/me` 已删除，认证探测使用 `/netgo/v2/site`。
 - Go/Windows 客户端站点名为 1–256 UTF-8 字节，GatewayIP 必须是 IPv4，非空 CA 必须可解析且不超过 32 KiB。服务器初始化允许尚未分配网关 IP，但禁止向客户端导出未完成配置。保存的密码绑定协议、ID、HTTPS 主机名（忽略大小写）和 CA，候选地址/端口/显示名不属于信任锚点。
-- 账号创建补偿使用 schema 4 的 account_cleanups 独立表；后台重试共用账号服务实例及每个上游 ID 的互斥任务。VPN 续租读取完整网关租约集、租约所有者、当前资源及活动远控依赖，不读取闲置身份和历史操作；网关应用仍位于数据库提交边界内。
+- 账号创建在上游请求前写入 schema 5 的 account_cleanups 预留，按用户名／邮箱唯一约束；请求失败按已知未提交或结果未知分别处理，未知结果禁止直接重试 POST。恢复时先核对上游和本地所有权。至少保留一个启用且不过期的管理员；仅修改显示名称不撤销认证和租约。概览 counts.account_cleanups 显示未完成项数。
 - 管理状态不再包含 audit；通过 GET /netgo/v2/admin/audit?before=<sequence> 分页，每次最多 100 条，next_before 为 0 表示没有更早记录。
 - 主机接受 windows/macos/linux、显式本地无人值守策略及实际实现的六项能力。登记必须提供每次启动生成的 transport_key；重启关闭旧会话。保留不可连接主机的状态和有效能力；客户端只允许 ready 状态发起连接。
 - /netgo/v2/remote/key 已移除，授权响应包含 site_key；所有内置客户端同步使用这一响应。
@@ -90,7 +90,7 @@ I01–I10 尚未完成。门禁单元测试、采集探针、VPN 网络测试分
 
 ## 7. 本轮接口与生命周期约束（2026-11-26）
 
-- `health.server_unix` 必填，Go、Windows、Web 使用相同范围校验。只支持当前 API v2/schema 4，不保留缺失时间字段的旧服务端回退。
+- `health.server_unix` 必填，Go、Windows、Web 使用相同范围校验；仅支持当前 API v2/schema 5。活动远控使用条件外键保证所有权，关闭记录独立保留 24 小时；删除身份同事务关闭会话并撤销访问。签发读取相关活动图，并在同一事务中校验 generation、容量和幂等键。
 - 设备删除先提交本地撤权：移除凭据、VPN 租约、被控登记、相关授权及远控会话。上游删除失败返回 HTTP 202 `{deleted:false,cleanup_pending:true}`，设备显示 `delete_pending:true`，禁止重新签发该设备凭据。后台清理独立于租约过期检查，每分钟扫描到期待重试项；单项超时 2 秒，失败按 1–32 分钟退避并继续处理其他项。账号删除采用相同的 202、delete_pending 和持久化重试语义，待删除账号禁止恢复权限；上游 404 视为成功。管理页区分已完成与待清理，支持手动重试。
 - 认证事务只在实际注册的匿名路由限流：直接来源最多 90 请求/分钟、全局最多 900；本机 TLS 代理共享全局预算，不信任任意转发头。签名验证通过后的刷新按设备独立限制 12 次/分钟；账号失败尝试仍独立限制 5 次/分钟，成功登录不占失败预算。
 - `GET /netgo/v2/remote` 只返回当前活动会话；`next_generation` 仍计入保留的历史会话。`GET /netgo/v2/admin/remote/history?before=<cursor>&limit=50` 返回 `{sessions,next_before,users,hosts}`，上限 100，管理员专用。created_at 为毫秒精度、不可变的创建时间；issued_at 是当前票据签发时间；closed_at 记录首次关闭，关闭后保留 24 小时。按 created_at 与 ID 组合倒序分页；next_before 为不透明游标，客户端原样回传，即使上页末行已清理仍能继续分页。每页通过同一 SQL 查询附带对应账号/主机标签，不依赖当前主机列表页；已删除对象回退显示 ID。控制凭据字段不对外返回。
@@ -119,7 +119,7 @@ I01–I10 尚未完成。门禁单元测试、采集探针、VPN 网络测试分
 - iOS 应用消息最多 2 个同时执行、8 个未完成；隧道停止直接取消连接且拒绝新消息，排队消息仍获得结束响应。生命周期与网络执行器独立。
 - 文件交换目录的 `.netgo-exchange.lock` 为零字节锁标识，不能按普通临时文件删除。同目录上传和崩溃回收互斥；只回收可识别的过期 `.part`，其他普通隐藏文件也占配额。持锁进程退出后由 OS 释放锁。
 - Linux 与其他端的“仅查看”选择只收窄键鼠输入；其他能力仍由独立授权控制。GTK 呈现保持不可变帧引用直到纹理释放。
-- 管理页显示清理失败次数及 `cleanup_after`；`cleanup_attempts` 饱和于 6，显示为“6 次及以上”。实现、测试与尚未完成的设备验证见 [审查交付记录](REFACTOR_REVIEW_2026-11-27.zh-CN.md)。
+- 管理页显示清理失败次数及 `cleanup_after`；`cleanup_attempts` 饱和于 6，显示为“6 次及以上”。实现、测试与尚未完成的设备验证见 [审查交付记录](https://github.com/sck03/NetGo/blob/cc36472058c310b7812089df60abdcc5d513e625/docs/REFACTOR_REVIEW_2026-11-27.zh-CN.md)。
 
 ## 2026-11-27 一致性补充
 

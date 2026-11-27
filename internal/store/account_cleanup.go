@@ -6,29 +6,56 @@ import (
 	"time"
 )
 
-// AccountCleanup owns only an upstream account created by an incomplete local
-// operation. It has no local alias, credential or permission to invalidate.
+// AccountCleanup reserves a creation before upstream IO and owns its compensation
+// until publication. It never stores credentials or an initial password.
 type AccountCleanup struct {
-	ID string `json:"id"`
+	ID      string `json:"id"`
+	Alias   string `json:"alias"`
+	Email   string `json:"email"`
+	Name    string `json:"name"`
+	Pending bool   `json:"pending"`
 	model.CleanupRetry
 }
 
-// QueueAccountCleanup runs before publishing the local account. Never claim an
-// existing local account or another creation's compensation record.
-func (s *Store) QueueAccountCleanup(id string) error {
+// ReserveAccountCreation precedes the upstream POST. Alias and email reservations
+// survive restarts and fence other processes using this database as well.
+func (s *Store) ReserveAccountCreation(item AccountCleanup) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	b, err := json.Marshal(AccountCleanup{ID: id})
+	b, err := json.Marshal(item)
 	if err != nil {
 		return err
 	}
 	result, err := s.db.Exec(`INSERT OR IGNORE INTO account_cleanups(id,data)
-	 SELECT ?1,?2 WHERE NOT EXISTS(SELECT 1 FROM users WHERE id=?1)`, id, string(b))
+	 SELECT ?1,?2 WHERE NOT EXISTS(SELECT 1 FROM users WHERE id=?1 OR (?3!='' AND lower(json_extract(data,'$.alias'))=lower(?3))
+	 OR (?4!='' AND lower(json_extract(data,'$.email'))=lower(?4)))`, item.ID, string(b), item.Alias, item.Email)
 	if err != nil {
 		return err
 	}
 	n, err := result.RowsAffected()
 	if err == nil && n == 0 {
+		return model.ErrConflict
+	}
+	return err
+}
+
+// ResolveAccountCreation retains the reservation until local publication or
+// compensation completes. A failed write leaves the email intent recoverable.
+func (s *Store) ResolveAccountCreation(item AccountCleanup, id string) error {
+	previous := item.ID
+	item.ID, item.Pending = id, false
+	b, err := json.Marshal(item)
+	if err != nil {
+		return err
+	}
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	result, err := s.db.Exec(`UPDATE OR IGNORE account_cleanups SET id=?,data=? WHERE id=?`, id, string(b), previous)
+	if err != nil {
+		return err
+	}
+	n, err := result.RowsAffected()
+	if err == nil && n != 1 {
 		return model.ErrConflict
 	}
 	return err

@@ -42,6 +42,10 @@ func TestBlockedCreateAllowsRevocationAndRechecksActor(t *testing.T) {
 	unblock := func() { released.Do(func() { close(release) }) }
 	var compensated atomic.Bool
 	up := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Method == "GET" {
+			w.Write([]byte(`[]`))
+			return
+		}
 		if r.Method == "POST" {
 			close(entered)
 			<-release
@@ -93,6 +97,10 @@ func TestUpstreamCreateDoesNotBlockStateReads(t *testing.T) {
 	defer db.Close()
 	entered, release := make(chan struct{}), make(chan struct{})
 	up := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Method == "GET" {
+			w.Write([]byte(`[]`))
+			return
+		}
 		close(entered)
 		<-release
 		w.Write([]byte(`{"id":"u","password":"one-time"}`))

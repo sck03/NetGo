@@ -1,3 +1,5 @@
+#include "remote_bridge.hpp"
+#include "audio.hpp"
 #include "remote_inventory.hpp"
 #include "client.hpp"
 #include "frame_presenter.hpp"
@@ -36,7 +38,7 @@ struct State {
     GtkIMContext *ime = nullptr;
     GSubprocess *service = nullptr;
     GtkWidget *internet = nullptr;
-    GtkWidget *replace = nullptr, *viewOnly = nullptr;
+    GtkWidget *replace = nullptr, *viewOnly = nullptr, *audio = nullptr;
     GtkWidget *resources = nullptr;
     std::string root, socket, site;
     Json profileList = Json::array(), hostList = Json::array();
@@ -250,12 +252,14 @@ void view(std::string host) {
     auto site = state->site;
     auto version = ++state->remoteVersion;
     const bool viewOnly = gtk_check_button_get_active(GTK_CHECK_BUTTON(state->viewOnly));
-    state->remote = std::thread([host = std::move(host), site, version, viewOnly] {
+    const bool audio = gtk_check_button_get_active(GTK_CHECK_BUTTON(state->audio));
+    state->remote = std::thread([host = std::move(host), site, version, viewOnly, audio] {
         struct ViewerContext {
             std::string site;
             uint64_t version;
+            std::unique_ptr<netgo::desktop_linux::AudioPlayer> audio;
         };
-        ViewerContext bridge{site, version};
+        ViewerContext bridge{site, version, {}};
         ng_remote_client_options o{};
         o.context = &bridge;
         o.struct_size = sizeof(o);
@@ -263,29 +267,12 @@ void view(std::string host) {
         o.site_id = site.c_str();
         o.host_id = host.c_str();
         o.capabilities = NG_REMOTE_VIEW | NG_REMOTE_CLIPBOARD | NG_REMOTE_UPLOAD | NG_REMOTE_DOWNLOAD |
-            (viewOnly ? 0 : NG_REMOTE_INPUT);
+            (viewOnly ? 0 : NG_REMOTE_INPUT) | (audio ? NG_REMOTE_AUDIO : 0);
         o.active = [](void *) -> int32_t { return state->alive && state->remoteActive ? 1 : 0; };
-        o.control = [](void *p, const char *method, const char *path, const char *body, const char *idem,
-                       char *output, size_t capacity, size_t *length) -> int32_t {
-            try {
-                const auto &activeSite = static_cast<ViewerContext *>(p)->site;
-                auto value = std::string(method) == "CONTEXT"
-                                 ? call("GET", "/desktop/remote/context?site=" + activeSite)
-                                 : call("POST", "/desktop/remote/call",
-                                        {{"site", activeSite},
-                                         {"method", method},
-                                         {"path", path},
-                                         {"body", *body ? Json::parse(body) : Json()},
-                                         {"idempotency", idem}});
-                auto text = value.dump();
-                if (text.size() > capacity)
-                    return -1;
-                std::copy(text.begin(), text.end(), output);
-                *length = text.size();
-                return 0;
-            } catch (...) {
-                return -1;
-            }
+        o.control = [](void* p, const char* method, const char* path, const char* body, const char* key,
+                       char* output, size_t capacity, size_t* length) -> int32_t {
+            return netgo::desktop_linux::remoteControl(state->socket, static_cast<ViewerContext *>(p)->site,
+                                                      state->alive, method, path, body, key, output, capacity, length);
         };
         o.sign = [](void *p, const uint8_t *message, size_t size, uint8_t output[64]) -> int32_t {
             try {
@@ -318,6 +305,9 @@ void view(std::string host) {
                 if (w > 4096 || h > 2160 || fps > 60)
                     return -1;
                 state->decoder = std::make_unique<netgo::desktop_linux::Decoder>();
+                auto& playback = static_cast<ViewerContext *>(p)->audio;
+                playback.reset();
+                if (caps & NG_REMOTE_AUDIO) playback = std::make_unique<netgo::desktop_linux::AudioPlayer>();
                 std::lock_guard lock(state->mutex);
                 state->caps = caps;
                 auto version = static_cast<ViewerContext *>(p)->version;
@@ -337,6 +327,10 @@ void view(std::string host) {
             } catch (...) {
                 return -1;
             }
+        };
+        o.audio = [](void *p, const uint8_t* bytes, size_t size) -> int32_t {
+            auto& playback = static_cast<ViewerContext *>(p)->audio;
+            return playback && playback->push(bytes, size) ? 0 : -1;
         };
         o.event = [](void *p, const char *text) {
             try {
@@ -493,27 +487,10 @@ void shareDesktop() {
             o.unattended = unattended;
             o.context = &bridge;
             o.active = [](void *) -> int32_t { return state->alive && state->remoteActive; };
-            o.control = [](void *p, const char *method, const char *path, const char *body, const char *idem,
-                           char *out, size_t capacity, size_t *size) -> int32_t {
-                try {
-                    const auto &activeSite = static_cast<HostContext *>(p)->site;
-                    auto value = std::string(method) == "CONTEXT"
-                                     ? call("GET", "/desktop/remote/context?site=" + activeSite)
-                                     : call("POST", "/desktop/remote/call",
-                                            {{"site", activeSite},
-                                             {"method", method},
-                                             {"path", path},
-                                             {"body", *body ? Json::parse(body) : Json()},
-                                             {"idempotency", idem}});
-                    auto text = value.dump();
-                    if (text.size() > capacity)
-                        return -1;
-                    std::copy(text.begin(), text.end(), out);
-                    *size = text.size();
-                    return 0;
-                } catch (...) {
-                    return -1;
-                }
+            o.control = [](void* p, const char* method, const char* path, const char* body, const char* key,
+                           char* output, size_t capacity, size_t* length) -> int32_t {
+                return netgo::desktop_linux::remoteControl(state->socket, static_cast<HostContext *>(p)->site,
+                                                          state->alive, method, path, body, key, output, capacity, length);
             };
             o.consent = [](void *, const char *user, uint32_t caps) -> int32_t {
                 auto result = std::make_shared<ConsentReply>();
@@ -904,6 +881,9 @@ void activate(GtkApplication *app, void *) {
                      nullptr);
     state->viewOnly = gtk_check_button_new_with_label("本次仅查看");
     gtk_box_append(GTK_BOX(row), state->viewOnly);
+    state->audio = gtk_check_button_new_with_label("播放对方声音（主机支持时）");
+    gtk_check_button_set_active(GTK_CHECK_BUTTON(state->audio), TRUE);
+    gtk_box_append(GTK_BOX(row), state->audio);
     state->remoteButton = gtk_button_new_with_label("打开远程桌面");
     gtk_box_append(GTK_BOX(row), state->remoteButton);
     g_signal_connect(state->remoteButton, "clicked", callback(+[](GtkButton *, void *) {
