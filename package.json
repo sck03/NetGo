@@ -9,7 +9,8 @@
  "scripts": {
   "dev": "vite --host 127.0.0.1",
   "build": "vue-tsc --noEmit && vite build",
-  "test": "node --test tests/frontend/*.test.mjs"
+  "test": "node --test --test-timeout=10000 tests/frontend/*.test.mjs",
+  "contracts": "go generate ./internal/contracts"
  },
  "dependencies": {
   "vue": "3.5.46"

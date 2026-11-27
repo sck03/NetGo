@@ -1,15 +1,20 @@
+import type { User } from './models.generated'
+type AuthResult = { token: string; refresh_token?: string; expires_at: string; user: User }
+type Health = { site_id: string; server_unix: number; protocol: number; capabilities: string[] }
 const enc = new TextEncoder()
 export const b64 = (b: Uint8Array) => btoa(String.fromCharCode(...b)).replaceAll('+', '-').replaceAll('/', '_').replaceAll('=', '')
 const random = () => b64(crypto.getRandomValues(new Uint8Array(32)))
 const digest = async (s: string) => new Uint8Array(await crypto.subtle.digest('SHA-256', enc.encode(s)))
 const hex = (b: Uint8Array) => Array.from(b, x => x.toString(16).padStart(2, '0')).join('')
 
-export function validateHealth(health: any, expectedSite = '') {
+export function validateHealth(value: unknown, expectedSite = '') {
+  const health = (value && typeof value === 'object' ? value : {}) as Partial<Health>
   const required = ['native-auth-v1', 'device-signature-v1', 'leases-v1', 'profile-revision-v1', 'admin-v1', 'diagnostics-v1']
-  if (!health || health.protocol !== 2 || !Array.isArray(health.capabilities) || !required.every(x => health.capabilities.includes(x))) throw Error('服务端协议不兼容，请使用匹配版本的客户端和服务端')
+  const capabilities = health.capabilities
+  if (health.protocol !== 2 || !Array.isArray(capabilities) || !required.every(x => capabilities.includes(x))) throw Error('服务端协议不兼容，请使用匹配版本的客户端和服务端')
   if (typeof health.site_id !== 'string' || !health.site_id || (expectedSite && health.site_id !== expectedSite)) throw Error('站点身份不一致')
   {
-    if (!Number.isSafeInteger(health.server_unix) || health.server_unix < 946684800 || health.server_unix > 4102444800) throw Error('服务端时间格式无效')
+    if (typeof health.server_unix !== 'number' || !Number.isSafeInteger(health.server_unix) || health.server_unix < 946684800 || health.server_unix > 4102444800) throw Error('服务端时间格式无效')
   }
   return health.site_id as string
 }
@@ -29,7 +34,7 @@ export class AdminSession {
   private now() { return this.serverTime ? this.serverTime + performance.now() - this.observedAt : Date.now() }
   get active() { return !!this.token && !!this.key }
 
-  private async send(path: string, method: string, input?: unknown) {
+  private async send<T = unknown>(path: string, method: string, input?: unknown): Promise<T> {
     if (!path.startsWith('/netgo/v2/') || path.includes('#') || path.includes('\n')) throw Error('无效的管理请求')
     const generation = this.generation
     const token = this.token, key = this.key
@@ -61,7 +66,7 @@ export class AdminSession {
         }
         throw Error(result.error === 'site_not_ready' ? '站点网关尚未就绪，请先完成服务器初始化。' : (result.error || '请求失败'))
       }
-      return result
+      return result as T
     } catch (error) {
       if (generation !== this.generation) throw Error('管理登录已取消')
       throw error
@@ -74,7 +79,7 @@ export class AdminSession {
   private refresh() {
     if (this.refreshing) return this.refreshing
     const generation = this.generation, refreshToken = this.refreshToken
-    const pending = this.send('/netgo/v2/auth/refresh', 'POST', { refresh_token: refreshToken }).then(fresh => {
+    const pending = this.send<AuthResult>('/netgo/v2/auth/refresh', 'POST', { refresh_token: refreshToken }).then(fresh => {
       if (generation !== this.generation) throw Error('管理登录已取消')
       this.token = fresh.token
       this.refreshToken = fresh.refresh_token || ''
@@ -84,19 +89,19 @@ export class AdminSession {
     return pending
   }
 
-  async request(path: string, method = 'GET', input?: unknown) {
+  async request<T = unknown>(path: string, method = 'GET', input?: unknown): Promise<T> {
     const generation = this.generation
     if (this.token && this.refreshToken && this.expiresAt - this.now() < 120000) {
       await this.refresh()
     }
     if (generation !== this.generation) throw Error('管理登录已取消')
-    return this.send(path, method, input)
+    return this.send<T>(path, method, input)
   }
 
   async login(siteID: string, alias: string, password: string) {
     this.logout()
     const generation = this.generation
-    const health = await this.send('/netgo/v2/health', 'GET')
+    const health = await this.send<Health>('/netgo/v2/health', 'GET')
     siteID = validateHealth(health, siteID)
     if (generation !== this.generation) throw Error('管理登录已取消')
     this.serverTime = health.server_unix * 1000; this.observedAt = performance.now()
@@ -107,12 +112,12 @@ export class AdminSession {
     const publicKey = b64(new Uint8Array(await crypto.subtle.exportKey('raw', key.publicKey)))
     const begin = { client_type:'admin',site_id: siteID, public_key: publicKey, wireguard_key: btoa(String.fromCharCode(...crypto.getRandomValues(new Uint8Array(32)))), challenge: b64(await digest(verifier)) }
     try {
-      const tx = await this.send('/netgo/v2/auth/transactions', 'POST', begin)
+      const tx = await this.send<{ id: string; nonce: string }>('/netgo/v2/auth/transactions', 'POST', begin)
       const proof = ['netgo-native-v1', siteID, tx.id, tx.nonce].join('\n')
       const sign = async (s: string) => b64(new Uint8Array(await crypto.subtle.sign('Ed25519', key.privateKey, enc.encode(s))))
       await this.send('/netgo/v2/auth/transactions/' + tx.id + '/complete', 'POST', { Alias: alias, Password: password, Signature: await sign(proof) })
       password = ''
-      const result = await this.send('/netgo/v2/auth/transactions/' + tx.id + '/exchange', 'POST', { Verifier: verifier, Signature: await sign(proof + '\nexchange\n' + verifier) })
+      const result = await this.send<AuthResult>('/netgo/v2/auth/transactions/' + tx.id + '/exchange', 'POST', { Verifier: verifier, Signature: await sign(proof + '\nexchange\n' + verifier) })
       if (generation !== this.generation) throw Error('管理登录已取消')
       if (result.user.role !== 'admin') throw Error('此账号没有管理权限')
       this.token = result.token

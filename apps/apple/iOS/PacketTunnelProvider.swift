@@ -5,6 +5,7 @@ import NetGoApple
 final class PacketTunnelProvider: NEPacketTunnelProvider {
     private let bridge = TunnelBridge()
     private let queue = DispatchQueue(label:"org.netgo.tunnel")
+    private let requests = TunnelRequestQueue()
     private let monitor = NWPathMonitor()
     private var descriptor: Int32 = -1
     private var interfaceName = ""
@@ -14,16 +15,26 @@ final class PacketTunnelProvider: NEPacketTunnelProvider {
         initial.ipv4Settings = NEIPv4Settings(addresses:["192.0.2.1"],subnetMasks:["255.255.255.255"])
         initial.ipv4Settings?.includedRoutes = []; initial.mtu = 1280
         setTunnelNetworkSettings(initial) { [weak self] error in
-            guard let self = self else { return }; if let error = error { completionHandler(error); return }
-            var name = [CChar](repeating:0,count:32); self.descriptor = ng_apple_tunnel_descriptor(&name,name.count)
+            guard let self = self else { completionHandler(NSError(domain:"NetGo",code:4)); return }
+            if let error = error { completionHandler(error); return }
+            self.queue.async {
+            guard !self.requests.isClosed else { completionHandler(NSError(domain:"NetGo",code:4)); return }
+            var name = [CChar](repeating:0,count:32)
+            self.descriptor = ng_apple_tunnel_descriptor(&name,name.count)
             guard self.descriptor >= 0 else { completionHandler(NSError(domain:"NetGo",code:2,userInfo:[NSLocalizedDescriptionKey:"无法创建 VPN 接口"])); return }
             self.interfaceName = String(cString:name)
             let root = FileManager.default.urls(for:.applicationSupportDirectory,in:.userDomainMask)[0].appendingPathComponent("NetGo",isDirectory:true)
-            do { try FileManager.default.createDirectory(at:root,withIntermediateDirectories:true,attributes:[.posixPermissions:0o700]); var location = root; var values = URLResourceValues(); values.isExcludedFromBackup = true; try location.setResourceValues(values) } catch { completionHandler(error); return }
+            do { try FileManager.default.createDirectory(at:root,withIntermediateDirectories:true,attributes:[.posixPermissions:0o700]); var location = root; var values = URLResourceValues(); values.isExcludedFromBackup = true; try location.setResourceValues(values) } catch { self.closeDescriptor(); completionHandler(error); return }
             self.bridge.applyNetwork = { [weak self] ip,ip6,dns,routes in self?.apply(ip,dns:dns,routes:routes) }
             self.monitor.pathUpdateHandler = { [weak self] path in self?.bridge.networkAvailable(path.status == .satisfied) }; self.monitor.start(queue:self.queue)
-            self.queue.async {
                 let result = self.bridge.startRoot(root.path,profile:profile,alias:alias,password:password,importProfile:(options["import"] as? NSNumber)?.boolValue ?? false,importID:(options["import_id"] as? String) ?? "",trusted:(options["trusted"] as? NSNumber)?.boolValue ?? false,replace:(options["replace"] as? NSNumber)?.boolValue ?? false,internet:(options["internet"] as? NSNumber)?.boolValue ?? false,tunnelFD:self.descriptor,interfaceName:self.interfaceName)
+                if !result.isEmpty || self.requests.isClosed {
+                    self.monitor.cancel()
+                    self.bridge.stop()
+                    self.closeDescriptor()
+                    completionHandler(NSError(domain:"NetGo",code:3,userInfo:[NSLocalizedDescriptionKey:result.isEmpty ? "VPN 已停止" : result]))
+                    return
+                }
                 completionHandler(result.isEmpty ? nil : NSError(domain:"NetGo",code:3,userInfo:[NSLocalizedDescriptionKey:result]))
             }
         }
@@ -43,6 +54,20 @@ final class PacketTunnelProvider: NEPacketTunnelProvider {
         if let data = dns.data(using:.utf8), let object = try? JSONSerialization.jsonObject(with:data) as? [String:Any], let servers = object["Servers"] as? [String], !servers.isEmpty { settings.dnsSettings = NEDNSSettings(servers:servers); settings.dnsSettings?.matchDomains = [""] }
         setTunnelNetworkSettings(settings) { [weak self] error in if let error = error { self?.cancelTunnelWithError(error) } }
     }
-    override func handleAppMessage(_ messageData: Data,completionHandler: ((Data?) -> Void)?) { queue.async { [weak self] in completionHandler?(self?.bridge.message(messageData)) } }
-    override func stopTunnel(with reason: NEProviderStopReason,completionHandler: @escaping () -> Void) { monitor.cancel(); queue.async { [self] in bridge.stop(); if descriptor >= 0 { close(descriptor); descriptor = -1 }; completionHandler() } }
+    private func closeDescriptor() {
+        if descriptor >= 0 { close(descriptor); descriptor = -1 }
+    }
+    override func handleAppMessage(_ messageData: Data, completionHandler: ((Data?) -> Void)?) {
+        requests.submit({ [weak self] in self?.bridge.message(messageData) }, completion: completionHandler)
+    }
+    override func stopTunnel(with reason: NEProviderStopReason, completionHandler: @escaping () -> Void) {
+        requests.close()
+        monitor.cancel()
+        bridge.cancel()
+        queue.async { [self] in
+            bridge.stop()
+            closeDescriptor()
+            completionHandler()
+        }
+    }
 }

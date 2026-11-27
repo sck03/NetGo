@@ -105,7 +105,7 @@ void Controller::connect(const Json& r) {
 }
 void Controller::run(uint64_t gen,Json p,std::string alias,std::string password,bool replace,bool remember,bool internet) {
  std::string seed,token,refresh,jwt;Json lease=Json::object();std::unique_ptr<Transport> transport;
- std::shared_mutex authMutex;std::atomic_bool remoteStop=false;std::thread remoteWorker;
+ std::shared_timed_mutex authMutex;std::atomic_bool remoteStop=false;std::thread remoteWorker;
  bool prepared=false;
  const auto scope=accountScope(p.at("ID"),alias);
  auto check=[&]{if(cancel_)throw Error("cancelled");};
@@ -167,7 +167,13 @@ void Controller::run(uint64_t gen,Json p,std::string alias,std::string password,
     allowed=allowed||((method=="POST"||method=="DELETE")&&std::regex_match(path,std::regex(method=="POST"?R"(^/netgo/v2/remote/sessions/[A-Za-z0-9_-]{22}/(consume|renew)$)":R"(^/netgo/v2/remote/sessions/[A-Za-z0-9_-]{22}$)")));
     allowed=allowed||(method=="GET"&&std::regex_match(path,std::regex(R"(^/netgo/v2/remote/sessions/[A-Za-z0-9_-]{22}$)")));
     if(!allowed)throw Error("remote_invalid_operation");
-    std::shared_lock authLock(authMutex);
+    std::shared_lock authLock(authMutex, std::defer_lock);
+    while (!authLock.try_lock_for(std::chrono::milliseconds(25))) {
+     check();
+     if (remoteStop || job->abandoned) throw Error("cancelled");
+    }
+    check();
+    if (remoteStop || job->abandoned) throw Error("cancelled");
     auto value=transport->call(method,path,job->request.value("body",Json()),seed,token,job->request.value("idempotency",""));
     check();job->result.set_value(std::move(value));
    }catch(const std::exception& e){job->result.set_value({{"error",e.what()}});}
@@ -191,7 +197,13 @@ void Controller::run(uint64_t gen,Json p,std::string alias,std::string password,
    try{
     transport->recover();check();
     if(authExpires-transport->now()<std::chrono::minutes(2)&&!refresh.empty()){
-     std::unique_lock authLock(authMutex);
+     std::unique_lock authLock(authMutex, std::defer_lock);
+     const auto refreshDeadline = Clock::now() + std::chrono::seconds(4);
+     while (!authLock.try_lock_for(std::chrono::milliseconds(25))) {
+      check();
+      if (Clock::now() >= refreshDeadline) throw Error("control_timeout");
+     }
+     check();
      auto authNew=transport->call("POST","/netgo/v2/auth/refresh",{{"refresh_token",refresh}},seed,token);
      wipe(token);wipe(refresh);wipe(jwt);token=authNew.at("token");refresh=authNew.value("refresh_token","");jwt=authNew.at("id_token");authExpires=parseTime(authNew.at("expires_at"));
      authLock.unlock();

@@ -10,7 +10,7 @@ if ((Get-Item -LiteralPath $taskRoot -Force).Attributes -band [IO.FileAttributes
 }
 $taskPrefix = $taskRoot.TrimEnd('\', '/') + [IO.Path]::DirectorySeparatorChar
 $taskTargets = @(
-    'node_modules', 'dist', '.cache/native-build',
+    'node_modules', 'dist', '.cache/native-build', '.cache/review',
     '.cache/toolchain/go-build', '.cache/toolchain/go', '.cache/toolchain/npm-cache',
     '.cache/toolchain/tmp', '.cache/toolchain/gradle', '.cache/toolchain/android-local',
     '.cache/refactor-native', '.cache/refactor-linux', '.cache/refactor-server', '.cache/apple-tests',
@@ -30,7 +30,7 @@ if ($IncludeSDK) {
 }
 
 if ($IncludeToolchains) {
-    $taskTargets += @('.tools/go', '.tools/android', '.tools/native-json', '.tools/openssl-native',
+    $taskTargets += @('.tools/go', '.tools/android', '.tools/native-json', '.tools/openssl-native', '.tools/openssl-source',
         '.tools/wintun-package', '.tools/wintun-0.14.1.zip')
     $toolRoot = Join-Path $taskRoot '.tools'
     if (Test-Path -LiteralPath $toolRoot) {
@@ -56,6 +56,10 @@ function Get-TaskTarget([string]$Relative) {
         throw "Cleanup target outside workspace: $Relative"
     }
     if (-not (Test-Path -LiteralPath $target)) { return }
+    if ($Relative.Replace('\', '/') -eq '.tools/openssl-source' -and (Test-Path -LiteralPath (Join-Path $target '.git'))) {
+        $changed = @(git -C $target status --porcelain --untracked-files=normal)
+        if ($LASTEXITCODE -ne 0 -or $changed.Count) { throw "OpenSSL source contains uncommitted work: $target" }
+    }
     # Refuse junctions/symlinks at the target, in its parents, or below it.
     $current = Get-Item -LiteralPath $target -Force
     while ($current -and $current.FullName -ne $taskRoot) {

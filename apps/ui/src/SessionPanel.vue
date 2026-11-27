@@ -1,17 +1,18 @@
 <script setup lang="ts">
 import { computed, onMounted, onUnmounted, ref } from 'vue'
 import { LatestQuery } from '../../../packages/ui/query'
-import { emptyState, type AdminState } from '../../../packages/ui/contracts'
+import { emptyState, type AdminState, type AdminRequest, type DeleteResult } from '../../../packages/ui/contracts'
+import CleanupStatus from './CleanupStatus.vue'
 import ListPager from './ListPager.vue'
 
-const props = defineProps<{ request: (path: string, method?: string, body?: unknown) => Promise<any> }>()
+const props = defineProps<{ request: AdminRequest }>()
 const sessions = ref<AdminState>(emptyState()), inventory = ref<AdminState>(emptyState())
 const sessionAfter = ref(''), deviceAfter = ref(''), busy = ref(false), error = ref(''), notice = ref('')
 const loaded = ref(false)
 const leases = computed(() => Object.values(sessions.value.leases))
 const devices = computed(() => Object.values(inventory.value.devices))
-const sessionQuery = new LatestQuery(() => props.request('/netgo/v2/admin/state?section=sessions&after=' + encodeURIComponent(sessionAfter.value)), value => { sessions.value = { ...emptyState(), ...value } })
-const deviceQuery = new LatestQuery(() => props.request('/netgo/v2/admin/state?section=devices&after=' + encodeURIComponent(deviceAfter.value)), value => { inventory.value = { ...emptyState(), ...value } })
+const sessionQuery = new LatestQuery(() => props.request<Partial<AdminState>>('/netgo/v2/admin/state?section=sessions&after=' + encodeURIComponent(sessionAfter.value)), value => { sessions.value = { ...emptyState(), ...value } })
+const deviceQuery = new LatestQuery(() => props.request<Partial<AdminState>>('/netgo/v2/admin/state?section=devices&after=' + encodeURIComponent(deviceAfter.value)), value => { inventory.value = { ...emptyState(), ...value } })
 let timer: ReturnType<typeof setInterval> | undefined
 let mounted = true
 function failure(e: unknown) { if (mounted) error.value = e instanceof Error ? e.message : String(e) }
@@ -34,7 +35,7 @@ async function revoke(kind: 'sessions' | 'devices', id: string) {
   busy.value = true; error.value = ''; notice.value = ''
   sessionQuery.invalidate(); deviceQuery.invalidate()
   try {
-    const result = await props.request('/netgo/v2/admin/' + kind + '/' + encodeURIComponent(id), 'DELETE')
+    const result = await props.request<Partial<DeleteResult>>('/netgo/v2/admin/' + kind + '/' + encodeURIComponent(id), 'DELETE')
     if (!mounted) return
     await refresh()
     notice.value = result.cleanup_pending ? '访问已撤销，上游暂不可用，后台将自动重试清理。' : '访问已撤销。'
@@ -67,6 +68,7 @@ onUnmounted(() => { mounted = false; if (timer) clearInterval(timer); sessionQue
       <div v-for="device in devices" :key="device.id" class="resource">
         <strong>{{ inventory.users[device.user_id]?.alias || device.user_id }}</strong><code>{{ device.id.slice(0, 12) }}</code>
         <span>{{ device.delete_pending ? '访问已撤销，等待上游清理' : (device.ip || '待连接') }}</span>
+        <CleanupStatus v-if="device.delete_pending" :retry="device" />
         <small>{{ new Date(device.created_at).toLocaleString() }}</small>
         <button class="secondary" :disabled="busy" @click="revoke('devices', device.id)">{{ device.delete_pending ? '重试清理' : '撤销设备' }}</button>
       </div>

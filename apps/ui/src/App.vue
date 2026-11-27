@@ -7,7 +7,7 @@ import ResourcePanel from './ResourcePanel.vue'
 import UserPanel from './UserPanel.vue'
 import SessionPanel from './SessionPanel.vue'
 import ListPager from './ListPager.vue'
-import type { User, AdminState, AuditPage } from '../../../packages/ui/contracts'
+import type { User, AdminState, AuditPage, AdminRequest, DeleteResult } from '../../../packages/ui/contracts'
 import { emptyState } from '../../../packages/ui/contracts'
 import type { Resource } from '../../../packages/ui/resources'
 const page = ref('overview'), alias = ref(''), password = ref(''), error = ref(''), notice = ref(''), busy = ref(false), logged = ref(false)
@@ -15,15 +15,16 @@ const state = ref<AdminState>(emptyState())
 const pageReady = ref(false)
 const initialPassword = ref('')
 const audit = ref<AuditPage>({events:[],next_before:0}), auditBefore = ref(0)
-const auditQuery = new LatestQuery(() => admin.request('/netgo/v2/admin/audit' + (auditBefore.value ? '?before=' + auditBefore.value : '')), value => { audit.value = value })
+const auditQuery = new LatestQuery(() => admin.request<AuditPage>('/netgo/v2/admin/audit' + (auditBefore.value ? '?before=' + auditBefore.value : '')), value => { audit.value = value })
 async function auditPage(before = 0) { auditQuery.invalidate(); auditBefore.value=before; await auditQuery.run() }
 const admin = new AdminSession(active => {
   logged.value = active
   if (!active) clearSession()
 })
 let timer: ReturnType<typeof setInterval> | undefined
+const request: AdminRequest = (path, method, body) => admin.request(path, method, body)
 const listAfter = ref('')
-const stateQuery = new LatestQuery(() => admin.request(['overview', 'diagnostics', 'sessions', 'remote'].includes(page.value)
+const stateQuery = new LatestQuery(() => admin.request<Partial<AdminState>>(['overview', 'diagnostics', 'sessions', 'remote'].includes(page.value)
   ? '/netgo/v2/admin/summary'
   : '/netgo/v2/admin/state?section=' + page.value + '&after=' + encodeURIComponent(listAfter.value)), value => { state.value = { ...emptyState(), ...value }; pageReady.value = true })
 async function listPage(after = '') { listAfter.value = after; await refresh(true) }
@@ -62,7 +63,7 @@ async function saveUser(u: User) {
 }
 async function createUser(account: { Alias: string; Email: string; Name: string }) {
   return action(async () => {
-    const result = await admin.request('/netgo/v2/admin/users', 'POST', account)
+    const result = await admin.request<{ initial_password?: string }>('/netgo/v2/admin/users', 'POST', account)
     initialPassword.value = result.initial_password || ''
     notice.value = result.initial_password ? '账号已创建，请保存下方初始密码。' : '账号已创建，请通过身份服务激活并设置密码。'
     await refresh(true)
@@ -71,7 +72,7 @@ async function createUser(account: { Alias: string; Email: string; Name: string 
 async function deleteUser(user: User) {
   if (!window.confirm('删除账号 ' + user.alias + ' 及其设备登记？所有连接将被撤销。')) return false
   return action(async () => {
-    const result = await admin.request('/netgo/v2/admin/users/' + encodeURIComponent(user.id), 'DELETE')
+    const result = await admin.request<DeleteResult>('/netgo/v2/admin/users/' + encodeURIComponent(user.id), 'DELETE')
     await refresh(true); notice.value = result.cleanup_pending ? '账号访问已撤销，等待上游清理，后台将自动重试。' : '账号及其设备已删除。'
   })
 }
@@ -88,7 +89,7 @@ async function deleteResource(resource: Resource) {
   })
 }
 function exportSite() { return action(async () => download(await admin.request('/netgo/v2/site'), 'netgo-site.json')) }
-function download(value: any, name: string) {
+function download(value: unknown, name: string) {
   const a = document.createElement('a'), url = URL.createObjectURL(new Blob([JSON.stringify(value, null, 2)], { type: 'application/json' }))
   a.href = url; a.download = name; a.click(); setTimeout(() => URL.revokeObjectURL(url), 1000)
 }
@@ -147,8 +148,8 @@ onUnmounted(() => { if (timer) clearInterval(timer); stateQuery.invalidate(); au
       </template>
       <UserPanel v-else-if="page === 'users'" :users="users" :resources="resources" :busy="busy" :create="createUser" :save="saveUser" :remove="deleteUser" />
       <ResourcePanel v-else-if="page === 'resources' && state.network" :resources="resources" :network="state.network" :busy="busy" :save="saveResource" :remove="deleteResource" />
-      <SessionPanel v-else-if="page === 'sessions'" :request="(path, method, body) => admin.request(path, method, body)" />
-      <RemotePanel v-else-if="page === 'remote'" :request="(path, method, body) => admin.request(path, method, body)" />
+      <SessionPanel v-else-if="page === 'sessions'" :request="request" />
+      <RemotePanel v-else-if="page === 'remote'" :request="request" />
       <template v-else-if="page === 'diagnostics'">
         <section class="card"><h3>运行诊断</h3><p>最近检查：{{ state.runtime?.sampled_at && !state.runtime.sampled_at.startsWith('0001-') ? new Date(state.runtime.sampled_at).toLocaleString() : '等待采样' }}</p>
           <dl><dt>运行时间</dt><dd>{{ state.runtime?.uptime_seconds || 0 }} 秒</dd><dt>进程堆内存</dt><dd>{{ Math.round((state.runtime?.process_heap_bytes || 0) / 1048576) }} MiB</dd><dt>并发任务</dt><dd>{{ state.runtime?.process_goroutines || 0 }}</dd><dt>累计请求 / 错误</dt><dd>{{ state.runtime?.requests || 0 }} / {{ state.runtime?.request_errors || 0 }}</dd><dt>累计 CPU 时间</dt><dd>{{ (state.runtime?.host_resources?.process_cpu_seconds || 0).toFixed(1) }} 秒</dd><dt>峰值驻留内存</dt><dd>{{ Math.round((state.runtime?.host_resources?.process_max_rss_bytes || 0) / 1048576) }} MiB</dd><dt>数据库磁盘可用</dt><dd>{{ ((state.runtime?.host_resources?.database_disk_available_bytes || 0) / 1073741824).toFixed(1) }} GiB</dd><dt>近一分钟认证失败</dt><dd>{{ state.runtime?.authentication_failures_last_minute || 0 }}</dd></dl>

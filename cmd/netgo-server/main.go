@@ -5,6 +5,7 @@ import (
 	"errors"
 	"flag"
 	"log/slog"
+	"net"
 	"net/http"
 	"netgo/internal/accounts"
 	"netgo/internal/api"
@@ -78,7 +79,18 @@ func run() error {
 	go func() { defer close(cleanupDone); runCleanup(ctx, deviceService, accountService) }()
 	defer func() { stop(); <-cleanupDone }()
 	srv := &api.Server{Config: c, Store: s, Auth: auth, Sessions: leases, Remote: remotes, Devices: deviceService, Accounts: accountService, Management: m, Web: webui.Handler(), Reconcile: reconciler.Ensure, Monitor: monitor, Logger: slog.Default()}
-	httpServer := &http.Server{Addr: c.Listen, Handler: srv.Handler(), ReadHeaderTimeout: 5 * time.Second, ReadTimeout: 20 * time.Second, WriteTimeout: 30 * time.Second, IdleTimeout: 60 * time.Second}
+	httpServer := &http.Server{Addr: c.Listen, Handler: srv.Handler(), BaseContext: func(net.Listener) context.Context { return ctx }, ReadHeaderTimeout: 5 * time.Second, ReadTimeout: 20 * time.Second, WriteTimeout: 30 * time.Second, IdleTimeout: 60 * time.Second}
+	shutdown := func() error {
+		stop()
+		cleanup, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+		defer cancel()
+		leaseErr := leases.Close(cleanup)
+		httpErr := httpServer.Shutdown(cleanup)
+		if httpErr != nil {
+			httpErr = errors.Join(httpErr, httpServer.Close())
+		}
+		return errors.Join(leaseErr, httpErr)
+	}
 	errc := make(chan error, 1)
 	go func() { errc <- httpServer.ListenAndServe() }()
 	ticker := time.NewTicker(5 * time.Second)
@@ -86,12 +98,9 @@ func run() error {
 	for {
 		select {
 		case <-ctx.Done():
-			shutdown, cancel := context.WithTimeout(context.Background(), 10*time.Second)
-			defer cancel()
-			_ = leases.Reset(shutdown)
-			return httpServer.Shutdown(shutdown)
+			return shutdown()
 		case e := <-errc:
-			return e
+			return errors.Join(e, shutdown())
 		case <-ticker.C:
 			if e = remotes.Sweep(); e != nil {
 				slog.Error("remote sweep failed")

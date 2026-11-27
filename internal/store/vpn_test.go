@@ -1,7 +1,7 @@
 package store
 
 import (
-	"database/sql"
+	"errors"
 	"fmt"
 	"netgo/internal/model"
 	"reflect"
@@ -40,24 +40,26 @@ func renewalFixture(t testing.TB) (*Store, model.Credential) {
 	return s, credential
 }
 
-func TestVPNRenewKeepsGateAndRemoteDependenciesWithoutIdleRows(t *testing.T) {
+func TestVPNRenewUpdatesOnlyTargetAndKeepsGateMembership(t *testing.T) {
 	s, c := renewalFixture(t)
 	before, err := s.View()
 	if err != nil {
 		t.Fatal(err)
 	}
 	var selected model.State
-	err = s.VPNRenew(c, func(st *model.State) error {
+	err = s.VPNRenew(c, "0", time.Now(), func(st *model.State) error {
 		selected = *st
-		if len(st.Users) != 2 || len(st.Devices) != 2 || len(st.Credentials) != 1 || len(st.Resources) != 1 || len(st.Operations) != 0 {
+		if len(st.Users) != 1 || len(st.Devices) != 1 || len(st.Leases) != 1 || len(st.Credentials) != 1 || len(st.Resources) != 1 || len(st.Operations) != 0 || len(st.RemoteSessions) != 0 {
 			t.Fatalf("unrelated data loaded: users=%d devices=%d credentials=%d resources=%d operations=%d", len(st.Users), len(st.Devices), len(st.Credentials), len(st.Resources), len(st.Operations))
-		}
-		if !reflect.DeepEqual(model.RemoteRoutes(before), model.RemoteRoutes(*st)) || len(model.RemoteRoutes(*st)) != 1 {
-			t.Fatal("active route dependency lost")
 		}
 		l := st.Leases["0"]
 		l.ExpiresAt = l.ExpiresAt.Add(time.Minute)
 		st.Leases["0"] = l
+		return nil
+	}, func(leases []model.Lease) error {
+		if len(leases) != 2 {
+			t.Fatal("gate membership lost", leases)
+		}
 		return nil
 	})
 	if err != nil {
@@ -73,27 +75,79 @@ func TestVPNRenewKeepsGateAndRemoteDependenciesWithoutIdleRows(t *testing.T) {
 	}
 }
 
+func TestVPNRenewRollsBackGateFailure(t *testing.T) {
+	s, c := renewalFixture(t)
+	before, _ := s.View()
+	failure := errors.New("gate failed")
+	err := s.VPNRenew(c, "0", time.Now(), func(st *model.State) error {
+		l := st.Leases["0"]
+		l.ExpiresAt = l.ExpiresAt.Add(time.Second)
+		st.Leases["0"] = l
+		return nil
+	}, func([]model.Lease) error { return failure })
+	if !errors.Is(err, failure) {
+		t.Fatal(err)
+	}
+	after, _ := s.View()
+	if !reflect.DeepEqual(before, after) {
+		t.Fatal("failed renewal committed")
+	}
+}
+
 func BenchmarkVPNRenewSnapshot(b *testing.B) {
 	s, c := renewalFixture(b)
-	old := func(fn func(*model.State) error) error {
-		return s.updateWith(func(tx *sql.Tx) (model.State, error) {
-			st, err := read(tx, allTables & ^(remoteSessions|remoteOperations))
-			if err == nil {
-				err = readRows(tx, "remote_sessions", st.RemoteSessions, "WHERE state IN ('issued','active')")
-			}
-			return st, err
-		}, fn)
-	}
 	for _, tc := range []struct {
 		name   string
 		update func(func(*model.State) error) error
 	}{
-		{"Previous", old}, {"Scoped", func(fn func(*model.State) error) error { return s.VPNRenew(c, fn) }},
+		{"FullState", s.Update}, {"Targeted", func(fn func(*model.State) error) error {
+			return s.VPNRenew(c, "0", time.Now(), fn, func([]model.Lease) error { return nil })
+		}},
 	} {
 		b.Run(tc.name, func(b *testing.B) {
 			b.ReportAllocs()
 			for b.Loop() {
 				if err := tc.update(func(*model.State) error { return nil }); err != nil {
+					b.Fatal(err)
+				}
+			}
+		})
+	}
+}
+
+func BenchmarkVPNRenewActive(b *testing.B) {
+	for _, count := range []int{16, 128, 1024} {
+		b.Run(fmt.Sprint(count), func(b *testing.B) {
+			s, err := Open(":memory:")
+			if err != nil {
+				b.Fatal(err)
+			}
+			defer s.Close()
+			now := time.Now().UTC()
+			c := model.Credential{TokenHash: "0", UserID: "0", DeviceID: "0", ExpiresAt: now.Add(time.Hour)}
+			err = s.Update(func(st *model.State) error {
+				st.Resources["r"] = model.Resource{ID: "r", Enabled: true, Protocol: "tcp", CIDR: "192.168.1.1/32", Ports: []uint16{443}}
+				for i := 0; i < count; i++ {
+					id := fmt.Sprint(i)
+					st.Users[id] = model.User{ID: id, Alias: "u" + id, Resources: []string{"r"}}
+					st.Devices[id] = model.Device{ID: id, UserID: id, PeerID: "p" + id}
+					st.Leases[id] = model.Lease{ID: id, UserID: id, DeviceID: id, PeerID: "p" + id, ExpiresAt: c.ExpiresAt, Resources: []model.Resource{st.Resources["r"]}}
+				}
+				st.Credentials["0"] = c
+				return nil
+			})
+			if err != nil {
+				b.Fatal(err)
+			}
+			b.ReportAllocs()
+			for b.Loop() {
+				err = s.VPNRenew(c, "0", now, func(st *model.State) error {
+					lease := st.Leases["0"]
+					lease.ExpiresAt = lease.ExpiresAt.Add(time.Nanosecond)
+					st.Leases["0"] = lease
+					return nil
+				}, func([]model.Lease) error { return nil })
+				if err != nil {
 					b.Fatal(err)
 				}
 			}

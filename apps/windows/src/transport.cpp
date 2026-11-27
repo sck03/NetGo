@@ -72,7 +72,7 @@ Transport::Transport(Json p,std::chrono::milliseconds cooldown):profile_(std::mo
  }
 }
 Json Transport::requestAt(size_t index,const std::string& method,const std::string& path,const std::string& body,const std::string& headers) {
- auto deadline=Clock::now()+std::chrono::seconds(path=="/netgo/v2/health"?3:20);
+ auto deadline=Clock::now()+std::chrono::seconds(path=="/netgo/v2/health"?3:path=="/netgo/v2/auth/refresh"?4:20);
  const size_t lane = path == "/netgo/v2/health" ? 0 :
      (path == "/netgo/v2/remote" || path.starts_with("/netgo/v2/remote/")) ? 2 : 1;
  auto& link=*links_.at(index).at(lane);

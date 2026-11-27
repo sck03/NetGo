@@ -21,6 +21,7 @@ import org.json.JSONObject
     var pendingTransfer by remember { mutableStateOf<JSONObject?>(null) }
     var uploadPath by remember { mutableStateOf<java.io.File?>(null) }
     var uploadOwner by remember { mutableStateOf<NativeRemote?>(null) }
+    var importing by remember { mutableStateOf(false) }
     var downloaded by remember { mutableStateOf<java.io.File?>(null) }
     var downloadPending by remember { mutableStateOf(false) }
     var exporting by remember { mutableStateOf(false) }
@@ -36,15 +37,19 @@ import org.json.JSONObject
     }
     val upload=rememberLauncherForActivityResult(ActivityResultContracts.OpenDocument()) { uri ->
         activity.documentPickerActive = false
-        if(uri!=null) scope.launch { try {
-            val result=kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) {
-                val name=context.contentResolver.query(uri,arrayOf(android.provider.OpenableColumns.DISPLAY_NAME),null,null,null)?.use { cursor -> if(cursor.moveToFirst())cursor.getString(0) else null } ?: "upload.bin"
-                require(name.isNotBlank() && name.length<=180 && !name.contains('/') && !name.contains('\\'))
-                val folder=java.io.File(context.cacheDir,"remote-upload").apply { mkdirs() };val file=java.io.File(folder,java.util.UUID.randomUUID().toString()+".bin")
-                try { context.contentResolver.openInputStream(uri)!!.use { source -> file.outputStream().use { out -> val buffer=ByteArray(32768);var total=0L;while(true){val n=source.read(buffer);if(n<0)break;total+=n;require(total<=1024L*1024*1024);out.write(buffer,0,n)} } };Pair(file,name) } catch(e:Exception){file.delete();throw e}
-            }
-            uploadPath=result.first;pendingTransfer=JSONObject().put("action","upload").put("path",result.first.absolutePath).put("name",result.second)
-        } catch(_:Exception) { NetGoRuntime.message.value="无法读取文件，单文件上限 1 GiB" } }
+        if (uri != null && !importing && uploadPath == null) scope.launch {
+            importing = true
+            try {
+                stageRemoteUpload(context, uri) { file, name ->
+                    uploadPath = file
+                    pendingTransfer = JSONObject().put("action", "upload").put("path", file.absolutePath).put("name", name)
+                }
+            } catch (cancelled: kotlinx.coroutines.CancellationException) {
+                throw cancelled
+            } catch (_: Exception) {
+                NetGoRuntime.message.value = "无法读取文件，单文件上限 1 GiB"
+            } finally { importing = false }
+        }
     }
     LaunchedEffect(remote,pendingTransfer) {
         val value=pendingTransfer;val session=remote

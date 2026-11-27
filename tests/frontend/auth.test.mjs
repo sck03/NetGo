@@ -10,6 +10,7 @@ const health = { protocol: 2, site_id: 'site', server_unix: Math.floor(Date.now(
 function server(t, role = 'admin', clockOffset = 0) {
   const original = globalThis.fetch
   const wallNow = Date.now
+  let serverUnix = 0
   let publicKey, begin, token = 'first-token', sawRefresh = false
   const paths = []
   globalThis.fetch = async (path, options) => {
@@ -17,7 +18,7 @@ function server(t, role = 'admin', clockOffset = 0) {
     assert.equal(options.redirect, 'error')
     assert.equal(options.cache, 'no-store')
     assert.equal(options.headers['X-NetGo-Protocol'], '2')
-    if (path.endsWith('/health')) return new Response(JSON.stringify({ ...health, server_unix: Math.floor((wallNow() + clockOffset) / 1000) }))
+    if (path.endsWith('/health')) { serverUnix = Math.floor((wallNow() + clockOffset) / 1000); return new Response(JSON.stringify({ ...health, server_unix: serverUnix })) }
     const body = options.body || '', data = body ? JSON.parse(body) : {}
     if (path.endsWith('/transactions')) {
       begin = data
@@ -43,7 +44,7 @@ function server(t, role = 'admin', clockOffset = 0) {
     return new Response(JSON.stringify(result), { status: 200 })
   }
   t.after(() => { globalThis.fetch = original })
-  return { paths, refreshed: () => sawRefresh }
+  return { paths, refreshed: () => sawRefresh, serverTime: () => serverUnix }
 }
 
 test('trusted server time signs requests despite skew and later client clock changes', async t => {
@@ -133,14 +134,14 @@ test('incompatible servers cannot receive administrator passwords', async t => {
 })
 
 test('a delayed 401 for the previous token cannot log out a refreshed session', async t => {
- server(t)
+ const fixture = server(t)
  const upstream = globalThis.fetch
  let release, entered
  const started = new Promise(resolve => { entered=resolve })
  globalThis.fetch = async (path, options) => {
   if (path.endsWith('/slow')) { entered(); return new Promise(resolve => {release=resolve}) }
   const response = await upstream(path, options)
-  if (path.endsWith('/exchange')) { const result=await response.json();result.expires_at=new Date(Date.now()+121000).toISOString();return new Response(JSON.stringify(result)) }
+  if (path.endsWith('/exchange')) { const result=await response.json();result.expires_at=new Date(fixture.serverTime()*1000+121000).toISOString();return new Response(JSON.stringify(result)) }
   return response
  }
  const original=globalThis.performance
@@ -159,13 +160,13 @@ test('a delayed 401 for the previous token cannot log out a refreshed session', 
 })
 
 test('old-token rejection waits for an in-flight successful refresh', async t => {
- server(t);const upstream=globalThis.fetch
+ const fixture=server(t);const upstream=globalThis.fetch
  let rejectOld, releaseRefresh, slowEntered, refreshEntered
  const slowStarted=new Promise(r=>slowEntered=r), refreshStarted=new Promise(r=>refreshEntered=r)
  globalThis.fetch=async (path,options)=>{
   if(path.endsWith('/slow')){slowEntered();return new Promise(r=>rejectOld=r)}
   const response=await upstream(path,options)
-  if(path.endsWith('/exchange')){const body=await response.json();body.expires_at=new Date(Date.now()+121000).toISOString();return new Response(JSON.stringify(body))}
+  if(path.endsWith('/exchange')){const body=await response.json();body.expires_at=new Date(fixture.serverTime()*1000+121000).toISOString();return new Response(JSON.stringify(body))}
   if(path.endsWith('/refresh')){refreshEntered();return new Promise(r=>releaseRefresh=()=>r(response))}
   return response
  }

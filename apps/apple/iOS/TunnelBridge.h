@@ -7,5 +7,6 @@ typedef void (^NetGoApplyNetwork)(NSString *,NSString *,NSString *,NSString *);
 - (NSData *)message:(NSData *)data;
 - (void)networkAvailable:(BOOL)available;
 - (void)stop;
+- (void)cancel;
 @end
 NS_ASSUME_NONNULL_END

@@ -5,8 +5,8 @@ import { LatestQuery } from '../../../packages/ui/query'
 import RemoteHistory from './RemoteHistory.vue'
 import ListPager from './ListPager.vue'
 import UserPicker from './UserPicker.vue'
-import type { RemoteHost as Host, RemoteGrant as Grant, RemoteInventory } from '../../../packages/ui/contracts'
-const props = defineProps<{ request: (path: string, method?: string, body?: any) => Promise<any> }>()
+import type { RemoteHost as Host, RemoteGrant as Grant, RemoteInventory, AdminRequest } from '../../../packages/ui/contracts'
+const props = defineProps<{ request: AdminRequest }>()
 const inventory = ref<RemoteInventory>({ hosts: [], grants: [], sessions: [], users: {}, next_after: '' })
 const after = ref('')
 const error = ref(''), loadError = ref(''), notice = ref(''), busy = ref(false), loading = ref(false), loaded = ref(false)
@@ -48,7 +48,7 @@ async function save() {
   } catch (e) { error.value = e instanceof Error ? e.message : String(e) }
 }
 let alive = true, refreshVersion = 0, timer: ReturnType<typeof setInterval> | undefined
-const query = new LatestQuery(() => props.request('/netgo/v2/admin/remote/inventory?after=' + encodeURIComponent(after.value) + '&q=' + encodeURIComponent(search.value)), data => {
+const query = new LatestQuery(() => props.request<RemoteInventory>('/netgo/v2/admin/remote/inventory?after=' + encodeURIComponent(after.value) + '&q=' + encodeURIComponent(search.value)), data => {
   inventory.value = data; loadError.value = ''; loaded.value = true; updated.value = new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' })
 })
 async function refresh() {
@@ -59,7 +59,7 @@ async function refresh() {
   catch (e) { if (alive) loadError.value = e instanceof Error ? e.message : String(e) }
   finally { if (alive && version === refreshVersion) loading.value = false }
 }
-async function change(path: string, method: string, body?: any, message = '操作已完成。') {
+async function change(path: string, method: string, body?: unknown, message = '操作已完成。') {
   if (busy.value) return
   busy.value = true; query.invalidate(); error.value = ''; notice.value = ''
   try { await props.request(path, method, body); if (alive) notice.value = message }

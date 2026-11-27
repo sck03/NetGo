@@ -30,6 +30,7 @@ type Manager struct {
 	Now       func() time.Time
 	applied   []model.Lease
 	lastApply time.Time
+	stopped   bool
 }
 
 func (m *Manager) now() time.Time {
@@ -63,12 +64,15 @@ func credentialCurrent(st *model.State, c model.Credential, now time.Time) bool 
 // would let a concurrent credential revocation race with newly installed access.
 // All remote peer/account IO happens before entering this critical section.
 func (m *Manager) update(ctx context.Context, fn func(*model.State) error) error {
-	return m.updateWith(ctx, m.Store.Update, fn)
+	if m.stopped {
+		return ErrStopped
+	}
+	return m.commit(ctx, fn)
 }
 
-func (m *Manager) updateWith(ctx context.Context, update func(func(*model.State) error) error, fn func(*model.State) error) error {
+func (m *Manager) commit(ctx context.Context, fn func(*model.State) error) error {
 	touched := false
-	e := update(func(st *model.State) error {
+	e := m.Store.Update(func(st *model.State) error {
 		if e := fn(st); e != nil {
 			return e
 		}
@@ -89,28 +93,9 @@ func (m *Manager) updateWith(ctx context.Context, update func(func(*model.State)
 		return nil
 	})
 	if e != nil && touched {
-		m.lastApply = time.Time{}
-		m.applied = nil
-		cleanup, cancel := context.WithTimeout(context.Background(), 4*time.Second)
-		defer cancel()
-		_ = m.Gate.Apply(cleanup, nil)
-		_ = m.Store.Update(func(st *model.State) error {
-			st.Leases = map[string]model.Lease{}
-			st.Operations = map[string]model.Operation{}
-			return nil
-		})
+		e = errors.Join(e, m.failClosed())
 	}
 	return e
-}
-func (m *Manager) Reset(ctx context.Context) error {
-	m.mu.Lock()
-	defer m.mu.Unlock()
-	m.lastApply = time.Time{}
-	return m.update(ctx, func(st *model.State) error {
-		st.Leases = map[string]model.Lease{}
-		st.Operations = map[string]model.Operation{}
-		return nil
-	})
 }
 func (m *Manager) Acquire(ctx context.Context, c model.Credential, peer string, generation uint64, replace bool, key string) (model.Lease, error) {
 	var result model.Lease
@@ -229,13 +214,17 @@ func (m *Manager) Renew(ctx context.Context, c model.Credential, id string, gene
 		return result, e
 	}
 	now := m.now()
-	e = m.updateWith(ctx, func(fn func(*model.State) error) error { return m.Store.VPNRenew(c, fn) }, func(st *model.State) error {
+	if m.stopped {
+		return result, ErrStopped
+	}
+	touched := false
+	e = m.Store.VPNRenew(c, id, now, func(st *model.State) error {
 		if !credentialCurrent(st, c, m.now()) {
 			return model.ErrUnauthorized
 		}
 		l, ok := st.Leases[id]
 		u := st.Users[c.UserID]
-		if !ok || l.UserID != c.UserID || l.DeviceID != c.DeviceID || l.Generation != generation || !now.Before(l.ExpiresAt) || !now.Before(c.ExpiresAt) || !u.Active(now) {
+		if !ok || l.UserID != c.UserID || l.DeviceID != c.DeviceID || l.Generation != generation || !now.Before(l.ExpiresAt) || !now.Before(c.ExpiresAt) || !u.Active(now) || st.Devices[c.DeviceID].DeletePending || st.Devices[c.DeviceID].UserID != c.UserID {
 			return model.ErrForbidden
 		}
 		if l.PeerID != prior.PeerID || p.ID != l.PeerID || p.UserID != l.UserID || p.IP != l.IP || p.PublicKey != st.Devices[c.DeviceID].WireGuardKey || p.Expired || !p.Connected {
@@ -248,7 +237,7 @@ func (m *Manager) Renew(ctx context.Context, c model.Credential, id string, gene
 		if c.ExpiresAt.Before(l.ExpiresAt) {
 			l.ExpiresAt = c.ExpiresAt
 		}
-		l.Resources = nil
+		l.Resources = []model.Resource{}
 		for _, rid := range u.Resources {
 			if r, ok := st.Resources[rid]; ok && r.Enabled {
 				l.Resources = append(l.Resources, r)
@@ -257,7 +246,21 @@ func (m *Manager) Renew(ctx context.Context, c model.Credential, id string, gene
 		st.Leases[id] = l
 		result = l
 		return nil
+	}, func(leases []model.Lease) error {
+		if err := gateway.ValidateCapacity(leases); err != nil {
+			return err
+		}
+		sort.Slice(leases, func(i, j int) bool { return leases[i].ID < leases[j].ID })
+		touched = true
+		if err := m.Gate.Apply(ctx, leases); err != nil {
+			return err
+		}
+		m.applied, m.lastApply = leases, m.now()
+		return nil
 	})
+	if e != nil && touched {
+		e = errors.Join(e, m.failClosed())
+	}
 	return result, e
 }
 func (m *Manager) Revoke(ctx context.Context, actor, id string) error {

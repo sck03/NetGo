@@ -1,4 +1,5 @@
-export type Resource = { id: string; name: string; cidr: string; protocol: string; ports: number[]; enabled: boolean }
+import type { Resource } from './models.generated'
+export type { Resource } from './models.generated'
 export type ResourceForm = Omit<Resource, 'ports'> & { ports: string }
 export type NetworkAccess = { lan_interface: string; local_cidrs: string[]; internet_enabled: boolean; gateway?: string; dns: string[]; fake_ip_cidr?: string }
 

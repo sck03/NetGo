@@ -3,11 +3,10 @@
 #include <commdlg.h>
 #include <shellapi.h>
 #include <uxtheme.h>
-#include <condition_variable>
-#include <deque>
 #include <map>
 #include <algorithm>
 #include "ui.hpp"
+#include "ui_worker.hpp"
 #include "startup.hpp"
 
 using namespace netgo;
@@ -56,11 +55,6 @@ enum {
     MenuNetworkSetup,
     MenuRemote
 };
-struct Result {
-    std::string action, site;
-    Json value;
-    std::string error;
-};
 HWND window = nullptr;
 HFONT font = nullptr, titleFont = nullptr;
 HBRUSH background = nullptr, sidebar = nullptr;
@@ -83,13 +77,10 @@ std::map<int, HWND> controls;
 Json sites = Json::array(), currentStatus = Json::object(), preferences = Json::object();
 std::string chosen;
 bool saved = false, exiting = false, firstLoad = true, pending = false, logsPending = false;
-std::atomic_bool closing = false, polling = false;
+std::atomic_bool polling = false;
 UINT taskbarCreated = 0;
 std::string lastResources;
-std::mutex queueMutex;
-std::condition_variable queueReady;
-std::deque<Json> jobs;
-std::thread pump;
+UiWorker pump;
 std::wstring text(HWND h) {
     int n = GetWindowTextLengthW(h);
     std::wstring s(n + 1, L'\0');
@@ -98,9 +89,13 @@ std::wstring text(HWND h) {
     return s;
 }
 void submit(Json request) {
-    std::lock_guard lock(queueMutex);
-    jobs.push_back(std::move(request));
-    queueReady.notify_one();
+    const auto action = request.value("action", "");
+    if (pump.submit(std::move(request))) return;
+    if (action == "status") polling = false;
+    if (action == "logs") logsPending = false;
+    if (action == "disconnect") pending = false;
+    if (action == "shutdown") { exiting = false; EnableWindow(window, TRUE); }
+    throw Error("请求较多，请稍后重试");
 }
 void set(int id, const std::wstring &s) { SetWindowTextW(controls.at(id), s.c_str()); }
 bool active() {
@@ -125,31 +120,7 @@ void showTab(int page) {
     }
 }
 void startPump() {
-    pump = std::thread([] {
-        while (!closing) {
-            Json job;
-            {
-                std::unique_lock lock(queueMutex);
-                queueReady.wait(lock, [] { return closing || !jobs.empty(); });
-                if (closing)
-                    break;
-                job = std::move(jobs.front());
-                jobs.pop_front();
-            }
-            auto r = std::make_unique<Result>();
-            r->action = job.at("action");
-            r->site = job.value("site", "");
-            try {
-                r->value = pipeCall(job);
-            } catch (const std::exception &e) {
-                r->error = e.what();
-            }
-            job = Json::object();
-            if (!PostMessageW(window, resultMessage, 0, reinterpret_cast<LPARAM>(r.get())))
-                continue;
-            r.release();
-        }
-    });
+    pump.start(window, resultMessage);
 }
 std::filesystem::path fileDialog(bool save, const wchar_t *title) {
     wchar_t path[32768]{};
@@ -894,7 +865,8 @@ LRESULT CALLBACK proc(HWND h, UINT m, WPARAM w, LPARAM l) {
             }
             break;
         case resultMessage: {
-            std::unique_ptr<Result> r(reinterpret_cast<Result *>(l));
+            auto r = pump.takeResult();
+            if (!r) return 0;
             if (r->action == "status")
                 polling = false;
             if (r->action == "logs")
@@ -1081,10 +1053,7 @@ int desktopMain(HINSTANCE instance, PWSTR args, int show) {
             }
         }
         DestroyAcceleratorTable(accelerators);
-        closing = true;
-        queueReady.notify_one();
-        if (pump.joinable())
-            pump.join();
+        pump.stop();
         DeleteObject(font);
         DeleteObject(titleFont);
         DeleteObject(background);

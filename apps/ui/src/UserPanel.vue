@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import { ref } from 'vue'
 import type { User } from '../../../packages/ui/contracts'
+import CleanupStatus from './CleanupStatus.vue'
 type Account = { Alias: string; Email: string; Name: string }
 const props = defineProps<{ users: User[]; resources: { id: string; name: string }[]; busy: boolean; create: (account: Account) => Promise<boolean>; save: (user: User) => Promise<boolean>; remove: (user: User) => Promise<boolean> }>()
 const draft = ref<User | null>(null), creating = ref(false)
@@ -16,7 +17,7 @@ function setExpiry(event: Event) { const value = (event.target as HTMLInputEleme
   <section class="card">
     <div class="panel-heading"><div><h3>谁可以访问</h3><p>先创建账号，再勾选允许访问的资源。设备限额和到期时间可按需调整。</p></div><button class="primary" :disabled="busy" @click="creating = !creating">{{ creating ? '收起' : '创建账号' }}</button></div>
     <form v-if="creating" class="create-user" @submit.prevent="create"><label>用户名<input v-model="account.Alias" required placeholder="用于登录"></label><label>邮箱<input v-model="account.Email" type="email" required></label><label>显示名称<input v-model="account.Name" placeholder="可留空，使用用户名"></label><button class="primary" :disabled="busy">创建账号</button></form>
-    <div v-for="user in users" :key="user.id" class="resource"><div><strong>{{ user.name || user.alias }}</strong><small>{{ user.email }}</small></div><span>{{ user.role === 'admin' ? '管理员' : '用户' }} · {{ user.delete_pending ? '等待上游清理' : user.disabled ? '已停用' : '正常' }} · {{ user.resources?.length || 0 }} 项资源</span><button class="secondary" :disabled="busy || user.delete_pending" @click="edit(user)">修改权限</button><button class="secondary" :disabled="busy" @click="remove(user)">{{ user.delete_pending ? '重试清理' : '删除' }}</button></div>
+    <div v-for="user in users" :key="user.id" class="resource"><div><strong>{{ user.name || user.alias }}</strong><small>{{ user.email }}</small><CleanupStatus v-if="user.delete_pending" :retry="user" /></div><span>{{ user.role === 'admin' ? '管理员' : '用户' }} · {{ user.delete_pending ? '等待上游清理' : user.disabled ? '已停用' : '正常' }} · {{ user.resources?.length || 0 }} 项资源</span><button class="secondary" :disabled="busy || user.delete_pending" @click="edit(user)">修改权限</button><button class="secondary" :disabled="busy" @click="remove(user)">{{ user.delete_pending ? '重试清理' : '删除' }}</button></div>
   </section>
   <section v-if="draft" class="card">
     <h3>{{ draft.alias }} 的访问权限</h3>

@@ -8,8 +8,49 @@ import (
 	"netgo/internal/session"
 	"netgo/internal/site"
 	"netgo/internal/store"
+	"os"
 	"testing"
 )
+
+// This response fixture is also rendered by the actual Vue resource component.
+func TestResourceCollectionsMatchFrontendFixture(t *testing.T) {
+	expected, err := os.ReadFile("../../tests/contracts/resource-icmp.json")
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, omit := range []bool{false, true} {
+		var input map[string]any
+		if err := json.Unmarshal(expected, &input); err != nil {
+			t.Fatal(err)
+		}
+		input["ports"] = nil
+		if omit {
+			delete(input, "ports")
+		}
+		raw, _ := json.Marshal(input)
+		db, err := store.Open(":memory:")
+		if err != nil {
+			t.Fatal(err)
+		}
+		t.Cleanup(func() { db.Close() })
+		s := Server{Store: db, Sessions: &session.Manager{Store: db, Gate: apiGate{}}, Config: site.Config{OverlayCIDR: "100.96.0.0/16", LocalCIDRs: []string{"192.168.18.0/23"}}}
+		r := httptest.NewRequest("PUT", "/netgo/v2/admin/resources/ping", bytes.NewReader(raw))
+		r.SetPathValue("id", "ping")
+		w := httptest.NewRecorder()
+		s.putResource(w, r)
+		if w.Code != 200 || !bytes.Equal(bytes.TrimSpace(w.Body.Bytes()), bytes.TrimSpace(expected)) {
+			t.Fatalf("unexpected API response: %d %s", w.Code, w.Body.String())
+		}
+		page, _, err := db.AdminPage("resources", "", 50)
+		if err != nil {
+			t.Fatal(err)
+		}
+		persisted, err := json.Marshal(page.Resources["ping"])
+		if err != nil || !bytes.Equal(persisted, bytes.TrimSpace(expected)) {
+			t.Fatalf("persisted page contract differs: %s, %v", persisted, err)
+		}
+	}
+}
 
 func TestInvalidResourceEditDoesNotRevokeExistingAccess(t *testing.T) {
 	db, err := store.Open(":memory:")

@@ -1,5 +1,9 @@
 # 各平台构建与 Releases 发布
 
+2026-11-27 审查修复的构建和必要验证范围见 [交付记录](REFACTOR_REVIEW_2026-11-27.zh-CN.md)。共享管理页 DTO 使用 `npm run contracts`（等价于 `go generate ./internal/contracts`）生成；修改 Go 模型后更新已提交的 `packages/ui/models.generated.ts`，并运行 `go test ./internal/contracts` 与 `npm run build`。仅构建 Web 不要求现场生成，因为生成文件已入库。
+
+清理允许清单包含 `.cache/review`；`-IncludeToolchains` 也包含已下载的 OpenSSL 源码，但发现未提交工作时拒绝删除。源码、可恢复用户配置和当前嵌入式 Web 页面不随构建缓存删除。
+
 本地体积清理：在 Windows 项目根运行 `scripts/clean-workspace.ps1` 预览，追加 `-Apply` 执行。默认清除可重建的依赖与构建缓存；`-IncludeTestData` 增加安装器实验样例和旧清理统计；`-IncludeSDK` 增加 Android NDK、平台和构建工具，保留命令行管理器和许可。`-IncludeToolchains` 进一步移除项目内 Go、版本化 Node、完整 Android SDK，以及可重新下载的原生 JSON/OpenSSL/Wintun 依赖。各选项仅影响脚本允许清单，父子目录会去重，并检查路径归属、目录联接和使用中的构建进程。
 
 完整清理示例：`./scripts/clean-workspace.ps1 -Apply -IncludeSDK -IncludeTestData -IncludeToolchains`。执行后先按 `upstream/versions.lock.json` 准备所需 Go/Node，再用 `npm ci` 恢复 Web 依赖。原生和 Android 构建脚本会重新下载相关依赖，需可用网络；已清除 AAR 时不要使用 `--skip-bind`。运行引擎、身份、站点配置、数据库、项目签名文件和嵌入服务器的当前 Web 页面均不属于自动清理范围；不要把安装目录或运行数据放入工具链目录。

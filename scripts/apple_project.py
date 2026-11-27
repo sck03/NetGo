@@ -26,9 +26,10 @@ def create(platform,output,native,framework=None,resources=(),selected_version=N
         return add(name+'config',{'isa':'XCConfigurationList','buildConfigurations':configs,'defaultConfigurationName':'Release','defaultConfigurationIsVisible':'0'})
     project_cfg=configs('project',{'CLANG_ENABLE_OBJC_ARC':'YES','CLANG_ENABLE_MODULES':'YES','SWIFT_VERSION':'5.0','CLANG_CXX_LANGUAGE_STANDARD':'c++17'})
     shared=sorted((ROOT/'apps/apple/Shared').glob('*.swift'))
-    app_sources=sorted(p for p in (ROOT/'apps/apple'/platform).glob('*.swift') if p.name != 'PacketTunnelProvider.swift')
+    tunnel_sources={'PacketTunnelProvider.swift','TunnelRequestQueue.swift'}
+    app_sources=sorted(p for p in (ROOT/'apps/apple'/platform).glob('*.swift') if p.name not in tunnel_sources)
     specs=[('NetGo',shared+app_sources,'app')]
-    if platform=='iOS':specs.append(('NetGoTunnel',[ROOT/'apps/apple/iOS/PacketTunnelProvider.swift',ROOT/'apps/apple/iOS/TunnelBridge.m'],'appex'))
+    if platform=='iOS':specs.append(('NetGoTunnel',[ROOT/'apps/apple/iOS'/name for name in sorted(tunnel_sources)]+[ROOT/'apps/apple/iOS/TunnelBridge.m'],'appex'))
     target_map={name:ident('target'+name) for name,files,extension in specs}
     for name,files,extension in specs:
         sources=[];libraries=[]

@@ -62,6 +62,9 @@ func failure(w http.ResponseWriter, e error) {
 	status := 400
 	code := "invalid_request"
 	switch {
+	case errors.Is(e, session.ErrStopped):
+		status = http.StatusServiceUnavailable
+		code = "session_manager_stopped"
 	case errors.Is(e, model.ErrUnauthorized):
 		status = 401
 		code = "unauthorized"

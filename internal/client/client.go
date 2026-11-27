@@ -63,7 +63,7 @@ type Controller struct {
 	profilesRevision uint64
 }
 type Remote struct {
-	auth          sync.RWMutex
+	auth          authGate
 	HTTP          *http.Client
 	Origin, Token string
 	Private       ed25519.PrivateKey
@@ -82,18 +82,26 @@ func terminalControlError(err error) bool {
 }
 
 func (r *Remote) Call(ctx context.Context, method, path string, in, out any, key string) error {
-	r.auth.RLock()
-	defer r.auth.RUnlock()
+	release, err := r.auth.acquire(ctx, false)
+	if err != nil {
+		return err
+	}
+	defer release()
 	return r.call(ctx, method, path, in, out, key)
 }
 
 // Rotate credentials between requests. In-flight desktop requests finish with
 // their original proof before the server invalidates that credential.
 func (r *Remote) Refresh(ctx context.Context, refreshToken string) (identity.Result, error) {
-	r.auth.Lock()
-	defer r.auth.Unlock()
+	ctx, cancel := context.WithTimeout(ctx, 4*time.Second)
+	defer cancel()
 	var result identity.Result
-	err := r.call(ctx, "POST", "/netgo/v2/auth/refresh", map[string]string{"refresh_token": refreshToken}, &result, "")
+	release, err := r.auth.acquire(ctx, true)
+	if err != nil {
+		return result, err
+	}
+	defer release()
+	err = r.call(ctx, "POST", "/netgo/v2/auth/refresh", map[string]string{"refresh_token": refreshToken}, &result, "")
 	if err == nil {
 		r.Token = result.Token
 	}
@@ -129,6 +137,9 @@ func (r *Remote) call(ctx context.Context, method, path string, in, out any, key
 	}
 	res, e := r.HTTP.Do(req)
 	if e != nil {
+		if ctx.Err() != nil {
+			return ctx.Err()
+		}
 		return errors.New("control_unreachable")
 	}
 	defer res.Body.Close()

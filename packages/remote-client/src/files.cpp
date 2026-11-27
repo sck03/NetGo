@@ -1,4 +1,5 @@
 #include "remote_files.hpp"
+#include "exchange_lock.hpp"
 #include <openssl/evp.h>
 #include <openssl/rand.h>
 #include <algorithm>
@@ -132,6 +133,7 @@ struct Files::Impl {
     std::uint64_t size = 0, offset = 0;
     bool uploading = false;
     std::unique_ptr<Digest> digest;
+    std::unique_ptr<ExchangeLock> reservation;
     bool quota;
     explicit Impl(const fs::path &p, bool budget) : quota(budget) {
         require(!p.empty() && p.is_absolute(), "remote_exchange_root_required");
@@ -153,6 +155,15 @@ struct Files::Impl {
         directory = ::open(root.c_str(), O_RDONLY | O_DIRECTORY | O_CLOEXEC | O_NOFOLLOW);
         require(directory != invalid, "remote_exchange_unavailable");
 #endif
+        try {
+            if (quota) {
+                ExchangeLock lock(root);
+                if (lock.acquired()) reclaim();
+            }
+        } catch (...) {
+            closeFile(directory);
+            throw;
+        }
     }
     ~Impl() {
         cancel();
@@ -203,6 +214,35 @@ struct Files::Impl {
         unlinkat(directory, n.c_str(), 0);
 #endif
     }
+    void reclaim() {
+        for (const auto &entry : fs::directory_iterator(root)) {
+            const auto name = path_text(entry.path().filename());
+            if (name.size() != 34 || name.compare(0, 7, ".netgo-") != 0 ||
+                name.compare(29, 5, ".part") != 0 ||
+                name.substr(7, 22).find_first_not_of("ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789-_") != std::string::npos)
+                continue;
+            auto h = child(name, false);
+            if (h == invalid) continue;
+            closeFile(h);
+            remove(name);
+        }
+    }
+    void checkBudget(std::uint64_t requested) {
+        std::uint64_t used = 0;
+        std::size_t count = 0;
+        for (const auto &entry : fs::directory_iterator(root)) {
+            const auto name = path_text(entry.path().filename());
+            if (name == ".netgo-exchange.lock") continue;
+            auto h = child(name, false);
+            if (h == invalid) continue;
+            std::uint64_t bytes;
+            try { bytes = length(h); } catch (...) { closeFile(h); throw; }
+            closeFile(h);
+            require(bytes <= 2 * max_file_bytes - used, "remote_exchange_full");
+            used += bytes;
+            require(++count < 256 && requested <= 2 * max_file_bytes - used, "remote_exchange_full");
+        }
+    }
     void cancel() noexcept {
         closeFile(file);
         file = invalid;
@@ -214,6 +254,7 @@ struct Files::Impl {
         digest.reset();
         size = offset = 0;
         uploading = false;
+        reservation.reset();
     }
 };
 Files::Files(const fs::path &root, bool quota) : impl_(std::make_unique<Impl>(root, quota)) {}
@@ -248,29 +289,29 @@ std::string Files::begin(const std::string &name, std::uint64_t size) {
     auto &p = *impl_;
     require(valid_file_name(name) && size <= max_file_bytes, "remote_invalid_file");
     require(p.file == invalid, "remote_transfer_busy");
-    require(!fs::exists(p.root / utf8_path(name)), "remote_file_exists");
-    if (p.quota) {
-        auto listing = list();
-        std::uint64_t used = 0;
-        for (const auto &e : listing) {
-            require(e.at("name") != name, "remote_file_exists");
-            used += e.at("size").get<std::uint64_t>();
+    try {
+        p.reservation = std::make_unique<ExchangeLock>(p.root);
+        require(p.reservation->acquired(), "remote_transfer_busy");
+        require(!fs::exists(p.root / utf8_path(name)), "remote_file_exists");
+        p.reclaim();
+        if (p.quota) p.checkBudget(size);
+        p.token = randomToken();
+        p.temp = ".netgo-" + p.token + ".part";
+        p.file = p.child(p.temp, true);
+        if (p.file == invalid) {
+            p.temp.clear();
+            throw std::runtime_error("remote_file_create_failed");
         }
-        require(listing.size() < 256 && used + size <= 2 * max_file_bytes, "remote_exchange_full");
+        p.uploading = true;
+        p.name = name;
+        p.size = size;
+        p.offset = 0;
+        p.digest = std::make_unique<Digest>();
+        return p.token;
+    } catch (...) {
+        p.cancel();
+        throw;
     }
-    p.token = randomToken();
-    p.temp = ".netgo-" + p.token + ".part";
-    p.file = p.child(p.temp, true);
-    if (p.file == invalid) {
-        p.temp.clear();
-        throw std::runtime_error("remote_file_create_failed");
-    }
-    p.uploading = true;
-    p.name = name;
-    p.size = size;
-    p.offset = 0;
-    p.digest = std::make_unique<Digest>();
-    return p.token;
 }
 std::uint64_t Files::write(const std::string &token, std::uint64_t offset, const std::vector<uint8_t> &data) {
     auto &p = *impl_;

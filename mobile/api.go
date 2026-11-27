@@ -73,6 +73,7 @@ func (c *Client) ConnectMode(site, alias, password string, replace, internet boo
 	return c.controller.ConnectMode(site, alias, password, replace, internet)
 }
 func (c *Client) Disconnect() error { return c.controller.Disconnect() }
+func (c *Client) Cancel()           { c.controller.Cancel() }
 func (c *Client) RemoteContext(site string) (string, error) {
 	v, err := c.controller.RemoteContext(site)
 	if err != nil {

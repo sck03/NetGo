@@ -38,18 +38,18 @@ func Challenge(s string) string {
 
 type User struct {
 	CleanupRetry
-	DeletePending bool      `json:"delete_pending"`
-	ID            string    `json:"id"`
-	Alias         string    `json:"alias"`
-	Name          string    `json:"name"`
-	Email         string    `json:"email"`
-	Role          string    `json:"role"`
-	Disabled      bool      `json:"disabled"`
-	ExpiresAt     time.Time `json:"expires_at"`
-	MaxDevices    int       `json:"max_devices"`
-	MaxSessions   int       `json:"max_sessions"`
-	Resources     []string  `json:"resources"`
-	AuthRevision  uint64    `json:"auth_revision,omitempty"`
+	DeletePending bool          `json:"delete_pending"`
+	ID            string        `json:"id"`
+	Alias         string        `json:"alias"`
+	Name          string        `json:"name"`
+	Email         string        `json:"email"`
+	Role          string        `json:"role"`
+	Disabled      bool          `json:"disabled"`
+	ExpiresAt     time.Time     `json:"expires_at"`
+	MaxDevices    int           `json:"max_devices"`
+	MaxSessions   int           `json:"max_sessions"`
+	Resources     Array[string] `json:"resources"`
+	AuthRevision  uint64        `json:"auth_revision,omitempty"`
 }
 
 func (u User) Active(now time.Time) bool {
@@ -57,12 +57,12 @@ func (u User) Active(now time.Time) bool {
 }
 
 type Resource struct {
-	ID       string   `json:"id"`
-	Name     string   `json:"name"`
-	CIDR     string   `json:"cidr"`
-	Protocol string   `json:"protocol"`
-	Ports    []uint16 `json:"ports"`
-	Enabled  bool     `json:"enabled"`
+	ID       string        `json:"id"`
+	Name     string        `json:"name"`
+	CIDR     string        `json:"cidr"`
+	Protocol string        `json:"protocol"`
+	Ports    Array[uint16] `json:"ports"`
+	Enabled  bool          `json:"enabled"`
 }
 type Device struct {
 	CleanupRetry
@@ -77,14 +77,14 @@ type Device struct {
 	CreatedAt     time.Time `json:"created_at"`
 }
 type Lease struct {
-	ID         string     `json:"id"`
-	UserID     string     `json:"user_id"`
-	DeviceID   string     `json:"device_id"`
-	PeerID     string     `json:"peer_id"`
-	IP         string     `json:"ip"`
-	Generation uint64     `json:"generation"`
-	ExpiresAt  time.Time  `json:"expires_at"`
-	Resources  []Resource `json:"resources"`
+	ID         string          `json:"id"`
+	UserID     string          `json:"user_id"`
+	DeviceID   string          `json:"device_id"`
+	PeerID     string          `json:"peer_id"`
+	IP         string          `json:"ip"`
+	Generation uint64          `json:"generation"`
+	ExpiresAt  time.Time       `json:"expires_at"`
+	Resources  Array[Resource] `json:"resources"`
 }
 type Credential struct {
 	// TokenHash is attached by request authentication, never persisted or exported.

@@ -1,0 +1,1 @@
+{"id":"ping","name":"Ping","cidr":"192.168.18.20/32","protocol":"icmp","ports":[],"enabled":true}

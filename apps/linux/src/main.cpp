@@ -1,4 +1,5 @@
 #include "client.hpp"
+#include "frame_presenter.hpp"
 #include "operation_epoch.hpp"
 #include "startup.hpp"
 #include "service.hpp"
@@ -34,7 +35,7 @@ struct State {
     GtkIMContext *ime = nullptr;
     GSubprocess *service = nullptr;
     GtkWidget *internet = nullptr;
-    GtkWidget *replace = nullptr;
+    GtkWidget *replace = nullptr, *viewOnly = nullptr;
     GtkWidget *resources = nullptr;
     std::string root, socket, site;
     Json profileList = Json::array(), hostList = Json::array();
@@ -46,7 +47,7 @@ struct State {
     netgo::desktop_linux::OperationEpoch epoch;
     std::atomic_bool cancelling = false;
     std::mutex mutex;
-    Frame frame;
+    std::shared_ptr<const Frame> frame;
     netgo::remote::InputQueue inputs;
     uint32_t caps = 0;
     netgo::desktop_linux::RemoteActions remoteActions;
@@ -187,7 +188,7 @@ void queue(Json input) {
 void present(Frame frame) {
     {
         std::lock_guard lock(state->mutex);
-        state->frame = std::move(frame);
+        state->frame = std::make_shared<const Frame>(std::move(frame));
     }
     if (state->renderPending.exchange(true))
         return;
@@ -195,27 +196,21 @@ void present(Frame frame) {
         state->renderPending = false;
         if (!state->alive)
             return;
-        Frame frame;
+        std::shared_ptr<const Frame> frame;
         {
             std::lock_guard lock(state->mutex);
             frame = state->frame;
         }
-        if (frame.bgra.empty())
-            return;
-        auto bytes = g_bytes_new(frame.bgra.data(), frame.bgra.size());
-        auto texture = gdk_memory_texture_new(int(frame.width), int(frame.height), GDK_MEMORY_B8G8R8A8, bytes,
-                                              frame.width * 4);
-        g_bytes_unref(bytes);
-        gtk_picture_set_paintable(GTK_PICTURE(state->picture), GDK_PAINTABLE(texture));
-        g_object_unref(texture);
+        netgo::desktop_linux::presentFrame(GTK_PICTURE(state->picture), std::move(frame));
     });
 }
 bool point(double x, double y, bool clamp) {
     uint32_t w, h;
     {
         std::lock_guard lock(state->mutex);
-        w = state->frame.width;
-        h = state->frame.height;
+        if (!state->frame) return false;
+        w = state->frame->width;
+        h = state->frame->height;
     }
     if (!w || !h)
         return false;
@@ -253,7 +248,8 @@ void view(std::string host) {
     gtk_widget_set_sensitive(state->remoteButton, FALSE);
     auto site = state->site;
     auto version = ++state->remoteVersion;
-    state->remote = std::thread([host = std::move(host), site, version] {
+    const bool viewOnly = gtk_check_button_get_active(GTK_CHECK_BUTTON(state->viewOnly));
+    state->remote = std::thread([host = std::move(host), site, version, viewOnly] {
         struct ViewerContext {
             std::string site;
             uint64_t version;
@@ -265,8 +261,8 @@ void view(std::string host) {
         o.abi_version = NG_REMOTE_CLIENT_ABI;
         o.site_id = site.c_str();
         o.host_id = host.c_str();
-        o.capabilities =
-            NG_REMOTE_VIEW | NG_REMOTE_INPUT | NG_REMOTE_CLIPBOARD | NG_REMOTE_UPLOAD | NG_REMOTE_DOWNLOAD;
+        o.capabilities = NG_REMOTE_VIEW | NG_REMOTE_CLIPBOARD | NG_REMOTE_UPLOAD | NG_REMOTE_DOWNLOAD |
+            (viewOnly ? 0 : NG_REMOTE_INPUT);
         o.active = [](void *) -> int32_t { return state->alive && state->remoteActive ? 1 : 0; };
         o.control = [](void *p, const char *method, const char *path, const char *body, const char *idem,
                        char *output, size_t capacity, size_t *length) -> int32_t {
@@ -905,6 +901,8 @@ void activate(GtkApplication *app, void *) {
                          });
                      }),
                      nullptr);
+    state->viewOnly = gtk_check_button_new_with_label("本次仅查看");
+    gtk_box_append(GTK_BOX(row), state->viewOnly);
     state->remoteButton = gtk_button_new_with_label("打开远程桌面");
     gtk_box_append(GTK_BOX(row), state->remoteButton);
     g_signal_connect(state->remoteButton, "clicked", callback(+[](GtkButton *, void *) {

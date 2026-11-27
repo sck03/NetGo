@@ -4,6 +4,13 @@
 #include <fstream>
 #include <iostream>
 #include <functional>
+#include <cstdlib>
+#ifdef _WIN32
+#include <windows.h>
+#else
+#include <sys/wait.h>
+#include <unistd.h>
+#endif
 #ifndef _WIN32
 #include <sys/stat.h>
 #endif
@@ -29,13 +36,74 @@ std::string hash(const std::vector<uint8_t> &b) {
     check(EVP_Digest(b.data(), b.size(), digest, &n, EVP_sha256(), nullptr) == 1 && n == 32, "hash");
     return encode64(digest, 32);
 }
-int main() {
+// Deliberately bypass destructors: restart recovery must rely on OS lock release.
+void crashUpload(const fs::path &root) {
+    Files files(root);
+    auto token = files.begin("interrupted.bin", 65536);
+    files.write(token, 0, std::vector<uint8_t>(32768, 42));
+    std::_Exit(0);
+}
+void runCrashedUploader(const fs::path &root) {
+#ifdef _WIN32
+    wchar_t executable[32768]{};
+    check(GetModuleFileNameW(nullptr, executable, 32768) != 0, "test executable path");
+    auto command = L"\"" + std::wstring(executable) + L"\" --crash-upload \"" + root.wstring() + L"\"";
+    STARTUPINFOW startup{}; startup.cb = sizeof(startup);
+    PROCESS_INFORMATION process{};
+    check(CreateProcessW(executable, command.data(), nullptr, nullptr, FALSE, CREATE_NO_WINDOW,
+                         nullptr, nullptr, &startup, &process), "start crashed uploader");
+    CloseHandle(process.hThread);
+    const auto waited = WaitForSingleObject(process.hProcess, 10000);
+    DWORD code = 1;
+    GetExitCodeProcess(process.hProcess, &code);
+    if (waited != WAIT_OBJECT_0) TerminateProcess(process.hProcess, 1);
+    CloseHandle(process.hProcess);
+    check(waited == WAIT_OBJECT_0 && code == 0, "crashed uploader failed");
+#else
+    const auto child = fork();
+    check(child >= 0, "fork uploader");
+    if (!child) crashUpload(root);
+    int status = 0;
+    check(waitpid(child, &status, 0) == child && WIFEXITED(status) && WEXITSTATUS(status) == 0,
+          "crashed uploader failed");
+#endif
+}
+int main(int argc, char **argv) {
+    if (argc == 3 && std::string(argv[1]) == "--crash-upload") crashUpload(utf8_path(argv[2]));
     auto root = fs::temp_directory_path() /
                 fs::path("netgo-exchange-test-" +
                          std::to_string(std::chrono::steady_clock::now().time_since_epoch().count()));
     try {
         fs::create_directories(root / "remote");
         fs::create_directories(root / "local");
+        const auto interrupted = root / "restart";
+        runCrashedUploader(interrupted);
+        size_t partials = 0;
+        for (const auto &entry : fs::directory_iterator(interrupted))
+            if (entry.path().extension() == ".part") ++partials;
+        check(partials == 1, "crash did not leave a partial upload");
+        {
+            Files recovered(interrupted);
+            for (const auto &entry : fs::directory_iterator(interrupted))
+                check(entry.path().extension() != ".part", "orphan upload survived restart");
+            auto token = recovered.begin("live.bin", 1);
+            recovered.write(token, 0, {42});
+            Files second(interrupted);
+            denied([&] { second.begin("parallel.bin", 0); });
+            recovered.commit(token, hash({42}));
+            check(fs::exists(interrupted / "live.bin"), "active upload was reclaimed");
+            token = second.begin("after.bin", 0);
+            second.commit(token, hash({}));
+        }
+        {
+            const auto hidden = root / "hidden-quota";
+            fs::create_directories(hidden);
+            for (unsigned i = 0; i < 256; ++i)
+                std::ofstream(hidden / (".unrecognized-" + std::to_string(i)));
+            Files files(hidden);
+            denied([&] { files.begin("over-quota.bin", 0); });
+            check(fs::exists(hidden / ".unrecognized-0"), "unowned file was reclaimed");
+        }
         for (auto name : {"", ".", "..", "../outside", "a/b", "a\\b", "C:test", "CON", "NUL.txt", "file.",
                           "COM1.bin", ".secret", "file "})
             check(!valid_file_name(name), "unsafe name");
@@ -233,7 +301,7 @@ int main() {
             check(!exchange.push({{"action", "clipboard.set"}, {"text", std::string(8193, 'a')}}),
                   "oversized clipboard accepted");
             for (auto &e : fs::directory_iterator(root / "remote"))
-                check(e.path().filename().string().rfind(".netgo-", 0) != 0, "temporary upload leaked");
+                check(e.path().extension() != ".part", "temporary upload leaked");
         }
         fs::remove_all(root);
         std::cout << "file boundaries, integrity, upload/download, permission and cancellation passed\n";

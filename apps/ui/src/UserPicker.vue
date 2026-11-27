@@ -1,9 +1,9 @@
 <script setup lang="ts">
 import { computed, onMounted, onUnmounted, ref, watch } from 'vue'
 import { LatestQuery } from '../../../packages/ui/query'
-import type { UserChoice, UserChoices } from '../../../packages/ui/contracts'
+import type { UserChoice, UserChoices, AdminRequest } from '../../../packages/ui/contracts'
 import ListPager from './ListPager.vue'
-const props = defineProps<{ modelValue: string; label?: string; disabled: boolean; request: (path: string) => Promise<any> }>()
+const props = defineProps<{ modelValue: string; label?: string; disabled: boolean; request: AdminRequest }>()
 const emit = defineEmits<{ 'update:modelValue': [value: string] }>()
 const search = ref(''), after = ref(''), busy = ref(false), error = ref('')
 const page = ref<UserChoices>({ users: [], next_after: '' })
@@ -15,7 +15,7 @@ watch([() => props.modelValue, () => page.value.users], () => {
   selectedUser.value = page.value.users.find(user => user.id === props.modelValue) || (selectedUser.value?.id === props.modelValue ? selectedUser.value : undefined)
 }, { immediate: true })
 let alive = true, version = 0, timer: ReturnType<typeof setTimeout> | undefined
-const query = new LatestQuery(() => props.request('/netgo/v2/admin/users/choices?after=' + encodeURIComponent(after.value) + '&q=' + encodeURIComponent(search.value)), value => { page.value = value })
+const query = new LatestQuery(() => props.request<UserChoices>('/netgo/v2/admin/users/choices?after=' + encodeURIComponent(after.value) + '&q=' + encodeURIComponent(search.value)), value => { page.value = value })
 async function load(cursor = '') {
   const request = ++version
   query.invalidate(); after.value = cursor; busy.value = true; error.value = ''
