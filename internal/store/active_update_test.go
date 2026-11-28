@@ -30,7 +30,7 @@ func TestActiveUpdatesPreserveHistoryAndInvalidateRoutes(t *testing.T) {
 			before, _ := s.View()
 			write := func(fn func(*model.State) error) error { return s.VPNUpdate(context.Background(), fn) }
 			if policy {
-				write = s.RemotePolicyUpdate
+				write = func(fn func(*model.State) error) error { return s.RemotePolicyUpdate(context.Background(), fn) }
 			}
 			mutation := func(st *model.State) error {
 				if len(st.RemoteSessions) != 1 || len(st.RemoteOperations) != 0 {

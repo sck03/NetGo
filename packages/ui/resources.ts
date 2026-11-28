@@ -52,5 +52,5 @@ export function resourcePayload(form: ResourceForm): Resource {
     return port
   }))]
   if (ports.length > 64) throw Error('单个资源最多配置 64 个端口')
-  return { id: form.id, name, cidr, protocol: form.protocol, ports, enabled: form.enabled }
+  return { id: form.id, name, cidr, protocol: form.protocol, ports, enabled: form.enabled, edit_token: form.edit_token }
 }

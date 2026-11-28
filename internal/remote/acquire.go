@@ -37,7 +37,7 @@ func (m *Manager) verifyPeers(ctx context.Context, c model.Credential, host stri
 	if m.Peers == nil {
 		return nil, ErrUnavailable
 	}
-	st, e := m.Store.RemoteTargetView(c, "", host)
+	st, e := m.Store.RemoteTargetView(ctx, c, "", host)
 	if e != nil {
 		return nil, e
 	}
@@ -79,7 +79,7 @@ func (m *Manager) Acquire(ctx context.Context, c model.Credential, req Request, 
 	}
 	fingerprint := model.Hash(fmt.Sprintf("%s|%s|%s|%d|%d", c.UserID, c.DeviceID, req.HostID, req.Generation, req.Capabilities))
 	opKey := model.Hash(c.UserID + ":" + c.DeviceID + ":" + key)
-	e = m.Store.RemoteAcquireUpdate(c, req.HostID, opKey, m.now(), func(st *model.State, limits store.RemoteAcquireLimits) error {
+	e = m.Store.RemoteAcquireUpdate(ctx, c, req.HostID, opKey, m.now(), func(st *model.State, limits store.RemoteAcquireLimits) error {
 		now := m.now()
 		if e := current(st, c, now); e != nil {
 			return e

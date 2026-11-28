@@ -4,6 +4,8 @@ import { resourcePayload, resourcePresets, validateResourceNetwork, type Network
 const props = defineProps<{ resources: Resource[]; network: NetworkAccess; busy: boolean; save: (resource: Resource) => Promise<boolean>; remove: (resource: Resource) => Promise<boolean> }>()
 const form = ref<ResourceForm | null>(null), preset = ref('web'), error = ref(''), editing = ref(false)
 const search = ref('')
+const latest = computed(() => props.resources.find(r => r.id === form.value?.id))
+const stale = computed(() => !!form.value && (editing.value ? !latest.value || latest.value.edit_token !== form.value.edit_token : !!latest.value))
 const groups = computed(() => {
   const text = search.value.trim().toLocaleLowerCase()
   const resources = props.resources.filter(r => (r.name + ' ' + r.cidr + ' ' + r.protocol + ' ' + r.ports.join(' ')).toLocaleLowerCase().includes(text))
@@ -15,7 +17,7 @@ const groups = computed(() => {
 const address = (resource: Resource) => resource.protocol === 'internet' ? '旁路由互联网出口' : resource.cidr.replace(/\/32$/, '')
 function add() {
   editing.value = false; error.value = ''; preset.value = 'web'
-  form.value = { id: 'resource-' + crypto.randomUUID(), name: '', cidr: '', protocol: 'tcp', ports: '443', enabled: true }
+  form.value = { id: 'resource-' + crypto.randomUUID(), name: '', cidr: '', protocol: 'tcp', ports: '443', enabled: true, edit_token: '' }
 }
 function edit(resource: Resource) {
   editing.value = true; error.value = ''
@@ -28,7 +30,7 @@ function applyPreset() {
   else if (form.value?.protocol === 'internet') { form.value.protocol = 'tcp'; form.value.ports = '' }
 }
 async function save() {
-  if (!form.value) return
+  if (!form.value || stale.value) return
   error.value = ''
   try {
     const resource = resourcePayload(form.value)
@@ -72,7 +74,8 @@ async function remove(resource: Resource) {
       <template v-if="preset === 'custom'"><label>协议<select v-model="form.protocol"><option value="tcp">TCP</option><option value="udp">UDP</option><option value="icmp">ICMP</option></select></label><label v-if="['tcp', 'udp'].includes(form.protocol)">端口<input v-model="form.ports" required placeholder="例如：8080,8443"></label></template>
       <p v-else-if="form.ports" class="muted">将开放 {{ form.protocol.toUpperCase() }} {{ form.ports }}。需要其他端口时选择自定义。</p>
       <label class="check"><input v-model="form.enabled" type="checkbox">启用此资源</label>
-      <div class="actions"><button class="primary" :disabled="busy">保存资源</button><button type="button" class="secondary" :disabled="busy" @click="form = null">取消</button></div>
+      <p v-if="stale" class="alert" role="status">资源已发生变化，草稿已保留。请重新载入并核对最新设置。<button v-if="latest" type="button" class="secondary" :disabled="busy" @click="edit(latest)">载入最新设置</button></p>
+      <div class="actions"><button class="primary" :disabled="busy || stale">保存资源</button><button type="button" class="secondary" :disabled="busy" @click="form = null">取消</button></div>
     </form>
     <details><summary>技术信息</summary><p>资源编号：{{ form.id }}（自动生成）</p></details>
   </section>

@@ -17,7 +17,7 @@ func (p failingPeers) Verify(context.Context, string) (session.Binding, error) {
 func TestRemoteRenewLookupOutagePreservesUnextendedSession(t *testing.T) {
 	f := setup(t)
 	a := f.acquire(t)
-	if _, err := f.m.Consume(f.h, a.Session.ID, 1, f.boot, proof(t, a, f.controller)); err != nil {
+	if _, err := f.m.Consume(context.Background(), f.h, a.Session.ID, 1, f.boot, proof(t, a, f.controller)); err != nil {
 		t.Fatal(err)
 	}
 	for _, cause := range []error{context.DeadlineExceeded, model.ErrNotFound} {
@@ -44,15 +44,15 @@ func TestNoopGrantKeepsTicketValid(t *testing.T) {
 		t.Fatal(err)
 	}
 	g := st.RemoteGrants[a.Session.GrantID]
-	updated, err := f.m.Grant(f.c, g)
+	updated, err := f.m.Grant(context.Background(), f.c, g)
 	if err != nil || updated.Revision != g.Revision {
 		t.Fatal(err)
 	}
-	if _, err = f.m.Consume(f.h, a.Session.ID, 1, f.boot, proof(t, a, f.controller)); err != nil {
+	if _, err = f.m.Consume(context.Background(), f.h, a.Session.ID, 1, f.boot, proof(t, a, f.controller)); err != nil {
 		t.Fatal("no-op invalidated ticket", err)
 	}
 	g.Capabilities = 1
-	if _, err = f.m.Grant(f.c, g); err != nil {
+	if _, err = f.m.Grant(context.Background(), f.c, g); err != nil {
 		t.Fatal(err)
 	}
 	st, err = f.m.Store.View()

@@ -1,6 +1,7 @@
 package store
 
 import (
+	"context"
 	"database/sql"
 	"netgo/internal/model"
 	"time"
@@ -48,15 +49,15 @@ func remoteTarget(c model.Credential, id, host string) func(*sql.Tx) (model.Stat
 	}
 }
 
-func (s *Store) RemoteTargetView(c model.Credential, id, host string) (model.State, error) {
-	return s.viewWith(remoteTarget(c, id, host))
+func (s *Store) RemoteTargetView(ctx context.Context, c model.Credential, id, host string) (model.State, error) {
+	return s.viewWithContext(ctx, remoteTarget(c, id, host))
 }
-func (s *Store) RemoteTargetUpdate(c model.Credential, id, host string, fn func(*model.State) error) error {
-	return s.updateWith(remoteTarget(c, id, host), fn)
+func (s *Store) RemoteTargetUpdate(ctx context.Context, c model.Credential, id, host string, fn func(*model.State) error) error {
+	return s.updateWithContext(ctx, remoteTarget(c, id, host), fn)
 }
 
-func (s *Store) RemoteSweep(now time.Time, fn func(*model.State) error) error {
-	return s.updateWith(func(tx *sql.Tx) (model.State, error) {
+func (s *Store) RemoteSweep(ctx context.Context, now time.Time, fn func(*model.State) error) error {
+	return s.updateWithContext(ctx, func(tx *sql.Tx) (model.State, error) {
 		st, err := read(tx, 0)
 		if err == nil {
 			err = readRows(tx, "remote_sessions", st.RemoteSessions, "WHERE state IN ('issued','active')")

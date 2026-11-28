@@ -52,7 +52,13 @@ func (s *Store) AdminPage(section, before string, limit int) (model.State, strin
 			err = readRows(tx, "users", st.Users, "WHERE id>? ORDER BY id LIMIT ?", before, limit+1)
 			next = trimPage(st.Users, limit)
 			if err == nil {
-				err = readMap(tx, "resources", st.Resources)
+				ids := map[string]bool{}
+				for _, user := range st.Users {
+					for _, id := range user.Resources {
+						ids[id] = true
+					}
+				}
+				err = readRows(tx, "resources", st.Resources, "WHERE id IN (SELECT value FROM json_each(?))", keyJSON(ids))
 			}
 		case "resources":
 			err = readRows(tx, "resources", st.Resources, "WHERE id>? ORDER BY id LIMIT ?", before, limit+1)

@@ -24,6 +24,10 @@ const admin = new AdminSession(active => {
 })
 let timer: ReturnType<typeof setInterval> | undefined
 const request: AdminRequest = (path, method, body) => admin.request(path, method, body)
+async function exportDiagnostics() {
+  const summary = await admin.request<AdminState>('/netgo/v2/admin/summary')
+  download(summary.runtime, 'netgo-diagnostics.json')
+}
 const listAfter = ref('')
 const stateQuery = new LatestQuery(() => admin.request<Partial<AdminState>>(['overview', 'diagnostics', 'sessions', 'remote'].includes(page.value)
   ? '/netgo/v2/admin/summary'
@@ -84,7 +88,12 @@ async function deleteUser(user: User) {
 }
 async function saveResource(resource: Resource) {
   return action(async () => {
-    await admin.request('/netgo/v2/admin/resources/' + encodeURIComponent(resource.id), 'PUT', resource)
+    try {
+      await admin.request('/netgo/v2/admin/resources/' + encodeURIComponent(resource.id), 'PUT', resource)
+    } catch (e) {
+      if (e instanceof RequestError && e.code === 'edit_conflict') await refresh(true)
+      throw e
+    }
     await refresh(true); notice.value = '资源已保存，服务会自动应用策略；请到账号与权限中勾选此资源。'
   })
 }
@@ -153,7 +162,7 @@ onUnmounted(() => { if (timer) clearInterval(timer); stateQuery.invalidate(); au
           <button class="secondary" @click="page = 'diagnostics'">查看运行诊断</button>
         </section>
       </template>
-      <UserPanel v-else-if="page === 'users'" :users="users" :resources="resources" :busy="busy" :create="createUser" :save="saveUser" :remove="deleteUser" />
+      <UserPanel :request="request" v-else-if="page === 'users'" :users="users" :resources="resources" :busy="busy" :create="createUser" :save="saveUser" :remove="deleteUser" />
       <ResourcePanel v-else-if="page === 'resources' && state.network" :resources="resources" :network="state.network" :busy="busy" :save="saveResource" :remove="deleteResource" />
       <SessionPanel v-else-if="page === 'sessions'" :request="request" />
       <RemotePanel v-else-if="page === 'remote'" :request="request" />
@@ -161,7 +170,7 @@ onUnmounted(() => { if (timer) clearInterval(timer); stateQuery.invalidate(); au
         <section class="card"><h3>运行诊断</h3><p>最近检查：{{ state.runtime?.sampled_at && !state.runtime.sampled_at.startsWith('0001-') ? new Date(state.runtime.sampled_at).toLocaleString() : '等待采样' }}</p>
           <dl><dt>运行时间</dt><dd>{{ state.runtime?.uptime_seconds || 0 }} 秒</dd><dt>进程堆内存</dt><dd>{{ Math.round((state.runtime?.process_heap_bytes || 0) / 1048576) }} MiB</dd><dt>并发任务</dt><dd>{{ state.runtime?.process_goroutines || 0 }}</dd><dt>累计请求 / 错误</dt><dd>{{ state.runtime?.requests || 0 }} / {{ state.runtime?.request_errors || 0 }}</dd><dt>累计 CPU 时间</dt><dd>{{ (state.runtime?.host_resources?.process_cpu_seconds || 0).toFixed(1) }} 秒</dd><dt>峰值驻留内存</dt><dd>{{ Math.round((state.runtime?.host_resources?.process_max_rss_bytes || 0) / 1048576) }} MiB</dd><dt>数据库磁盘可用</dt><dd>{{ ((state.runtime?.host_resources?.database_disk_available_bytes || 0) / 1073741824).toFixed(1) }} GiB</dd><dt>近一分钟认证失败</dt><dd>{{ state.runtime?.authentication_failures_last_minute || 0 }}</dd></dl>
           <table><thead><tr><th>检查</th><th>状态</th><th>说明</th></tr></thead><tbody><tr v-for="check in (state.runtime?.checks || [])" :key="check.name"><td>{{ check.name }}</td><td>{{ check.status }}</td><td>{{ check.detail }}</td></tr></tbody></table>
-          <button class="secondary" :disabled="busy" @click="action(async () => download(await admin.request('/netgo/v2/admin/diagnostics'), 'netgo-diagnostics.json'))">导出脱敏诊断</button>
+          <button class="secondary" :disabled="busy" @click="action(exportDiagnostics)">导出脱敏诊断</button>
         </section>
         <section class="card"><h3>管理审计</h3><table><thead><tr><th>时间</th><th>操作</th><th>对象</th></tr></thead><tbody><tr v-for="a in audit.events" :key="a.sequence"><td>{{ new Date(a.at).toLocaleString() }}</td><td>{{ a.action }}</td><td class="truncate">{{ a.object }}</td></tr></tbody></table><button class="secondary" :disabled="busy || !auditBefore" @click="action(() => auditPage())">最新记录</button><button class="secondary" :disabled="busy || !audit.next_before" @click="action(() => auditPage(audit.next_before))">更早记录</button></section>
       </template>

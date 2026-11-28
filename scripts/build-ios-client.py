@@ -23,7 +23,11 @@ def main():
     build_config=config('ios',args.version,args.arch)
     if args.build_number<1:parser.error('build number must be positive')
     if args.plan:print(json.dumps(dict(build_config,sdk=args.sdk,build_number=args.build_number)));print('iOS 17+: SwiftUI app, Packet Tunnel extension, Keychain device identity, Go VPN runtime and native viewer; simulator build or team-signed device build.');return
-    env=environment();archive=native(args.sdk,'arm64','17.0',env)
+    env=environment()
+    tests=ROOT/'.cache/apple-tests';tests.mkdir(parents=True,exist_ok=True)
+    run(['xcrun','swiftc','-swift-version','5','-parse-as-library',ROOT/'apps/apple/iOS/TunnelRequestQueue.swift',ROOT/'apps/apple/tests/TunnelRequestQueueTests.swift','-o',tests/'tunnel-requests'],env=env)
+    run([tests/'tunnel-requests'],env=env)
+    archive=native(args.sdk,'arm64','17.0',env)
     version='v0.0.0-20260816165457-f98cc9b3c733'
     run(['go','install','golang.org/x/mobile/cmd/gomobile@'+version],env=env)
     run(['go','install','golang.org/x/mobile/cmd/gobind@'+version],env=env)

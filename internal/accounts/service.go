@@ -214,7 +214,10 @@ func (s *Service) cleanup(ctx context.Context, id string) error {
 	if err == nil {
 		return nil
 	}
-	return errors.Join(err, s.Store.Update(func(st *model.State) error {
+	// Persist backoff even when the caller cancelled the failed deletion.
+	bookkeeping, stop := context.WithTimeout(context.Background(), 2*time.Second)
+	defer stop()
+	return errors.Join(err, s.Store.UserCleanupUpdate(bookkeeping, id, func(st *model.State) error {
 		if u, ok := st.Users[id]; ok && u.DeletePending {
 			u.CleanupRetry.Failed(time.Now().UTC())
 			st.Users[id] = u

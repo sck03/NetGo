@@ -25,7 +25,7 @@ func TestInventoryExcludesHistoryAndHistoryIsBounded(t *testing.T) {
 	}); err != nil {
 		t.Fatal(err)
 	}
-	inv, err := f.m.List(f.c, "")
+	inv, err := f.m.List(context.Background(), f.c, "")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -51,7 +51,7 @@ func TestInventoryExcludesHistoryAndHistoryIsBounded(t *testing.T) {
 func TestHistoryUsesCreationTimeAndRetainsItAcrossRenewal(t *testing.T) {
 	f := setup(t)
 	a := f.acquire(t)
-	if _, err := f.m.Consume(f.h, a.Session.ID, a.Session.Sequence, f.boot, proof(t, a, f.controller)); err != nil {
+	if _, err := f.m.Consume(context.Background(), f.h, a.Session.ID, a.Session.Sequence, f.boot, proof(t, a, f.controller)); err != nil {
 		t.Fatal(err)
 	}
 	f.now = f.now.Add(time.Second)
@@ -59,7 +59,7 @@ func TestHistoryUsesCreationTimeAndRetainsItAcrossRenewal(t *testing.T) {
 	if err != nil || !renewed.Session.CreatedAt.Equal(a.Session.CreatedAt) || !renewed.Session.IssuedAt.After(a.Session.IssuedAt) {
 		t.Fatal("renew changed start time", err)
 	}
-	if err = f.m.Revoke(f.c, a.Session.ID); err != nil {
+	if err = f.m.Revoke(context.Background(), f.c, a.Session.ID); err != nil {
 		t.Fatal(err)
 	}
 	if err = f.m.Store.Update(func(st *model.State) error {

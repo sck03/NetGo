@@ -82,7 +82,7 @@ func activeLease(st *model.State, device string, now time.Time) (model.Lease, bo
 	return model.Lease{}, false
 }
 
-func (m *Manager) Register(c model.Credential, h model.Host) (model.Host, error) {
+func (m *Manager) Register(ctx context.Context, c model.Credential, h model.Host) (model.Host, error) {
 	if _, e := decode(h.Boot, 16); e != nil {
 		return h, e
 	}
@@ -92,7 +92,7 @@ func (m *Manager) Register(c model.Credential, h model.Host) (model.Host, error)
 	if h.ID != c.DeviceID || len(strings.TrimSpace(h.Name)) == 0 || len(h.Name) > 128 || !capabilities(h.Capabilities) || h.Port < 1024 || (h.Platform != "windows" && h.Platform != "macos" && h.Platform != "linux") {
 		return h, errors.New("invalid_remote_host")
 	}
-	err := m.Store.RemotePolicyUpdate(func(st *model.State) error {
+	err := m.Store.RemotePolicyUpdate(ctx, func(st *model.State) error {
 		now := m.now()
 		if e := current(st, c, now); e != nil {
 			return e
@@ -129,8 +129,8 @@ func closeHost(st *model.State, id, actor string, now time.Time) {
 	}
 }
 
-func (m *Manager) Heartbeat(c model.Credential, boot string) error {
-	return m.Store.RemoteTargetUpdate(c, "", c.DeviceID, func(st *model.State) error {
+func (m *Manager) Heartbeat(ctx context.Context, c model.Credential, boot string) error {
+	return m.Store.RemoteTargetUpdate(ctx, c, "", c.DeviceID, func(st *model.State) error {
 		now := m.now()
 		if e := current(st, c, now); e != nil {
 			return e
@@ -148,12 +148,12 @@ func (m *Manager) Heartbeat(c model.Credential, boot string) error {
 	})
 }
 
-func (m *Manager) Grant(c model.Credential, g model.RemoteGrant) (model.RemoteGrant, error) {
+func (m *Manager) Grant(ctx context.Context, c model.Credential, g model.RemoteGrant) (model.RemoteGrant, error) {
 	if !capabilities(g.Capabilities) {
 		return g, errors.New("invalid_remote_capabilities")
 	}
 	g.ID = model.Hash(g.UserID + ":" + g.HostID)
-	err := m.Store.RemotePolicyUpdate(func(st *model.State) error {
+	err := m.Store.RemotePolicyUpdate(ctx, func(st *model.State) error {
 		now := m.now()
 		if e := current(st, c, now); e != nil {
 			return e
@@ -178,7 +178,10 @@ func (m *Manager) Grant(c model.Credential, g model.RemoteGrant) (model.RemoteGr
 		if !g.ExpiresAt.IsZero() && !g.ExpiresAt.After(now) {
 			return errors.New("invalid_remote_grant_expiry")
 		}
-		old := st.RemoteGrants[g.ID]
+		old, exists := st.RemoteGrants[g.ID]
+		if err := model.CheckEditToken(old.EditToken, g.EditToken, exists); err != nil {
+			return err
+		}
 		if old.ID == g.ID && old.Capabilities == g.Capabilities && old.ExpiresAt.Equal(g.ExpiresAt) {
 			g = old
 			return nil
@@ -187,6 +190,7 @@ func (m *Manager) Grant(c model.Credential, g model.RemoteGrant) (model.RemoteGr
 			return model.ErrConflict
 		}
 		g.Revision = old.Revision + 1
+		g.EditToken = model.ID()
 		st.RemoteGrants[g.ID] = g
 		// Any ACL change fences previous tickets; renewal cannot increase authority.
 		for id, r := range st.RemoteSessions {
@@ -201,8 +205,8 @@ func (m *Manager) Grant(c model.Credential, g model.RemoteGrant) (model.RemoteGr
 	return g, err
 }
 
-func (m *Manager) DeleteGrant(c model.Credential, id string) error {
-	return m.Store.RemotePolicyUpdate(func(st *model.State) error {
+func (m *Manager) DeleteGrant(ctx context.Context, c model.Credential, id string) error {
+	return m.Store.RemotePolicyUpdate(ctx, func(st *model.State) error {
 		if e := current(st, c, m.now()); e != nil {
 			return e
 		}
@@ -260,12 +264,12 @@ func (m *Manager) sweep(st *model.State, now time.Time) {
 	}
 }
 
-func (m *Manager) Sweep() error {
-	due, err := m.Store.RemoteCleanupDue(m.now())
+func (m *Manager) Sweep(ctx context.Context) error {
+	due, err := m.Store.RemoteCleanupDue(ctx, m.now())
 	if err != nil || !due {
 		return err
 	}
-	return m.Store.RemoteSweep(m.now(), func(st *model.State) error { m.sweep(st, m.now()); return nil })
+	return m.Store.RemoteSweep(ctx, m.now(), func(st *model.State) error { m.sweep(st, m.now()); return nil })
 }
 
 func (m *Manager) authorization(st *model.State, r model.RemoteSession) (Authorization, error) {
@@ -283,9 +287,9 @@ func (m *Manager) authorization(st *model.State, r model.RemoteSession) (Authori
 	return Authorization{Session: public, Ticket: base64.RawURLEncoding.EncodeToString(wire), SiteKey: m.PublicKey(), HostKey: st.Hosts[r.HostID].TransportKey, ControllerKey: st.Devices[r.ControllerID].PublicKey, Endpoint: net.JoinHostPort(st.Devices[r.HostID].IP, strconv.Itoa(int(st.Hosts[r.HostID].Port))), ServerUnixMS: m.now().UnixMilli()}, e
 }
 
-func (m *Manager) Consume(c model.Credential, id string, sequence uint64, boot string, proof Possession) (Authorization, error) {
+func (m *Manager) Consume(ctx context.Context, c model.Credential, id string, sequence uint64, boot string, proof Possession) (Authorization, error) {
 	var out Authorization
-	e := m.Store.RemoteTargetUpdate(c, id, "", func(st *model.State) error {
+	e := m.Store.RemoteTargetUpdate(ctx, c, id, "", func(st *model.State) error {
 		now := m.now()
 		if e := current(st, c, now); e != nil {
 			return e
@@ -319,9 +323,9 @@ func (m *Manager) Consume(c model.Credential, id string, sequence uint64, boot s
 
 // Inspect returns only current authorization to one of the participating devices.
 // Hosts use it to reconstruct bindings from the authenticated control plane.
-func (m *Manager) Inspect(c model.Credential, id string) (Authorization, error) {
+func (m *Manager) Inspect(ctx context.Context, c model.Credential, id string) (Authorization, error) {
 	var out Authorization
-	st, err := m.Store.RemoteTargetView(c, id, "")
+	st, err := m.Store.RemoteTargetView(ctx, c, id, "")
 	if err != nil {
 		return out, err
 	}
@@ -343,7 +347,7 @@ func (m *Manager) Inspect(c model.Credential, id string) (Authorization, error) 
 
 func (m *Manager) Renew(ctx context.Context, c model.Credential, id string, sequence uint64) (Authorization, error) {
 	var out Authorization
-	st, e := m.Store.RemoteTargetView(c, id, "")
+	st, e := m.Store.RemoteTargetView(ctx, c, id, "")
 	if e != nil {
 		return out, e
 	}
@@ -355,7 +359,7 @@ func (m *Manager) Renew(ctx context.Context, c model.Credential, id string, sequ
 	if e != nil {
 		return out, e
 	}
-	e = m.Store.RemoteTargetUpdate(c, id, "", func(st *model.State) error {
+	e = m.Store.RemoteTargetUpdate(ctx, c, id, "", func(st *model.State) error {
 		now := m.now()
 		if e := current(st, c, now); e != nil {
 			return e
@@ -378,8 +382,8 @@ func (m *Manager) Renew(ctx context.Context, c model.Credential, id string, sequ
 	return out, e
 }
 
-func (m *Manager) Revoke(c model.Credential, id string) error {
-	return m.Store.RemoteTargetUpdate(c, id, "", func(st *model.State) error {
+func (m *Manager) Revoke(ctx context.Context, c model.Credential, id string) error {
+	return m.Store.RemoteTargetUpdate(ctx, c, id, "", func(st *model.State) error {
 		if e := current(st, c, m.now()); e != nil {
 			return e
 		}

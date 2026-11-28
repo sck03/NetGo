@@ -37,6 +37,13 @@ def config(target, selected_version=None, arch=None):
 def project_ldflags(selected_version=None, extra='-s -w'):
     return extra + ' -X netgo/internal/model.Version=' + version(selected_version)
 
+def model_contract(root=ROOT):
+    source = (root / 'internal/model/model.go').read_text(encoding='utf-8')
+    constants = re.findall(r'^const (Protocol|Schema) = ([0-9]+)$', source, re.MULTILINE)
+    if len(constants) != 2 or {name for name, _ in constants} != {'Protocol', 'Schema'}:
+        raise ValueError('Cannot resolve the protocol/schema from the Go model')
+    return {name.lower(): int(value) for name, value in constants}
+
 def source_commit(require_git=False):
     result = subprocess.run(['git', 'rev-parse', 'HEAD'], cwd=ROOT, capture_output=True, text=True)
     if result.returncode == 0: return result.stdout.strip()

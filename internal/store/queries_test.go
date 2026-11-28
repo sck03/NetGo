@@ -61,7 +61,7 @@ func TestScopedUpdatePreservesUnloadedRowsAndIdentity(t *testing.T) {
 	if e != nil {
 		t.Fatal(e)
 	}
-	e = s.RemotePolicyUpdate(func(st *model.State) error {
+	e = s.RemotePolicyUpdate(context.Background(), func(st *model.State) error {
 		if len(st.Resources) != 0 || len(st.Operations) != 0 {
 			t.Fatal("unrelated table loaded")
 		}

@@ -38,7 +38,14 @@ func TestResourceCollectionsMatchFrontendFixture(t *testing.T) {
 		r.SetPathValue("id", "ping")
 		w := httptest.NewRecorder()
 		s.putResource(w, r)
-		if w.Code != 200 || !bytes.Equal(bytes.TrimSpace(w.Body.Bytes()), bytes.TrimSpace(expected)) {
+		var saved, fixture model.Resource
+		if err = json.Unmarshal(w.Body.Bytes(), &saved); err != nil {
+			t.Fatal(err)
+		}
+		if err = json.Unmarshal(expected, &fixture); err != nil {
+			t.Fatal(err)
+		}
+		if w.Code != 200 || saved.EditToken == "" || !saved.SameAccess(fixture) || saved.Name != fixture.Name || saved.Ports == nil {
 			t.Fatalf("unexpected API response: %d %s", w.Code, w.Body.String())
 		}
 		page, _, err := db.AdminPage("resources", "", 50)
@@ -46,7 +53,7 @@ func TestResourceCollectionsMatchFrontendFixture(t *testing.T) {
 			t.Fatal(err)
 		}
 		persisted, err := json.Marshal(page.Resources["ping"])
-		if err != nil || !bytes.Equal(persisted, bytes.TrimSpace(expected)) {
+		if err != nil || !bytes.Equal(persisted, bytes.TrimSpace(w.Body.Bytes())) {
 			t.Fatalf("persisted page contract differs: %s, %v", persisted, err)
 		}
 	}

@@ -16,6 +16,9 @@
 #include <thread>
 #include <mutex>
 #include "remote_input.hpp"
+#include "input_mapping.hpp"
+#include "remote_dialogs.hpp"
+using netgo::desktop_linux::virtualKey;
 #include <algorithm>
 #include <csignal>
 #include <cstring>
@@ -407,52 +410,6 @@ void submit(const Json &value) {
             status("操作队列已满或权限不足");
     } else { status("操作尚未提交，远程连接不可用"); }
 }
-struct ClipReply {
-    std::promise<std::string> value;
-};
-std::string clipboard(bool set, const std::string &text) {
-    auto reply = std::make_shared<ClipReply>();
-    auto future = reply->value.get_future();
-    mainThread([reply, set, text] {
-        if (!state->alive) {
-            reply->value.set_value("");
-            return;
-        }
-        auto clip = gdk_display_get_clipboard(gtk_widget_get_display(state->window));
-        if (set) {
-            gdk_clipboard_set_text(clip, text.c_str());
-            reply->value.set_value("");
-        } else {
-            auto data = new std::shared_ptr<ClipReply>(reply);
-            gdk_clipboard_read_text_async(
-                clip, nullptr,
-                [](GObject *obj, GAsyncResult *result, void *user) {
-                    std::unique_ptr<std::shared_ptr<ClipReply>> reply(
-                        static_cast<std::shared_ptr<ClipReply> *>(user));
-                    GError *error = nullptr;
-                    auto text = gdk_clipboard_read_text_finish(GDK_CLIPBOARD(obj), result, &error);
-                    std::string value = text ? text : "";
-                    if (text)
-                        g_free(text);
-                    if (error)
-                        g_error_free(error);
-                    (*reply)->value.set_value(std::move(value));
-                },
-                data);
-        }
-    });
-    if (future.wait_for(std::chrono::seconds(2)) != std::future_status::ready)
-        throw std::runtime_error("remote_clipboard_timeout");
-    auto out = future.get();
-    if (out.size() > 8192)
-        throw std::runtime_error("remote_clipboard_too_large");
-    return out;
-}
-struct ConsentReply {
-    std::atomic_bool done = false, allowed = false, expired = false;
-    GCancellable *cancel = g_cancellable_new();
-    ~ConsentReply() { g_object_unref(cancel); }
-};
 using netgo::desktop_linux::configureStartup;
 void shareDesktop() {
     state->suspended = false;
@@ -493,49 +450,9 @@ void shareDesktop() {
                                                           state->remoteActive, method, path, body, key, output, capacity, length);
             };
             o.consent = [](void *, const char *user, uint32_t caps) -> int32_t {
-                auto result = std::make_shared<ConsentReply>();
-                std::string account = user;
-                mainThread([result, account, caps] {
-                    if (result->expired || !state->alive) {
-                        result->done = true;
-                        return;
-                    }
-                    auto text = "站点账号 " + account + " 请求查看屏幕" +
-                                std::string((caps & 2) ? "、控制键鼠" : "") +
-                                ((caps & 8) ? "、读写剪贴板" : "") +
-                                ((caps & 48) ? "、收发交换目录文件" : "");
-                    auto dialog = gtk_alert_dialog_new("%s", text.c_str());
-                    const char *buttons[] = {"拒绝", "允许", nullptr};
-                    gtk_alert_dialog_set_buttons(dialog, buttons);
-                    gtk_alert_dialog_set_cancel_button(dialog, 0);
-                    gtk_alert_dialog_set_default_button(dialog, 0);
-                    gtk_alert_dialog_set_modal(dialog, TRUE);
-                    auto data = new std::shared_ptr<ConsentReply>(result);
-                    gtk_alert_dialog_choose(
-                        dialog, GTK_WINDOW(state->window), result->cancel,
-                        [](GObject *object, GAsyncResult *reply, void *user) {
-                            std::unique_ptr<std::shared_ptr<ConsentReply>> p(
-                                static_cast<std::shared_ptr<ConsentReply> *>(user));
-                            GError *error = nullptr;
-                            auto choice =
-                                gtk_alert_dialog_choose_finish(GTK_ALERT_DIALOG(object), reply, &error);
-                            (*p)->allowed = !error && choice == 1 && !(*p)->expired;
-                            (*p)->done = true;
-                            if (error)
-                                g_error_free(error);
-                        },
-                        data);
-                    g_object_unref(dialog);
-                });
-                auto until = std::chrono::steady_clock::now() + std::chrono::seconds(15);
-                while (!result->done && state->alive && state->remoteActive &&
-                       std::chrono::steady_clock::now() < until)
-                    std::this_thread::sleep_for(std::chrono::milliseconds(50));
-                if (result->done)
-                    return result->allowed ? 1 : 0;
-                result->expired = true;
-                g_cancellable_cancel(result->cancel);
-                return 0;
+                return netgo::desktop_linux::requestConsent(
+                    [] { return GTK_WINDOW(state->window); }, mainThread,
+                    [] { return state->alive && state->remoteActive; }, user, caps);
             };
             o.open = [](void *p, uint32_t caps, uint32_t *w, uint32_t *h, uint32_t *fps) -> int32_t {
                 try {
@@ -562,7 +479,9 @@ void shareDesktop() {
             o.clipboard = [](void *, int32_t set, const char *text, size_t size, char *out, size_t capacity,
                              size_t *length) -> int32_t {
                 try {
-                    auto value = clipboard(set != 0, std::string(text, size));
+                    auto value = netgo::desktop_linux::remoteClipboard(
+                        [] { return GTK_WINDOW(state->window); }, mainThread,
+                        [] { return state->alive && state->remoteActive; }, set != 0, std::string(text, size));
                     if (value.size() > capacity)
                         return -1;
                     std::copy(value.begin(), value.end(), out);
@@ -701,57 +620,6 @@ void chooseProfile(GObject *dialog, GAsyncResult *result, void *) {
             g_object_unref(dialog);
         });
     });
-}
-uint32_t virtualKey(guint key) {
-    if (key >= GDK_KEY_a && key <= GDK_KEY_z)
-        return key - GDK_KEY_a + 'A';
-    if (key >= GDK_KEY_A && key <= GDK_KEY_Z)
-        return key;
-    if (key >= GDK_KEY_0 && key <= GDK_KEY_9)
-        return key;
-    if (key >= GDK_KEY_F1 && key <= GDK_KEY_F24)
-        return 112 + key - GDK_KEY_F1;
-    switch (key) {
-    case GDK_KEY_Return:
-        return 13;
-    case GDK_KEY_BackSpace:
-        return 8;
-    case GDK_KEY_Tab:
-        return 9;
-    case GDK_KEY_Escape:
-        return 27;
-    case GDK_KEY_space:
-        return 32;
-    case GDK_KEY_Left:
-        return 37;
-    case GDK_KEY_Up:
-        return 38;
-    case GDK_KEY_Right:
-        return 39;
-    case GDK_KEY_Down:
-        return 40;
-    case GDK_KEY_Delete:
-        return 46;
-    case GDK_KEY_Home:
-        return 36;
-    case GDK_KEY_End:
-        return 35;
-    case GDK_KEY_Page_Up:
-        return 33;
-    case GDK_KEY_Page_Down:
-        return 34;
-    case GDK_KEY_Shift_L:
-    case GDK_KEY_Shift_R:
-        return 16;
-    case GDK_KEY_Control_L:
-    case GDK_KEY_Control_R:
-        return 17;
-    case GDK_KEY_Alt_L:
-    case GDK_KEY_Alt_R:
-        return 18;
-    default:
-        return 0;
-    }
 }
 void activate(GtkApplication *app, void *) {
     state->app = app;

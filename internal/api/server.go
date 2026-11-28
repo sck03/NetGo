@@ -260,6 +260,14 @@ func (s *Server) Handler() http.Handler {
 		}
 		reply(w, 200, map[string]any{"users": st.Users, "resources": st.Resources, "devices": st.Devices, "leases": st.Leases, "revision": st.Revision, "observed_revision": st.ObservedRevision, "last_error": st.LastError, "runtime": monitor.Snapshot(s.Config, st), "network": s.Config.Access(), "next_after": next})
 	})
+	secured("GET /netgo/v2/admin/resources/choices", true, func(w http.ResponseWriter, r *http.Request) {
+		page, err := s.Store.ResourceChoices(r.Context(), r.URL.Query().Get("after"), r.URL.Query().Get("q"))
+		if err != nil {
+			failure(w, err)
+			return
+		}
+		reply(w, 200, page)
+	})
 	secured("GET /netgo/v2/admin/summary", true, func(w http.ResponseWriter, r *http.Request) {
 		st, counts, err := s.Store.AdminSummary(time.Now())
 		if err != nil {
@@ -290,20 +298,6 @@ func (s *Server) Handler() http.Handler {
 			return
 		}
 		reply(w, 200, page)
-	})
-	secured("GET /netgo/v2/admin/diagnostics", true, func(w http.ResponseWriter, r *http.Request) {
-		state, counts, err := s.Store.AdminSummary(time.Now())
-		if err != nil {
-			failure(w, err)
-			return
-		}
-		monitor := s.Monitor
-		if monitor == nil {
-			monitor = diagnostics.NewMonitor()
-		}
-		report := monitor.Snapshot(s.Config, state)
-		report.Counts = counts
-		reply(w, 200, report)
 	})
 	secured("GET /netgo/v2/admin/users/choices", true, func(w http.ResponseWriter, r *http.Request) {
 		page, err := s.Store.UserChoices(r.URL.Query().Get("after"), r.URL.Query().Get("q"))
@@ -468,9 +462,13 @@ func (s *Server) putResource(w http.ResponseWriter, r *http.Request) {
 			return err
 		}
 		old, exists := st.Resources[v.ID]
+		if err := model.CheckEditToken(old.EditToken, v.EditToken, exists); err != nil {
+			return err
+		}
 		if exists && old.Name == v.Name && old.SameAccess(v) && slices.Equal(old.Ports, v.Ports) {
 			return nil
 		}
+		v.EditToken = model.ID()
 		st.Resources[v.ID] = v
 		st.Record(authorization.Actor(r.Context()), "resource.update", v.ID)
 		return nil

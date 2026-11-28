@@ -35,7 +35,7 @@ func TestAdminSummaryAndPages(t *testing.T) {
 		t.Fatal(counts, err)
 	}
 	page, next, err := s.AdminPage("users", "", 50)
-	if err != nil || len(page.Users) != 50 || next != "049" || len(page.Resources) != 2 {
+	if err != nil || len(page.Users) != 50 || next != "049" || len(page.Resources) != 0 {
 		t.Fatal(next, err)
 	}
 	page, next, err = s.AdminPage("users", next, 50)

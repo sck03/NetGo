@@ -11,7 +11,7 @@ const inventory = ref<RemoteInventory>({ hosts: [], grants: [], sessions: [], us
 const after = ref('')
 const error = ref(''), loadError = ref(''), notice = ref(''), busy = ref(false), loading = ref(false), loaded = ref(false)
 const search = ref(''), statusFilter = ref('all'), updated = ref('')
-const form = ref({ user_id: '', host_id: '', capabilities: 1, expiry: '' })
+const form = ref({ user_id: '', host_id: '', capabilities: 1, expiry: '', edit_token: '' })
 const selectedHost = computed(() => inventory.value.hosts.find(h => h.id === form.value.host_id))
 const availablePermissions = computed(() => permissions.filter(p => (selectedHost.value?.capabilities ?? 0) & p.bit))
 const activeSessions = computed(() => inventory.value.sessions.filter(s => s.state !== 'closed'))
@@ -19,10 +19,13 @@ const hostNames = computed(() => Object.fromEntries(inventory.value.hosts.map(h 
 const readyCount = computed(() => inventory.value.hosts.filter(h => h.status === 'ready').length)
 const filteredHosts = computed(() => inventory.value.hosts.filter(h => statusFilter.value === 'all' || h.status === statusFilter.value))
 const selectedGrant = computed(() => inventory.value.grants.find(g => g.user_id === form.value.user_id && g.host_id === form.value.host_id))
-watch(() => [form.value.user_id, form.value.host_id], () => {
+const stale = computed(() => form.value.edit_token !== (selectedGrant.value?.edit_token ?? ''))
+function reloadGrant() {
   form.value.capabilities = remoteCapabilities(selectedGrant.value?.capabilities ?? 1, selectedHost.value?.capabilities ?? 0)
   form.value.expiry = expiryInput(selectedGrant.value?.expires_at ?? '')
-})
+  form.value.edit_token = selectedGrant.value?.edit_token ?? ''
+}
+watch(() => [form.value.user_id, form.value.host_id], reloadGrant, { flush: 'sync' })
 const label = (bits: number) => permissions.filter(p => bits & p.bit).map(p => p.name).join('、')
 const hints: Record<string, string> = {
   ready: '使用客户端选择此主机，开始远程协助。', busy: '已有远控会话，结束后即可再次连接。',
@@ -30,7 +33,7 @@ const hints: Record<string, string> = {
   vpn_offline: '请让对方先登录站点并连接 VPN。',
 }
 function editGrant(grant: Grant) {
-  form.value = { user_id: grant.user_id, host_id: grant.host_id, capabilities: grant.capabilities, expiry: expiryInput(grant.expires_at) }
+  form.value = { user_id: grant.user_id, host_id: grant.host_id, capabilities: grant.capabilities, expiry: expiryInput(grant.expires_at), edit_token: grant.edit_token }
   document.getElementById('remote-grant')?.scrollIntoView({ behavior: 'smooth', block: 'start' })
 }
 function chooseHost(host: Host) {
@@ -41,10 +44,10 @@ function toggle(bit: number, checked: boolean) { form.value.capabilities = check
 function preset(bits: number) { form.value.capabilities = remoteCapabilities(bits, selectedHost.value?.capabilities ?? 0) }
 async function save() {
   const capabilities = remoteCapabilities(form.value.capabilities, selectedHost.value?.capabilities ?? 0)
-  if (!capabilities || !form.value.user_id || busy.value) return
+  if (!capabilities || !form.value.user_id || busy.value || stale.value) return
   try {
-    const { user_id, host_id, expiry } = form.value
-    await change('/netgo/v2/admin/remote/grants', 'PUT', { user_id, host_id, capabilities, expires_at: expiryPayload(expiry) }, '桌面权限已保存；权限发生变化时关闭相关旧会话，重复保存不影响连接。')
+    const { user_id, host_id, expiry, edit_token } = form.value
+    if (await change('/netgo/v2/admin/remote/grants', 'PUT', { user_id, host_id, capabilities, expires_at: expiryPayload(expiry), edit_token }, '桌面权限已保存；权限发生变化时关闭相关旧会话，重复保存不影响连接。')) reloadGrant()
   } catch (e) { error.value = e instanceof Error ? e.message : String(e) }
 }
 let alive = true, refreshVersion = 0, timer: ReturnType<typeof setInterval> | undefined
@@ -62,8 +65,8 @@ async function refresh() {
 async function change(path: string, method: string, body?: unknown, message = '操作已完成。') {
   if (busy.value) return
   busy.value = true; query.invalidate(); error.value = ''; notice.value = ''
-  try { await props.request(path, method, body); if (alive) notice.value = message }
-  catch (e) { if (alive) error.value = e instanceof Error ? e.message : String(e) }
+  try { await props.request(path, method, body); if (alive) notice.value = message; return true }
+  catch (e) { if (alive) error.value = e instanceof Error ? e.message : String(e); return false }
   finally { if (alive) { busy.value = false; await refresh() } }
 }
 async function revoke(grant: Grant) {
@@ -106,9 +109,10 @@ onUnmounted(() => { alive = false; query.invalidate(); if (timer) clearInterval(
   <section id="remote-grant" class="card">
     <div class="panel-heading"><div><h3>桌面访问授权</h3><p>先选账号和电脑，再选择可执行的操作。仅观看适合演示和问题排查。</p></div><span v-if="selectedGrant" class="status-pill" :class="selectedGrant.active ? 'ready' : 'offline'">{{ selectedGrant.active ? '正在修改已有授权' : '原授权已到期' }}</span></div>
     <form class="grant-form" @submit.prevent="save">
+      <p v-if="stale" class="alert" role="status">授权已发生变化，草稿已保留。请载入最新设置并核对权限。<button type="button" class="secondary" :disabled="busy" @click="reloadGrant">载入最新设置</button></p>
       <div class="form-columns"><UserPicker v-model="form.user_id" :label="inventory.users[form.user_id]" :request="request" :disabled="busy" /><label>电脑<select v-model="form.host_id" :disabled="busy" required><option value="" disabled>选择电脑</option><option v-for="host in inventory.hosts" :key="host.id" :value="host.id">{{ host.name }}</option></select></label></div>
       <template v-if="selectedHost"><div class="preset-bar"><span>快捷选择</span><button type="button" class="secondary" :disabled="busy" @click="preset(1)">仅观看</button><button v-if="selectedHost.capabilities & 2" type="button" class="secondary" :disabled="busy" @click="preset(3)">观看并操作</button></div><fieldset class="permission-list"><legend>允许的操作</legend><label v-for="permission in availablePermissions" :key="permission.bit" class="check"><input type="checkbox" :checked="!!(form.capabilities & permission.bit)" :disabled="busy || permission.bit === 1" @change="toggle(permission.bit, ($event.target as HTMLInputElement).checked)">{{ permission.name }}</label></fieldset></template>
-      <div class="form-columns"><label>到期时间（可留空）<input v-model="form.expiry" type="datetime-local" :disabled="busy"><small class="muted">按当前浏览器时区填写，留空表示不设到期时间。</small></label><div class="actions"><button class="primary" :disabled="busy || !form.user_id || !selectedHost || !(selectedHost.capabilities & 1)">{{ busy ? '处理中…' : '保存桌面授权' }}</button></div></div>
+      <div class="form-columns"><label>到期时间（可留空）<input v-model="form.expiry" type="datetime-local" :disabled="busy"><small class="muted">按当前浏览器时区填写，留空表示不设到期时间。</small></label><div class="actions"><button class="primary" :disabled="busy || stale || !form.user_id || !selectedHost || !(selectedHost.capabilities & 1)">{{ busy ? '处理中…' : '保存桌面授权' }}</button></div></div>
     </form>
     <div class="access-list"><div v-for="grant in inventory.grants" :key="grant.id" class="access-row"><div><strong>{{ inventory.users[grant.user_id] || grant.user_id }}</strong><small>访问 {{ hostNames[grant.host_id] || grant.host_id }}</small></div><div><span>{{ label(grant.capabilities) }}</span><small>{{ grant.active ? (expiryInput(grant.expires_at) ? '到期：' + expiryInput(grant.expires_at).replace('T', ' ') : '不设到期时间') : '授权已到期' }}</small></div><div class="actions"><button class="secondary" :disabled="busy" @click="editGrant(grant)">修改</button><button class="secondary danger-text" :disabled="busy" @click="revoke(grant)">撤销</button></div></div><p v-if="loaded && !inventory.grants.length" class="empty">尚未授予桌面访问权限。</p></div>
   </section>

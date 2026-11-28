@@ -57,7 +57,7 @@ func TestInventoryLoadsOnlyVisibleDependencies(t *testing.T) {
 	}); err != nil {
 		t.Fatal(err)
 	}
-	page, err := f.m.Store.RemoteInventory(f.c, "")
+	page, err := f.m.Store.RemoteInventory(context.Background(), f.c, "")
 	state := page.State
 	if err != nil {
 		t.Fatal(err)
@@ -68,7 +68,7 @@ func TestInventoryLoadsOnlyVisibleDependencies(t *testing.T) {
 	if _, ok := state.Devices["unrelated"]; ok {
 		t.Fatal("loaded unrelated device")
 	}
-	inventory, err := f.m.List(f.c, "")
+	inventory, err := f.m.List(context.Background(), f.c, "")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -97,20 +97,20 @@ func TestExecutableHostContract(t *testing.T) {
 			h.Platform = platform
 			h.RequireConsent = consent
 			h.Capabilities = SupportedCapabilities
-			if _, e = f.m.Register(f.h, h); e != nil {
+			if _, e = f.m.Register(context.Background(), f.h, h); e != nil {
 				t.Fatal(platform, consent, e)
 			}
 		}
 	}
 	for _, platform := range []string{"ios", "android", "unknown"} {
 		h.Platform = platform
-		if _, e = f.m.Register(f.h, h); e == nil {
+		if _, e = f.m.Register(context.Background(), f.h, h); e == nil {
 			t.Fatal("unsupported host accepted", platform)
 		}
 	}
 	h.Platform = "windows"
 	h.TransportKey = ""
-	if _, e = f.m.Register(f.h, h); e == nil {
+	if _, e = f.m.Register(context.Background(), f.h, h); e == nil {
 		t.Fatal("missing transport key accepted")
 	}
 }
@@ -121,10 +121,12 @@ func TestUnattendedGrantAndTransportRotation(t *testing.T) {
 	h := st.Hosts["host"]
 	h.RequireConsent = false
 	h.Capabilities = SupportedCapabilities
-	if _, e := f.m.Register(f.h, h); e != nil {
+	if _, e := f.m.Register(context.Background(), f.h, h); e != nil {
 		t.Fatal(e)
 	}
-	if _, e := f.m.Grant(f.c, model.RemoteGrant{HostID: h.ID, UserID: f.c.UserID, Capabilities: SupportedCapabilities}); e != nil {
+	g := st.RemoteGrants[model.Hash(f.c.UserID+":"+h.ID)]
+	g.Capabilities = SupportedCapabilities
+	if _, e := f.m.Grant(context.Background(), f.c, g); e != nil {
 		t.Fatal(e)
 	}
 	a := f.acquire(t)
@@ -132,7 +134,7 @@ func TestUnattendedGrantAndTransportRotation(t *testing.T) {
 		t.Fatal("unattended or transport binding incorrect")
 	}
 	h.TransportKey = st.Devices["controller"].PublicKey
-	if _, e := f.m.Register(f.h, h); e != nil {
+	if _, e := f.m.Register(context.Background(), f.h, h); e != nil {
 		t.Fatal(e)
 	}
 	st, _ = f.m.Store.View()

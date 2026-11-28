@@ -1,7 +1,7 @@
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
 import { resourcePayload, validateResourceNetwork } from '../../packages/ui/resources.ts'
-const form = { id: 'resource-example', name: ' 文件服务 ', cidr: '192.168.18.20', protocol: 'tcp', ports: '445', enabled: true }
+const form = { id: 'resource-example', name: ' 文件服务 ', cidr: '192.168.18.20', protocol: 'tcp', ports: '445', enabled: true, edit_token: 'resource-v1' }
 const network = { lan_interface: 'eth0', local_cidrs: ['192.168.18.0/23', '10.1.0.0/24'], internet_enabled: false, dns: [] }
 
 test('resource network bounds reject wider and unrelated networks before submission', () => {

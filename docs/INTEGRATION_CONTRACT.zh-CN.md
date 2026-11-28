@@ -1,6 +1,6 @@
 # VPN 与远程桌面的统一集成契约
 
-日期：2026-11-27。当前实现以本契约和 [远控功能说明](REMOTE_HOST_FEATURES.zh-CN.md) 为准。Windows/macOS/Linux 被控主机和各平台控制端已接入；观看、输入、音频、剪贴板、上传、下载按主机实际能力独立协商。本机可选择无人值守，系统权限和站点授权仍须满足。真实设备组合验收尚未全部完成。
+日期：2026-11-28。当前实现以本契约和 [远控功能说明](REMOTE_HOST_FEATURES.zh-CN.md) 为准。Windows/macOS/Linux 被控主机和各平台控制端已接入；观看、输入、音频、剪贴板、上传、下载按主机实际能力独立协商。本机可选择无人值守，系统权限和站点授权仍须满足。真实设备组合验收尚未全部完成。
 
 ## 1. 统一体验，保留独立生命周期
 
@@ -81,7 +81,7 @@ I01–I10 尚未完成。门禁单元测试、采集探针、VPN 网络测试分
 
 - 概览和诊断轮询 `GET /netgo/v2/admin/summary`，只返回 counts、策略版本/错误与运行指标。列表使用 `GET /netgo/v2/admin/state?section=users|resources|sessions|devices&after=<cursor>`，每页 50 项、响应 next_after。sessions 按有效租约分页并附对应设备/账号标签，devices 单独分页；两者游标互不影响，过期或已停用账号的租约不显示为有效会话。用户编辑加载完整资源选项；远控管理页使用独立主机分页和可搜索账号选择接口，`section=remote` 已移除。缺少 section 的旧全量接口不再支持；未使用的 `/netgo/v2/me` 已删除，认证探测使用 `/netgo/v2/site`。
 - Go/Windows 客户端站点名为 1–256 UTF-8 字节，GatewayIP 必须是 IPv4，非空 CA 必须可解析且不超过 32 KiB。服务器初始化允许尚未分配网关 IP，但禁止向客户端导出未完成配置。保存的密码绑定协议、ID、HTTPS 主机名（忽略大小写）和 CA，候选地址/端口/显示名不属于信任锚点。
-- 账号创建在上游请求前写入 schema 6 的 account_cleanups 预留，按用户名／邮箱唯一约束；请求失败按已知未提交或结果未知分别处理，未知结果禁止直接重试 POST。恢复时先核对上游和本地所有权。至少保留一个启用且不过期的管理员；仅修改显示名称不撤销认证和租约。概览 counts.account_cleanups 显示未完成项数。
+- 账号创建在上游请求前写入 schema 7 的 account_cleanups 预留，按用户名／邮箱唯一约束；请求失败按已知未提交或结果未知分别处理，未知结果禁止直接重试 POST。恢复时先核对上游和本地所有权。至少保留一个启用且不过期的管理员；仅修改显示名称不撤销认证和租约。概览 counts.account_cleanups 显示未完成项数。
 - 管理状态不再包含 audit；通过 GET /netgo/v2/admin/audit?before=<sequence> 分页，每次最多 100 条，next_before 为 0 表示没有更早记录。
 - 主机接受 windows/macos/linux、显式本地无人值守策略及实际实现的六项能力。登记必须提供每次启动生成的 transport_key；重启关闭旧会话。保留不可连接主机的状态和有效能力；客户端只允许 ready 状态发起连接。
 - /netgo/v2/remote/key 已移除，授权响应包含 site_key；所有内置客户端同步使用这一响应。
@@ -90,7 +90,7 @@ I01–I10 尚未完成。门禁单元测试、采集探针、VPN 网络测试分
 
 ## 7. 本轮接口与生命周期约束（2026-11-26）
 
-- `health.server_unix` 必填，Go、Windows、Web 使用相同范围校验；仅支持当前 API v2/schema 6。活动远控使用条件外键保证所有权，关闭记录独立保留 24 小时；删除身份同事务关闭会话并撤销访问。签发读取相关活动图，并在同一事务中校验 generation、容量和幂等键。
+- `health.server_unix` 必填，Go、Windows、Web 使用相同范围校验；仅支持当前 API v2/schema 7。活动远控使用条件外键保证所有权，关闭记录独立保留 24 小时；删除身份同事务关闭会话并撤销访问。签发读取相关活动图，并在同一事务中校验 generation、容量和幂等键。
 - 设备删除先提交本地撤权：移除凭据、VPN 租约、被控登记、相关授权及远控会话。上游删除失败返回 HTTP 202 `{deleted:false,cleanup_pending:true}`，设备显示 `delete_pending:true`，禁止重新签发该设备凭据。后台清理独立于租约过期检查，每分钟扫描到期待重试项；单项超时 2 秒，失败按 1–32 分钟退避并继续处理其他项。账号删除采用相同的 202、delete_pending 和持久化重试语义，待删除账号禁止恢复权限；上游 404 视为成功。管理页区分已完成与待清理，支持手动重试。
 - 认证事务只在实际注册的匿名路由限流：直接来源最多 90 请求/分钟、全局最多 900；本机 TLS 代理共享全局预算，不信任任意转发头。签名验证通过后的刷新按设备独立限制 12 次/分钟；账号失败尝试仍独立限制 5 次/分钟，成功登录不占失败预算。
 - `GET /netgo/v2/remote` 只返回当前活动会话；`next_generation` 仍计入保留的历史会话。`GET /netgo/v2/admin/remote/history?before=<cursor>&limit=50` 返回 `{sessions,next_before,users,hosts}`，上限 100，管理员专用。created_at 为毫秒精度、不可变的创建时间；issued_at 是当前票据签发时间；closed_at 记录首次关闭，关闭后保留 24 小时。按 created_at 与 ID 组合倒序分页；next_before 为不透明游标，客户端原样回传，即使上页末行已清理仍能继续分页。每页通过同一 SQL 查询附带对应账号/主机标签，不依赖当前主机列表页；已删除对象回退显示 ID。控制凭据字段不对外返回。
@@ -140,4 +140,13 @@ I01–I10 尚未完成。门禁单元测试、采集探针、VPN 网络测试分
 - 资源 ports 规范化为有序去重数组。相同资源或仅 name 变化不撤销已有租约；CIDR、protocol、有效 ports、enabled 变化或删除仍撤权。相同 RemoteGrant 的 capabilities/expires_at 不变时保留 revision 和活动会话。
 - Linux/macOS IPC 响应限制为 4 MiB，与 Go HTTP／共享 C++ 一致；请求上限不扩大。超限为 control_response_too_large。远控请求通常最多 4 秒；Linux/mobile 的结束 DELETE 为独立 2 秒，macOS/iOS 最多 4 秒。敏感操作仍由既有票据和 watchdog 的更短期限约束。
 - mobile.RemoteCall 新签名追加 RemoteActivity；Android 查看器实现 controlActive，清单调用可传空。Apple 的 RemoteRequest 传递会话活动回调。iOS provider 普通消息必须携带 UUID id；取消为 `{cancel:id}`，直接更新活动状态，不排队等待慢请求。取消标记最多 64 个、有效 30 秒，不影响其他请求或 VPN。
-- schema 6 的文件库使用单写连接、最多四个 query_only 读连接；所有连接启用外键及 busy timeout。关键事务使用 context，网关提交保护和 nonce 原子消费不变。关闭历史／远控操作键每轮各清理最多 256 条，活动会话校验不受此上限影响。
+- schema 7 的文件库使用单写连接、最多四个 query_only 读连接；所有连接启用外键及 busy timeout。关键事务使用 context，网关提交保护和 nonce 原子消费不变。关闭历史／远控操作键每轮各清理最多 256 条，活动会话校验不受此上限影响。
+
+## 权限编辑与分页补充（2026-11-28）
+
+- Resource 和 RemoteGrant 读取结果包含 `edit_token`。创建使用空字符串（省略字段也解码为空），更新必须携带最近读取的 token；对象已存在但 token 为空、token 不匹配或旧对象已被删除，均返回 HTTP 409 / `edit_conflict`。删除后重建使用全新随机 token，不能复用旧表单。
+- 通过校验且实际有变化的保存生成新 token；无变化保存保持 token 和远控授权 revision。前端不自动重放冲突写入，保留草稿，刷新并由操作者重新载入最新设置。
+- `GET /netgo/v2/admin/resources/choices?after=<id>&q=<query>` 返回 `{resources: Resource[], next_after: string}`，按 ID 排序，每页最多 50 项，可按名称/CIDR 搜索。空 `next_after` 表示结束；各页为独立快照。账号列表的 resources 仅包含当前页账号已选资源，选择器独立查询并保留跨页选择。
+- 运行诊断及其脱敏导出统一读取 `GET /netgo/v2/admin/summary` 的 `runtime`；删除重复的 `/admin/diagnostics` 路由。
+- 远控请求的 context 传到读写事务和后台清理，连接池/写锁等待可取消。请求取消不取消必要补偿：远控回滚及账号/设备失败退避记录有独立 2 秒截止。后台远控与租约清理各有 4 秒截止。
+- 当前模型为 schema 7，旧 schema 1–6 在修改前拒绝，须用新目录初始化，无迁移或双写。发行打包从 Go 的 Protocol/Schema 常量校验程序元数据。

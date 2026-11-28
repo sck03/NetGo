@@ -44,7 +44,7 @@ func TestInventoryUsesServerStateAndEffectiveGrants(t *testing.T) {
 			if err := f.m.Store.Update(func(s *model.State) error { tc.change(f, s); return nil }); err != nil {
 				t.Fatal(err)
 			}
-			got, err := f.m.List(f.c, "")
+			got, err := f.m.List(context.Background(), f.c, "")
 			if err != nil || len(got.Hosts) != 1 {
 				t.Fatalf("inventory: %+v %v", got, err)
 			}
@@ -59,17 +59,17 @@ func TestInventoryUsesServerStateAndEffectiveGrants(t *testing.T) {
 func TestInventoryBusyAndRevocation(t *testing.T) {
 	f := setup(t)
 	a := f.acquire(t)
-	got, err := f.m.List(f.c, "")
+	got, err := f.m.List(context.Background(), f.c, "")
 	if err != nil || got.Hosts[0].Status != "busy" {
 		t.Fatalf("busy: %+v %v", got, err)
 	}
 	if _, err = f.m.Acquire(context.Background(), f.c, Request{HostID: "host", Generation: 2, Capabilities: 1}, "another-operation-key"); !errors.Is(err, ErrBusy) {
 		t.Fatalf("busy acquisition: %v", err)
 	}
-	if err = f.m.Revoke(f.c, a.Session.ID); err != nil {
+	if err = f.m.Revoke(context.Background(), f.c, a.Session.ID); err != nil {
 		t.Fatal(err)
 	}
-	got, err = f.m.List(f.c, "")
+	got, err = f.m.List(context.Background(), f.c, "")
 	if err != nil || got.Hosts[0].Status != "ready" {
 		t.Fatalf("revoke: %+v %v", got, err)
 	}
@@ -77,7 +77,7 @@ func TestInventoryBusyAndRevocation(t *testing.T) {
 
 func TestGrantRejectsUnimplementedHostCapabilities(t *testing.T) {
 	f := setup(t)
-	if _, err := f.m.Grant(f.c, model.RemoteGrant{HostID: "host", UserID: "user", Capabilities: 9}); err == nil {
+	if _, err := f.m.Grant(context.Background(), f.c, model.RemoteGrant{HostID: "host", UserID: "user", Capabilities: 9}); err == nil {
 		t.Fatal("clipboard permission accepted for view/input host")
 	}
 }
@@ -98,22 +98,22 @@ func TestAdminInventoryPagesAndSearchPreserveAuthorization(t *testing.T) {
 	}); err != nil {
 		t.Fatal(err)
 	}
-	first, err := f.m.AdminList(f.c, "", "")
+	first, err := f.m.AdminList(context.Background(), f.c, "", "")
 	if err != nil || len(first.Hosts) != 50 || first.NextAfter == "" {
 		t.Fatalf("first page: %d %q %v", len(first.Hosts), first.NextAfter, err)
 	}
-	second, err := f.m.AdminList(f.c, first.NextAfter, "")
+	second, err := f.m.AdminList(context.Background(), f.c, first.NextAfter, "")
 	if err != nil || len(second.Hosts) != 11 || second.NextAfter != "" {
 		t.Fatalf("next page: %+v %v", second, err)
 	}
-	matched, err := f.m.AdminList(f.c, "", "workstation")
+	matched, err := f.m.AdminList(context.Background(), f.c, "", "workstation")
 	if err != nil || len(matched.Hosts) != 1 || matched.Hosts[0].ID != "host" {
 		t.Fatalf("search: %+v %v", matched, err)
 	}
 	if err := f.m.Store.Update(func(st *model.State) error { delete(st.Credentials, f.c.TokenHash); return nil }); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := f.m.AdminList(f.c, "", ""); !errors.Is(err, model.ErrUnauthorized) {
+	if _, err := f.m.AdminList(context.Background(), f.c, "", ""); !errors.Is(err, model.ErrUnauthorized) {
 		t.Fatalf("revoked credential accepted: %v", err)
 	}
 }
@@ -130,7 +130,7 @@ func TestRemoteSweepLoadsOnlySessionDependencies(t *testing.T) {
 		t.Fatal(err)
 	}
 	f.now = f.now.Add(LeaseDuration + time.Second)
-	if err := f.m.Store.RemoteSweep(f.now, func(st *model.State) error {
+	if err := f.m.Store.RemoteSweep(context.Background(), f.now, func(st *model.State) error {
 		if _, ok := st.Users["idle"]; ok {
 			t.Fatal("idle account loaded into sweep")
 		}
@@ -172,7 +172,7 @@ func TestNativeInventoryPagesAreBoundedAndKeepOwnSessions(t *testing.T) {
 	seen := map[string]bool{}
 	after := ""
 	for {
-		page, err := f.m.List(f.c, after)
+		page, err := f.m.List(context.Background(), f.c, after)
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -204,7 +204,7 @@ func TestNativeInventoryPagesAreBoundedAndKeepOwnSessions(t *testing.T) {
 	}); err != nil {
 		t.Fatal(err)
 	}
-	page, err := f.m.List(f.c, "")
+	page, err := f.m.List(context.Background(), f.c, "")
 	if err != nil || len(page.Hosts) != 1 || page.Hosts[0].ID != "host" {
 		t.Fatalf("ungranted hosts leaked: %+v %v", page, err)
 	}

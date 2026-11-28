@@ -4,10 +4,15 @@ import (
 	"context"
 	"errors"
 	"netgo/internal/model"
+	"netgo/internal/site"
 	"strings"
 	"testing"
 	"time"
 )
+
+func Render(iface, lan, overlay string, leases []model.Lease, now time.Time) (string, error) {
+	return RenderBypass(iface, lan, overlay, nil, site.Bypass{}, leases, now)
+}
 
 func TestGatePrecedesConntrackAndHasTimeout(t *testing.T) {
 	now := time.Now()

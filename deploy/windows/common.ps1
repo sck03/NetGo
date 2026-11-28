@@ -32,10 +32,16 @@ function Restore-NetGoApplicationRegistration($Snapshot) {
   foreach($entry in $Snapshot.Values){$key.SetValue($entry.Name,$entry.Value,[Microsoft.Win32.RegistryValueKind]::$($entry.Kind))}
  }
 }
-function Register-NetGoApplication([string]$Directory,[string]$OwnerSID,[bool]$NetworkOnly) {
+function Get-NetGoPackageVersion([string]$Executable) {
+ $version=[Diagnostics.FileVersionInfo]::GetVersionInfo($Executable).ProductVersion
+ if($version -notmatch '^[0-9]+\.[0-9]+\.[0-9]+(?:[-+][0-9A-Za-z.+-]+)?$'){throw 'Invalid NetGo package version'}
+ return $version
+}
+function Register-NetGoApplication([string]$Directory,[string]$OwnerSID,[bool]$NetworkOnly,[string]$Version) {
+ if($Version -notmatch '^[0-9]+\.[0-9]+\.[0-9]+(?:[-+][0-9A-Za-z.+-]+)?$'){throw 'Invalid NetGo registration version'}
  $path='HKLM:\Software\Microsoft\Windows\CurrentVersion\Uninstall\NetGoNative'
  $key=New-Item -Path $path -Force
- $values=@{DisplayName=$(if($NetworkOnly){'NetGo Network Service'}else{'NetGo'});DisplayVersion='0.3.0-dev';Publisher='NetGo Project';InstallLocation=$Directory;DisplayIcon=(Join-Path $Directory 'Uninstall.exe')+',0';UninstallString='"'+(Join-Path $Directory 'Uninstall.exe')+'" --uninstall';NetGoOwnerSID=$OwnerSID;NetworkOnly=[string]$NetworkOnly}
+ $values=@{DisplayName=$(if($NetworkOnly){'NetGo Network Service'}else{'NetGo'});DisplayVersion=$Version;Publisher='NetGo Project';InstallLocation=$Directory;DisplayIcon=(Join-Path $Directory 'Uninstall.exe')+',0';UninstallString='"'+(Join-Path $Directory 'Uninstall.exe')+'" --uninstall';NetGoOwnerSID=$OwnerSID;NetworkOnly=[string]$NetworkOnly}
  foreach($name in $values.Keys){$key.SetValue($name,[string]$values[$name],[Microsoft.Win32.RegistryValueKind]::String)}
  foreach($name in @('NoModify','NoRepair')){$key.SetValue($name,1,[Microsoft.Win32.RegistryValueKind]::DWord)}
 }

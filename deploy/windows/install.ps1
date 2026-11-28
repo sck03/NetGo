@@ -28,6 +28,7 @@ if(-not(Test-Path -LiteralPath $manifest)){throw 'Package SHA256SUMS missing'}
 $expected=@{}
 foreach($line in Get-Content -LiteralPath $manifest){if($line -match '^([0-9a-fA-F]{64})  ([a-zA-Z0-9_.-]+)$'){$expected[$matches[2]]=$matches[1].ToLower()}}
 foreach($name in $files){$actual=(Get-FileHash -Algorithm SHA256 -LiteralPath (Join-Path $source $name)).Hash.ToLower();if($actual -ne $expected[$name]){throw "Package checksum mismatch: $name"}}
+$packageVersion=if($registerApplication){Get-NetGoPackageVersion (Join-Path $source 'netgo-maintenance.exe')}else{''}
 if((Get-AuthenticodeSignature -LiteralPath (Join-Path $source 'wintun.dll')).Status -ne 'Valid'){throw 'Wintun signature did not validate'}
 $existing=Get-CimInstance Win32_Service -Filter "Name='NetGoNetBird'"
 if($existing){$oldServiceEnvironment=(Get-ItemProperty -LiteralPath $serviceRegistry -Name Environment -ErrorAction SilentlyContinue).Environment}
@@ -103,7 +104,7 @@ try {
  }
  if($registerApplication){
   Copy-Item -LiteralPath (Join-Path $source 'netgo-maintenance.exe') -Destination $uninstaller -Force
-  Register-NetGoApplication -Directory $applicationDir -OwnerSID $owner -NetworkOnly $registrationNetworkOnly
+  Register-NetGoApplication -Directory $applicationDir -OwnerSID $owner -NetworkOnly $registrationNetworkOnly -Version $packageVersion
  }
  $changed=$false
  Clear-InstallJournal

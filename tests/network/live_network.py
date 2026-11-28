@@ -240,7 +240,7 @@ def main():
             resources.append(resource)
             check('create_'+protocol+'_resource',lambda r=resource:admin.call('/netgo/v2/admin/resources/'+r['id'],'PUT',r))
         owner['user']['resources']=[r['id'] for r in resources];owner['user']['max_devices']=10
-        check('assign_only_authorized_resources',lambda:admin.call('/netgo/v2/admin/users/'+owner['user']['id'],'PUT',owner['user']))
+        check('assign_only_authorized_resources',lambda:admin.save_user(owner['user']))
         for label,number in (('a',241),('b',242),('c',243)):
             client=Client(label,number,args.output,profile);clients.append(client)
             check('start_isolated_client_'+label,client.start)
@@ -264,7 +264,7 @@ def main():
         resources.append(isolated)
         check('create_distinct_second_user_resource',lambda:admin.call('/netgo/v2/admin/resources/'+isolated['id'],'PUT',isolated))
         outsider['user']['resources']=[isolated['id']]
-        check('assign_only_second_user_resource',lambda:admin.call('/netgo/v2/admin/users/'+outsider['user']['id'],'PUT',outsider['user']))
+        check('assign_only_second_user_resource',lambda:admin.save_user(outsider['user']))
         check('second_user_authorized_connection',lambda:b.connect(outsider['user']['alias'],outsider['initial_password']))
         check('second_user_can_reach_own_port',lambda:b.probe(port=18082))
         check('second_user_cannot_reach_first_user_port',lambda:b.probe(success=False))
@@ -282,7 +282,7 @@ while True:
                 select=selectors.DefaultSelector();select.register(stream.stdout,selectors.EVENT_READ)
                 require(bool(select.select(5)) and stream.stdout.readline().strip()=='READY','established TCP flow not ready')
                 owner['user']['disabled']=True;started=time.monotonic()
-                admin.call('/netgo/v2/admin/users/'+owner['user']['id'],'PUT',owner['user'])
+                admin.save_user(owner['user'])
                 require(bool(select.select(5)) and stream.stdout.readline().strip()=='BLOCKED','old TCP connection survived revocation')
                 require(time.monotonic()-started<=5,'revocation exceeded five seconds')
                 select.close()
@@ -292,7 +292,7 @@ while True:
         check('disable_revokes_established_tcp_within_five_seconds',revoke_existing_flow)
         check('disabled_peer_new_traffic_denied',lambda:a.probe(success=False))
         owner['user']['disabled']=False
-        check('reenable_account',lambda:admin.call('/netgo/v2/admin/users/'+owner['user']['id'],'PUT',owner['user']))
+        check('reenable_account',lambda:admin.save_user(owner['user']))
         check('client_disconnect',a.disconnect)
         again=check('same_device_reconnect',lambda:a.connect(owner['user']['alias'],owner['initial_password']))
         check('reconnect_preserves_peer_and_increases_generation',lambda:require(again['lease']['peer_id']==first['lease']['peer_id'] and again['generation']>first['generation'],'reconnect changed identity or reused generation'))

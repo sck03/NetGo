@@ -4,6 +4,7 @@ export type CleanupRetry = {
   cleanup_after: string
 }
 export type Resource = {
+  edit_token: string
   id: string
   name: string
   cidr: string
@@ -69,6 +70,7 @@ export type Host = {
   last_seen: string
 }
 export type RemoteGrant = {
+  edit_token: string
   id: string
   user_id: string
   host_id: string
@@ -114,6 +116,7 @@ export type HostSummary = {
   available_capabilities: number
 }
 export type GrantSummary = {
+  edit_token: string
   id: string
   user_id: string
   host_id: string
@@ -144,6 +147,10 @@ export type UserChoice = {
 }
 export type UserChoices = {
   users: UserChoice[]
+  next_after: string
+}
+export type ResourceChoices = {
+  resources: Resource[]
   next_after: string
 }
 export type RemoteHistory = {

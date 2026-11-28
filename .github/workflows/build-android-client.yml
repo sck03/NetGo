@@ -26,7 +26,7 @@ on:
         type: number
         default: 1
   push:
-    paths: ['VERSION', 'tests/contracts/**', 'tests/tools/**', 'scripts/build_config.py', 'scripts/ci_metadata.py', 'scripts/stage-release.py', 'scripts/publish-release.py', 'scripts/cmake/**', 'apps/android/**', 'mobile/**', 'internal/**', 'go.mod', 'go.sum', 'packages/remote-*/**', 'scripts/build-android-client.py', 'scripts/prepare-mobile-inputs.py', 'upstream/**', '.github/workflows/build-android-client.yml']
+    paths: ['VERSION', 'scripts/**', 'install-*.sh', 'install-*.ps1', 'tests/contracts/**', 'tests/tools/**', 'apps/android/**', 'mobile/**', 'internal/**', 'go.mod', 'go.sum', 'packages/remote-*/**', 'upstream/**', '.github/workflows/build-android-client.yml']
 permissions:
   contents: read
 jobs:

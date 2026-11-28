@@ -11,7 +11,7 @@ from unittest import mock
 
 SCRIPTS=Path(__file__).resolve().parents[2]/'scripts'
 sys.path.insert(0,str(SCRIPTS))
-from build_config import config,version
+from build_config import config,version,model_contract
 from ci_metadata import resolve
 
 def module(name,file):
@@ -58,6 +58,14 @@ class FakeAPI:
         raise AssertionError((path,method))
 
 class ReleaseTests(unittest.TestCase):
+    def test_model_contract_uses_source_versions_and_rejects_missing_constants(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            root=Path(temporary);source=root/'internal/model/model.go';source.parent.mkdir(parents=True)
+            source.write_text('package model\nconst Protocol = 2\nconst Schema = 17\n',encoding='utf-8')
+            self.assertEqual(model_contract(root),{'protocol':2,'schema':17})
+            source.write_text('package model\nconst Protocol = 2\n',encoding='utf-8')
+            with self.assertRaises(ValueError):model_contract(root)
+
     def data(self):return resolve('linux-client',{'NETGO_REQUESTED_VERSION':'0.3.1','NETGO_REQUESTED_ARCH':'amd64'})
     def payload(self,root):
         data=self.data();folder=root/'dist/linux-desktop-amd64';folder.mkdir(parents=True)

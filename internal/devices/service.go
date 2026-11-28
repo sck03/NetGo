@@ -91,7 +91,7 @@ func (s *Service) remove(ctx context.Context, device model.Device) error {
 			return err
 		}
 	}
-	return s.Store.Update(func(st *model.State) error {
+	return s.Store.VPNUpdate(ctx, func(st *model.State) error {
 		if current, ok := st.Devices[device.ID]; ok && current.DeletePending && current.PeerID == device.PeerID {
 			delete(st.Devices, device.ID)
 			st.Record("system", "device.delete", device.ID)
@@ -139,7 +139,10 @@ func (s *Service) cleanup(ctx context.Context, d model.Device) error {
 	if err == nil {
 		return nil
 	}
-	return errors.Join(err, s.Store.Update(func(st *model.State) error {
+	// Persist backoff even when the caller cancelled the failed deletion.
+	bookkeeping, stop := context.WithTimeout(context.Background(), 2*time.Second)
+	defer stop()
+	return errors.Join(err, s.Store.DeviceCleanupUpdate(bookkeeping, d.ID, func(st *model.State) error {
 		if current, ok := st.Devices[d.ID]; ok && current.DeletePending && current.PeerID == d.PeerID {
 			current.CleanupRetry.Failed(s.now())
 			st.Devices[d.ID] = current

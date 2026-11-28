@@ -1,6 +1,7 @@
 package store
 
 import (
+	"context"
 	"database/sql"
 	"encoding/json"
 	"errors"
@@ -17,12 +18,12 @@ func validSearch(after, search string) bool {
 }
 
 // AdminRemotePage bounds both decoded hosts and their authorization graph.
-func (s *Store) AdminRemotePage(c model.Credential, after, search string) (model.State, string, error) {
+func (s *Store) AdminRemotePage(ctx context.Context, c model.Credential, after, search string) (model.State, string, error) {
 	if !validSearch(after, search) {
 		return model.State{}, "", errors.New("invalid_remote_page")
 	}
 	var next string
-	st, err := s.viewWith(func(tx *sql.Tx) (model.State, error) {
+	st, err := s.viewWithContext(ctx, func(tx *sql.Tx) (model.State, error) {
 		st, err := read(tx, 0)
 		if err != nil {
 			return st, err

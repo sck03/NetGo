@@ -100,6 +100,11 @@ class Session:
         self.token=result['token'];self.refresh_token=result.get('refresh_token','')
         return result
 
+    def save_user(self,user):
+        saved=self.call('/netgo/v2/admin/users/'+user['id'],'PUT',user)
+        user.clear();user.update(saved)
+        return saved
+
 
 def require(condition,message):
     if not condition:raise AssertionError(message)
@@ -159,7 +164,7 @@ def exercise(profile,alias,password,output,resource_cidr='198.19.240.2/32'):
         resource={'id':rid,'name':'Isolated lab HTTP','cidr':resource_cidr,'protocol':'tcp','ports':[18080],'enabled':True}
         check('resource_create',lambda:admin.call('/netgo/v2/admin/resources/'+rid,'PUT',resource))
         user['resources']=[rid];user['max_devices']=1
-        check('grant_explicit_resource',lambda:admin.call('/netgo/v2/admin/users/'+user['id'],'PUT',user))
+        check('grant_explicit_resource',lambda:admin.save_user(user))
         check('permission_edit_invalidates_old_credential',lambda:rejected(lambda:normal.call('/netgo/v2/site'),401))
         check('relogin_same_device_after_policy_change',lambda:normal.login(test_alias,user_password))
         check('device_quota_enforced',lambda:rejected(lambda:Session(profile,'').login(test_alias,user_password),error='device_limit'))
@@ -169,15 +174,15 @@ def exercise(profile,alias,password,output,resource_cidr='198.19.240.2/32'):
             require(all(value not in raw for value in (password,user_password,admin.token,normal.token)),'secret in public profile')
         check('authenticated_profile_contains_no_secrets',exported)
         user['disabled']=True
-        check('disable_account',lambda:admin.call('/netgo/v2/admin/users/'+user['id'],'PUT',user))
+        check('disable_account',lambda:admin.save_user(user))
         check('disabled_account_cannot_refresh',lambda:rejected(normal.refresh,401))
         check('disabled_account_cannot_login',lambda:rejected(lambda:Session(profile,'').login(test_alias,user_password),401))
         user['disabled']=False;user['expires_at']='2020-01-01T00:00:00Z'
-        check('expired_account_policy',lambda:admin.call('/netgo/v2/admin/users/'+user['id'],'PUT',user))
+        check('expired_account_policy',lambda:admin.save_user(user))
         check('expired_account_cannot_login',lambda:rejected(lambda:Session(profile,'').login(test_alias,user_password),401))
         check('last_administrator_protected',lambda:rejected(lambda:admin.call('/netgo/v2/admin/users/'+admin.user['id'],'DELETE')))
         def diagnostics():
-            raw=json.dumps(admin.call('/netgo/v2/admin/diagnostics'))
+            raw=json.dumps(admin.call('/netgo/v2/admin/summary')['runtime'])
             require(all(value not in raw for value in (password,user_password,admin.token,admin.refresh_token)),'secret in diagnostics')
         check('diagnostics_redacted',diagnostics)
     finally:

@@ -16,6 +16,12 @@ final class TunnelRequestQueue {
     private var cancelled: [String: Date] = [:]
     private var closed = false
 
+    var isClosed: Bool {
+        lock.lock()
+        defer { lock.unlock() }
+        return closed
+    }
+
     init() {
         queue.maxConcurrentOperationCount = 2
         queue.name = "org.netgo.tunnel.requests"

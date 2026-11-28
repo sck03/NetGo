@@ -33,12 +33,14 @@ func (s *Service) Create(ctx context.Context, b NewUser) (Created, error) {
 		return result, model.ErrConflict
 	}
 	defer release()
-	if err := s.Store.Read(func(st *model.State) error {
-		if err := authorization.CheckAdmin(ctx, st); err != nil {
-			return err
-		}
-		return unique(st, b.Alias, b.Email)
-	}); err != nil {
+	state, err := s.Store.AccountCreationView(ctx, b.Alias, b.Email)
+	if err != nil {
+		return result, err
+	}
+	if err = authorization.CheckAdmin(ctx, &state); err != nil {
+		return result, err
+	}
+	if err = unique(&state, b.Alias, b.Email); err != nil {
 		return result, err
 	}
 	var upstream struct {
@@ -103,7 +105,7 @@ func (s *Service) Create(ctx context.Context, b NewUser) (Created, error) {
 		return result, errors.Join(err, s.deleteCreated(cleanup, upstream.ID))
 	}
 	u := model.User{ID: upstream.ID, Alias: b.Alias, Name: b.Name, Email: b.Email, Role: "user", MaxDevices: 3, MaxSessions: 1, Resources: []string{}}
-	err := s.Store.Update(func(st *model.State) error {
+	err = s.Store.AccountCreationUpdate(ctx, u, func(st *model.State) error {
 		if err := ctx.Err(); err != nil {
 			return err
 		}

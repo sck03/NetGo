@@ -317,12 +317,8 @@ func noConntrackEntries(output []byte) bool {
 	return regexp.MustCompile(`^conntrack v[^\r\n]+: 0 flow entries have been deleted\.[\r\n]*$`).Match(output)
 }
 
-// Render replaces only the owned table, atomically. Timeouts remain effective if
+// RenderBypass replaces only the owned table, atomically. Timeouts remain effective if
 // both the application and helper crash. The early drop also covers established flows.
-func Render(iface, lan, overlay string, leases []model.Lease, now time.Time) (string, error) {
-	return RenderBypass(iface, lan, overlay, nil, site.Bypass{}, leases, now)
-}
-
 func RenderBypass(iface, lan, overlay string, local []string, bypass site.Bypass, leases []model.Lease, now time.Time) (string, error) {
 	if err := bypass.Validate(local, overlay); err != nil {
 		return "", err

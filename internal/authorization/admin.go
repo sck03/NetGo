@@ -19,6 +19,10 @@ func Actor(ctx context.Context) string {
 	}
 	return "system"
 }
+func Credential(ctx context.Context) model.Credential {
+	c, _ := ctx.Value(adminKey{}).(model.Credential)
+	return c
+}
 func CheckAdmin(ctx context.Context, st *model.State) error {
 	c, marked := ctx.Value(adminKey{}).(model.Credential)
 	if !marked {

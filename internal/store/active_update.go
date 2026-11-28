@@ -16,8 +16,8 @@ func (s *Store) VPNUpdate(ctx context.Context, fn func(*model.State) error) erro
 // Host/grant changes close live sessions. Closed history is immutable on these
 // paths and has no dependency on a grant row. Issuance uses RemoteAcquireUpdate
 // with SQL generation/capacity checks over retained history.
-func (s *Store) RemotePolicyUpdate(fn func(*model.State) error) error {
-	return s.activeUpdate(context.Background(), remoteTables&^(remoteSessions|remoteOperations), fn)
+func (s *Store) RemotePolicyUpdate(ctx context.Context, fn func(*model.State) error) error {
+	return s.activeUpdate(ctx, remoteTables&^(remoteSessions|remoteOperations), fn)
 }
 
 func (s *Store) activeUpdate(ctx context.Context, tables scope, fn func(*model.State) error) error {

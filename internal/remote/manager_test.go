@@ -67,10 +67,10 @@ func setup(t *testing.T) *fixture {
 	if e != nil {
 		t.Fatal(e)
 	}
-	if _, e = f.m.Register(f.h, model.Host{ID: "host", Name: "Workstation", Platform: "windows", Boot: f.boot, TransportKey: base64.RawURLEncoding.EncodeToString(hp), Port: 29990, Enabled: true, Capabilities: ticket.CapabilityView | ticket.CapabilityInput, RequireConsent: true}); e != nil {
+	if _, e = f.m.Register(context.Background(), f.h, model.Host{ID: "host", Name: "Workstation", Platform: "windows", Boot: f.boot, TransportKey: base64.RawURLEncoding.EncodeToString(hp), Port: 29990, Enabled: true, Capabilities: ticket.CapabilityView | ticket.CapabilityInput, RequireConsent: true}); e != nil {
 		t.Fatal(e)
 	}
-	if _, e = f.m.Grant(f.c, model.RemoteGrant{HostID: "host", UserID: "user", Capabilities: ticket.CapabilityView | ticket.CapabilityInput}); e != nil {
+	if _, e = f.m.Grant(context.Background(), f.c, model.RemoteGrant{HostID: "host", UserID: "user", Capabilities: ticket.CapabilityView | ticket.CapabilityInput}); e != nil {
 		t.Fatal(e)
 	}
 	return f
@@ -118,14 +118,14 @@ func TestLifecycleAndSignedBindings(t *testing.T) {
 	if _, e = f.m.Acquire(context.Background(), f.c, Request{HostID: "host", Generation: 2, Capabilities: 1}, "operation-key-012345"); !errors.Is(e, model.ErrConflict) {
 		t.Fatal("key reused for another operation", e)
 	}
-	if _, e = f.m.Consume(f.c, a.Session.ID, 1, f.boot, proof(t, a, f.controller)); !errors.Is(e, model.ErrForbidden) {
+	if _, e = f.m.Consume(context.Background(), f.c, a.Session.ID, 1, f.boot, proof(t, a, f.controller)); !errors.Is(e, model.ErrForbidden) {
 		t.Fatal("controller impersonated host", e)
 	}
-	if _, e = f.m.Consume(f.h, a.Session.ID, 1, f.boot, proof(t, a, f.controller)); e != nil {
+	if _, e = f.m.Consume(context.Background(), f.h, a.Session.ID, 1, f.boot, proof(t, a, f.controller)); e != nil {
 		t.Fatal(e)
 	}
 	f.now = f.now.Add(10 * time.Second)
-	if e = f.m.Heartbeat(f.h, f.boot); e != nil {
+	if e = f.m.Heartbeat(context.Background(), f.h, f.boot); e != nil {
 		t.Fatal(e)
 	}
 	renewed, e := f.m.Renew(context.Background(), f.c, a.Session.ID, 1)
@@ -135,7 +135,7 @@ func TestLifecycleAndSignedBindings(t *testing.T) {
 	if _, e = f.m.Renew(context.Background(), f.c, a.Session.ID, 1); !errors.Is(e, model.ErrConflict) {
 		t.Fatal("old sequence renewed", e)
 	}
-	if e = f.m.Revoke(f.c, a.Session.ID); e != nil {
+	if e = f.m.Revoke(context.Background(), f.c, a.Session.ID); e != nil {
 		t.Fatal(e)
 	}
 	if _, e = f.m.Renew(context.Background(), f.c, a.Session.ID, 2); e == nil {
@@ -149,7 +149,7 @@ func TestProofTamperingAndConcurrentPersistentConsumption(t *testing.T) {
 	for _, mutate := range []func(*Possession){func(p *Possession) { p.Channel = base64.RawURLEncoding.EncodeToString(bytes.Repeat([]byte{4}, 32)) }, func(p *Possession) { p.Challenge = base64.RawURLEncoding.EncodeToString(bytes.Repeat([]byte{4}, 32)) }, func(p *Possession) { p.Signature = "bad" }} {
 		bad := p
 		mutate(&bad)
-		if _, e := f.m.Consume(f.h, a.Session.ID, 1, f.boot, bad); !errors.Is(e, ErrProof) {
+		if _, e := f.m.Consume(context.Background(), f.h, a.Session.ID, 1, f.boot, bad); !errors.Is(e, ErrProof) {
 			t.Fatal("accepted substituted proof", e)
 		}
 	}
@@ -170,7 +170,7 @@ func TestProofTamperingAndConcurrentPersistentConsumption(t *testing.T) {
 			if i%2 == 1 {
 				m = &m2
 			}
-			_, e := m.Consume(f.h, a.Session.ID, 1, f.boot, p)
+			_, e := m.Consume(context.Background(), f.h, a.Session.ID, 1, f.boot, p)
 			if e == nil {
 				successes.Add(1)
 			} else if !errors.Is(e, ErrReplay) {
@@ -187,7 +187,7 @@ func TestProofTamperingAndConcurrentPersistentConsumption(t *testing.T) {
 	if e != nil {
 		t.Fatal(e)
 	}
-	if _, e = f.m.Consume(f.h, a.Session.ID, 1, f.boot, p); !errors.Is(e, ErrReplay) {
+	if _, e = f.m.Consume(context.Background(), f.h, a.Session.ID, 1, f.boot, p); !errors.Is(e, ErrReplay) {
 		t.Fatal("replay after restart", e)
 	}
 }
@@ -217,10 +217,10 @@ func TestRevocationDependenciesFailClosed(t *testing.T) {
 			if e := f.m.Store.Update(func(s *model.State) error { mutate(f, s); return nil }); e != nil {
 				t.Fatal(e)
 			}
-			if _, e := f.m.Consume(f.h, a.Session.ID, 1, f.boot, p); e == nil {
+			if _, e := f.m.Consume(context.Background(), f.h, a.Session.ID, 1, f.boot, p); e == nil {
 				t.Fatal("revoked dependency accepted")
 			}
-			if e := f.m.Sweep(); e != nil {
+			if e := f.m.Sweep(context.Background()); e != nil {
 				t.Fatal(e)
 			}
 			s, _ := f.m.Store.View()
@@ -239,11 +239,11 @@ func TestLimitsExpiryAndRegistration(t *testing.T) {
 	}
 	a := f.acquire(t)
 	f.now = f.now.Add(16 * time.Second)
-	if _, e := f.m.Consume(f.h, a.Session.ID, 1, f.boot, proof(t, a, f.controller)); e == nil {
+	if _, e := f.m.Consume(context.Background(), f.h, a.Session.ID, 1, f.boot, proof(t, a, f.controller)); e == nil {
 		t.Fatal("offline host accepted")
 	}
 	f.now = f.now.Add(-17 * time.Second)
-	if _, e := f.m.Consume(f.h, a.Session.ID, 1, f.boot, proof(t, a, f.controller)); e == nil {
+	if _, e := f.m.Consume(context.Background(), f.h, a.Session.ID, 1, f.boot, proof(t, a, f.controller)); e == nil {
 		t.Fatal("clock rollback accepted")
 	}
 }
@@ -252,7 +252,7 @@ func TestInspectOnlyCurrentSessionParticipants(t *testing.T) {
 	f := setup(t)
 	a := f.acquire(t)
 	for _, c := range []model.Credential{f.c, f.h} {
-		got, err := f.m.Inspect(c, a.Session.ID)
+		got, err := f.m.Inspect(context.Background(), c, a.Session.ID)
 		if err != nil || got.Ticket != a.Ticket || got.Session.ControllerAuth != "" {
 			t.Fatalf("participant inspect: %v", err)
 		}
@@ -266,14 +266,14 @@ func TestInspectOnlyCurrentSessionParticipants(t *testing.T) {
 	}); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := f.m.Inspect(outsider, a.Session.ID); !errors.Is(err, model.ErrForbidden) {
+	if _, err := f.m.Inspect(context.Background(), outsider, a.Session.ID); !errors.Is(err, model.ErrForbidden) {
 		t.Fatal("unrelated device inspected session", err)
 	}
-	if err := f.m.Revoke(f.c, a.Session.ID); err != nil {
+	if err := f.m.Revoke(context.Background(), f.c, a.Session.ID); err != nil {
 		t.Fatal(err)
 	}
 	for _, c := range []model.Credential{f.c, f.h} {
-		if _, err := f.m.Inspect(c, a.Session.ID); !errors.Is(err, model.ErrForbidden) {
+		if _, err := f.m.Inspect(context.Background(), c, a.Session.ID); !errors.Is(err, model.ErrForbidden) {
 			t.Fatal("revoked session inspected", err)
 		}
 	}
@@ -281,12 +281,12 @@ func TestInspectOnlyCurrentSessionParticipants(t *testing.T) {
 
 func TestNextGenerationSurvivesClosedSessionsAndRestart(t *testing.T) {
 	f := setup(t)
-	list, err := f.m.List(f.c, "")
+	list, err := f.m.List(context.Background(), f.c, "")
 	if err != nil || list.NextGeneration != 1 {
 		t.Fatal(list.NextGeneration, err)
 	}
 	a := f.acquire(t)
-	if err := f.m.Revoke(f.c, a.Session.ID); err != nil {
+	if err := f.m.Revoke(context.Background(), f.c, a.Session.ID); err != nil {
 		t.Fatal(err)
 	}
 	f.m.Store.Close()
@@ -294,11 +294,11 @@ func TestNextGenerationSurvivesClosedSessionsAndRestart(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	list, err = f.m.List(f.c, "")
+	list, err = f.m.List(context.Background(), f.c, "")
 	if err != nil || list.NextGeneration != 2 {
 		t.Fatal(list.NextGeneration, err)
 	}
-	other, err := f.m.List(f.h, "")
+	other, err := f.m.List(context.Background(), f.h, "")
 	if err != nil || other.NextGeneration != 1 {
 		t.Fatal("generation leaked across devices", other.NextGeneration, err)
 	}
@@ -310,7 +310,7 @@ func TestNextGenerationSurvivesClosedSessionsAndRestart(t *testing.T) {
 	}); err != nil {
 		t.Fatal(err)
 	}
-	list, err = f.m.List(f.c, "")
+	list, err = f.m.List(context.Background(), f.c, "")
 	if err != nil || list.NextGeneration != 0 {
 		t.Fatal("generation overflow", list.NextGeneration, err)
 	}

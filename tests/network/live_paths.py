@@ -67,7 +67,7 @@ def main():
             resources.append(resource['id'])
         count = 10 if args.mode == 'concurrency' else 1
         user.update(resources=resources, max_devices=count, max_sessions=count)
-        check('grant_bounded_lab_resources_and_session_limit', lambda: admin.call('/netgo/v2/admin/users/'+user['id'], 'PUT', user))
+        check('grant_bounded_lab_resources_and_session_limit', lambda: admin.save_user(user))
         for index in range(count):
             client = Client(chr(ord('a')+index), 241+index, args.output, profile)
             clients.append(client)

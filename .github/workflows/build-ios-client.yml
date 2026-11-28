@@ -31,7 +31,7 @@ on:
         default: both
         options: [both, iphoneos, iphonesimulator]
   push:
-    paths: ['VERSION', 'tests/contracts/**', 'tests/tools/**', 'scripts/build_config.py', 'scripts/ci_metadata.py', 'scripts/stage-release.py', 'scripts/publish-release.py', 'scripts/cmake/**', 'apps/apple/**', 'mobile/**', 'internal/**', 'go.mod', 'go.sum', 'packages/remote-*/**', 'scripts/build-ios-client.py', 'scripts/apple_*.py', 'upstream/**', '.github/workflows/build-ios-client.yml']
+    paths: ['VERSION', 'scripts/**', 'install-*.sh', 'install-*.ps1', 'tests/contracts/**', 'tests/tools/**', 'apps/apple/**', 'mobile/**', 'internal/**', 'go.mod', 'go.sum', 'packages/remote-*/**', 'upstream/**', '.github/workflows/build-ios-client.yml']
 permissions:
   contents: read
 jobs:

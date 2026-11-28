@@ -1,4 +1,4 @@
-// Package store owns schema-6. There is intentionally no earlier-schema migration or
+// Package store owns the current model.Schema. There is intentionally no earlier-schema migration or
 // dual-write path: a deployment must initialize a new database directory.
 package store
 
@@ -21,7 +21,7 @@ import (
 
 const applicationID = 0x4e474f32
 
-var ErrSchema = errors.New("database_schema_incompatible: initialize a fresh schema-6 database")
+var ErrSchema = fmt.Errorf("database_schema_incompatible: initialize a fresh schema-%d database", model.Schema)
 
 type Store struct {
 	// One writer connection serializes transactions and makes pool waits cancellable.
@@ -129,7 +129,11 @@ func (s *Store) view(tables scope) (model.State, error) {
 }
 
 func (s *Store) viewWith(load func(*sql.Tx) (model.State, error)) (model.State, error) {
-	tx, e := s.reader.Begin()
+	return s.viewWithContext(context.Background(), load)
+}
+
+func (s *Store) viewWithContext(ctx context.Context, load func(*sql.Tx) (model.State, error)) (model.State, error) {
+	tx, e := s.reader.BeginTx(ctx, nil)
 	if e != nil {
 		return model.State{}, e
 	}

@@ -1,10 +1,12 @@
 package api
 
 import (
+	"context"
 	"net/http"
 	"netgo/internal/model"
 	"netgo/internal/remote"
 	"strconv"
+	"time"
 )
 
 func (s *Server) remoteRoutes(secured func(string, bool, http.HandlerFunc)) {
@@ -19,7 +21,7 @@ func (s *Server) remoteRoutes(secured func(string, bool, http.HandlerFunc)) {
 	}
 	credential := func(r *http.Request) model.Credential { return r.Context().Value(credKey).(model.Credential) }
 	register("GET /netgo/v2/admin/remote/inventory", true, func(w http.ResponseWriter, r *http.Request) {
-		page, err := s.Remote.AdminList(credential(r), r.URL.Query().Get("after"), r.URL.Query().Get("q"))
+		page, err := s.Remote.AdminList(r.Context(), credential(r), r.URL.Query().Get("after"), r.URL.Query().Get("q"))
 		if err != nil {
 			failure(w, err)
 			return
@@ -36,7 +38,7 @@ func (s *Server) remoteRoutes(secured func(string, bool, http.HandlerFunc)) {
 		reply(w, 200, page)
 	})
 	register("GET /netgo/v2/remote", false, func(w http.ResponseWriter, r *http.Request) {
-		v, e := s.Remote.List(credential(r), r.URL.Query().Get("after"))
+		v, e := s.Remote.List(r.Context(), credential(r), r.URL.Query().Get("after"))
 		if e != nil {
 			failure(w, e)
 			return
@@ -49,7 +51,7 @@ func (s *Server) remoteRoutes(secured func(string, bool, http.HandlerFunc)) {
 			failure(w, e)
 			return
 		}
-		v, e := s.Remote.Register(credential(r), b)
+		v, e := s.Remote.Register(r.Context(), credential(r), b)
 		if e != nil {
 			failure(w, e)
 			return
@@ -64,7 +66,7 @@ func (s *Server) remoteRoutes(secured func(string, bool, http.HandlerFunc)) {
 			failure(w, e)
 			return
 		}
-		if e := s.Remote.Heartbeat(credential(r), b.Boot); e != nil {
+		if e := s.Remote.Heartbeat(r.Context(), credential(r), b.Boot); e != nil {
 			failure(w, e)
 			return
 		}
@@ -76,7 +78,7 @@ func (s *Server) remoteRoutes(secured func(string, bool, http.HandlerFunc)) {
 			failure(w, e)
 			return
 		}
-		v, e := s.Remote.Grant(credential(r), b)
+		v, e := s.Remote.Grant(r.Context(), credential(r), b)
 		if e != nil {
 			failure(w, e)
 			return
@@ -84,7 +86,7 @@ func (s *Server) remoteRoutes(secured func(string, bool, http.HandlerFunc)) {
 		reply(w, 200, v)
 	})
 	register("DELETE /netgo/v2/admin/remote/grants/{id}", true, func(w http.ResponseWriter, r *http.Request) {
-		if e := s.Remote.DeleteGrant(credential(r), r.PathValue("id")); e != nil {
+		if e := s.Remote.DeleteGrant(r.Context(), credential(r), r.PathValue("id")); e != nil {
 			failure(w, e)
 			return
 		}
@@ -102,12 +104,12 @@ func (s *Server) remoteRoutes(secured func(string, bool, http.HandlerFunc)) {
 			return
 		}
 		if s.Reconcile == nil {
-			_ = s.Remote.Revoke(credential(r), v.Session.ID)
+			s.rollbackRemote(r, v.Session.ID)
 			failure(w, remote.ErrUnavailable)
 			return
 		}
 		if e = s.Reconcile(r.Context()); e != nil {
-			_ = s.Remote.Revoke(credential(r), v.Session.ID)
+			s.rollbackRemote(r, v.Session.ID)
 			failure(w, remote.ErrUnavailable)
 			return
 		}
@@ -123,7 +125,7 @@ func (s *Server) remoteRoutes(secured func(string, bool, http.HandlerFunc)) {
 			failure(w, e)
 			return
 		}
-		v, e := s.Remote.Consume(credential(r), r.PathValue("id"), b.Sequence, b.Boot, b.Proof)
+		v, e := s.Remote.Consume(r.Context(), credential(r), r.PathValue("id"), b.Sequence, b.Boot, b.Proof)
 		if e != nil {
 			failure(w, e)
 			return
@@ -131,7 +133,7 @@ func (s *Server) remoteRoutes(secured func(string, bool, http.HandlerFunc)) {
 		reply(w, 200, v)
 	})
 	register("GET /netgo/v2/remote/sessions/{id}", false, func(w http.ResponseWriter, r *http.Request) {
-		v, e := s.Remote.Inspect(credential(r), r.PathValue("id"))
+		v, e := s.Remote.Inspect(r.Context(), credential(r), r.PathValue("id"))
 		if e != nil {
 			failure(w, e)
 			return
@@ -154,10 +156,17 @@ func (s *Server) remoteRoutes(secured func(string, bool, http.HandlerFunc)) {
 		reply(w, 200, v)
 	})
 	register("DELETE /netgo/v2/remote/sessions/{id}", false, func(w http.ResponseWriter, r *http.Request) {
-		if e := s.Remote.Revoke(credential(r), r.PathValue("id")); e != nil {
+		if e := s.Remote.Revoke(r.Context(), credential(r), r.PathValue("id")); e != nil {
 			failure(w, e)
 			return
 		}
 		reply(w, 200, map[string]bool{"revoked": true})
 	})
+}
+
+// Compensation has its own bounded lifetime after the request is cancelled.
+func (s *Server) rollbackRemote(r *http.Request, id string) {
+	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
+	defer cancel()
+	_ = s.Remote.Revoke(ctx, r.Context().Value(credKey).(model.Credential), id)
 }

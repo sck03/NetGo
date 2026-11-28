@@ -22,6 +22,7 @@ type Host struct {
 }
 
 type RemoteGrant struct {
+	EditToken    string    `json:"edit_token"`
 	ID           string    `json:"id"`
 	UserID       string    `json:"user_id"`
 	HostID       string    `json:"host_id"`

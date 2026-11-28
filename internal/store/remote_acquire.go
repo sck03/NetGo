@@ -1,6 +1,7 @@
 package store
 
 import (
+	"context"
 	"database/sql"
 	"netgo/internal/model"
 	"time"
@@ -14,9 +15,9 @@ type RemoteAcquireLimits struct {
 // RemoteAcquireUpdate loads only the sessions that can compete with this user or
 // host, plus their complete authorization graph. Aggregate replay/capacity checks
 // share the write transaction; retained history is never decoded or cloned.
-func (s *Store) RemoteAcquireUpdate(c model.Credential, host, operation string, now time.Time, fn func(*model.State, RemoteAcquireLimits) error) error {
+func (s *Store) RemoteAcquireUpdate(ctx context.Context, c model.Credential, host, operation string, now time.Time, fn func(*model.State, RemoteAcquireLimits) error) error {
 	var limits RemoteAcquireLimits
-	return s.updateWith(func(tx *sql.Tx) (model.State, error) {
+	return s.updateWithContext(ctx, func(tx *sql.Tx) (model.State, error) {
 		st, err := read(tx, 0)
 		if err != nil {
 			return st, err

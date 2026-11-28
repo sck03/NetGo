@@ -70,6 +70,25 @@ void brokenPeer(const Key& seed,const Key& publicKey){
  bool rejected=false;for(int i=0;i<10&&!rejected;++i){try{client.send({Kind::video,std::vector<uint8_t>(256*1024,1)});}catch(const std::exception&){rejected=true;}}
  require(rejected,"closed peer did not report failure");
 }
+void listenerLifecycle(const Key& seed,const Key& publicKey){
+ auto allowed=[]{return true;};uint16_t port=0;
+#ifdef _WIN32
+ const int attempts=1;
+#else
+ const int attempts=4;
+#endif
+ for(int i=0;i<attempts;++i){
+  Listener listener("127.0.0.1",port,seed,allowed);port=listener.port();
+  bool rejected=false;try{Listener duplicate("127.0.0.1",port,seed,allowed);}catch(const std::exception&){rejected=true;}
+  require(rejected,"second live listener acquired the same port");
+  auto peer=std::async(std::launch::async,[&]{return listener.accept(5000);});
+  auto client=Connection::connect("127.0.0.1",port,publicKey,allowed);auto server=peer.get();require(bool(server),"restart accept");
+  client.send({Kind::ping,{}});Message message;require(server->receive(message,1000),"restart exchange");
+  // The accepted endpoint closes first, so Unix must rebind while it is in TIME_WAIT.
+  server.reset();bool closed=false;try{client.receive(message,1000);}catch(const std::exception&){closed=true;}
+  require(closed,"client did not observe server close");
+ }
+}
 void highDescriptors(const Key& seed,const Key& publicKey){
 #ifndef _WIN32
  struct Pad {
@@ -111,6 +130,7 @@ int main(){
  partialFrames(seed);
  rejectOldFrames(seed);
  brokenPeer(seed,pub);
+ listenerLifecycle(seed,pub);
  highDescriptors(seed,pub);
  std::cout<<"PASS real TLS 1.3 loopback, device-key pin, exporter binding, bounded frames, cancellation and interface-only binding; no overlay/media acceptance\n";
  }catch(const std::exception& e){std::cerr<<e.what()<<"\n";return 1;}

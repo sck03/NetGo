@@ -20,7 +20,7 @@ func TypeScript() string {
 	for _, value := range []any{
 		model.CleanupRetry{}, model.Resource{}, model.User{}, model.Device{}, model.Lease{}, model.DeleteResult{},
 		model.Host{}, model.RemoteGrant{}, model.RemoteSession{}, remote.HostSummary{}, remote.GrantSummary{}, remote.Inventory{}, remote.InventoryPage{},
-		store.UserChoice{}, store.UserChoices{}, store.RemoteHistory{}, diagnostics.Check{}, diagnostics.Alert{}, diagnostics.HostResources{}, diagnostics.RuntimeReport{},
+		store.UserChoice{}, store.UserChoices{}, store.ResourceChoices{}, store.RemoteHistory{}, diagnostics.Check{}, diagnostics.Alert{}, diagnostics.HostResources{}, diagnostics.RuntimeReport{},
 	} {
 		t := reflect.TypeOf(value)
 		fmt.Fprintf(&out, "export type %s = {\n", t.Name())

@@ -1,9 +1,10 @@
 <script setup lang="ts">
 import { computed, ref } from 'vue'
-import type { User } from '../../../packages/ui/contracts'
+import type { User, AdminRequest } from '../../../packages/ui/contracts'
 import CleanupStatus from './CleanupStatus.vue'
+import ResourcePicker from './ResourcePicker.vue'
 type Account = { Alias: string; Email: string; Name: string }
-const props = defineProps<{ users: User[]; resources: { id: string; name: string }[]; busy: boolean; create: (account: Account) => Promise<boolean>; save: (user: User) => Promise<boolean>; remove: (user: User) => Promise<boolean> }>()
+const props = defineProps<{ users: User[]; resources: { id: string; name: string }[]; request: AdminRequest; busy: boolean; create: (account: Account) => Promise<boolean>; save: (user: User) => Promise<boolean>; remove: (user: User) => Promise<boolean> }>()
 const draft = ref<User | null>(null), creating = ref(false)
 const account = ref<Account>({ Alias: '', Email: '', Name: '' })
 const latest = computed(() => props.users.find(user => user.id === draft.value?.id))
@@ -26,7 +27,7 @@ function setExpiry(event: Event) { const value = (event.target as HTMLInputEleme
     <form @submit.prevent="save">
       <label>用户名<input :value="draft.alias" readonly><small>登录名固定；可修改下方显示名称。</small></label><label>显示名称<input v-model="draft.name" maxlength="256" placeholder="可留空，使用用户名"></label><label>角色<select v-model="draft.role"><option value="user">用户</option><option value="admin">管理员</option></select></label>
       <label class="check"><input v-model="draft.disabled" type="checkbox">停用账号</label>
-      <fieldset class="permission-list"><legend>允许访问的资源</legend><label v-for="resource in resources" :key="resource.id" class="check"><input v-model="draft.resources" type="checkbox" :value="resource.id">{{ resource.name }}</label><p v-if="!resources.length">需要开放局域网设备时，请先到“局域网资源”添加。</p><p class="muted">仅使用远程桌面的账号可以不选局域网资源，桌面权限在“远程桌面”中单独授予。</p></fieldset>
+      <ResourcePicker :key="draft.id" v-model="draft.resources" :resources="resources" :request="request" :disabled="busy || stale" />
       <details><summary>设备限额和到期时间</summary><div class="account-limits"><label>最多登记设备<input v-model.number="draft.max_devices" type="number" min="1" max="100" required></label><label>最多同时连接<input v-model.number="draft.max_sessions" type="number" min="1" max="100" required></label><label>到期时间（留空为不限）<input type="datetime-local" :value="expiryValue(draft.expires_at)" @change="setExpiry"></label></div></details>
       <p class="muted">修改权限会撤销此账号已有连接，重新连接后生效；仅修改显示名称不会断开连接。必须保留至少一个启用且不过期的管理员。</p>
       <p v-if="stale" class="muted">账号已发生变化，请重新载入并核对最新权限。<button v-if="latest" type="button" class="secondary" :disabled="busy" @click="edit(latest)">载入最新设置</button></p>

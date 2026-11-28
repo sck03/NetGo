@@ -48,7 +48,7 @@ struct Fixture {
     std::atomic_bool live = true, registered = false, mediaOpen = false, completed = false;
     std::atomic_uint opened = 0, closed = 0, consents = 0, events = 0, renewals = 0;
     bool denied = false, unattended = false;
-    std::string clipboard = "initial", failure;
+    std::string clipboard = "initial", failure, hostStatus;
     std::filesystem::path root;
     ng_remote_client *client = nullptr;
     Fixture() {
@@ -249,6 +249,9 @@ int main() {
             h.unattended = f.unattended;
             h.context = &hostContext;
             h.control = control;
+            h.status = [](void *p, const char *text) {
+                static_cast<Context *>(p)->f->hostStatus = text ? text : "";
+            };
             h.active = [](void *p) -> int32_t { return static_cast<Context *>(p)->f->live; };
             h.consent = [](void *p, const char *, uint32_t) -> int32_t {
                 auto &f = *static_cast<Context *>(p)->f;
@@ -287,7 +290,12 @@ int main() {
             };
             ng_remote_host *host = nullptr;
             check(ng_remote_host_create(&h, &host) == 0, "host create");
-            std::thread hostThread([&] { ng_remote_host_run(host); });
+            int hostResult = NG_REMOTE_CLIENT_FAILED;
+            std::thread hostThread([&] {
+                hostResult = ng_remote_host_run(host);
+                if (hostResult == NG_REMOTE_CLIENT_FAILED)
+                    f.live = false;
+            });
             // Every wait is bounded, including test failures; never orphan a host thread.
             std::atomic_bool done = false;
             std::thread timeout([&] {
@@ -348,6 +356,8 @@ int main() {
             timeout.join();
             ng_remote_client_destroy(f.client);
             ng_remote_host_destroy(host);
+            if (hostResult == NG_REMOTE_CLIENT_FAILED)
+                throw std::runtime_error("host scenario " + std::to_string(scenario) + ": " + f.hostStatus);
             if (!f.failure.empty())
                 throw std::runtime_error(f.failure);
             check(f.opened == f.closed, "media cleanup");

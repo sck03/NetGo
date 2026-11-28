@@ -12,7 +12,7 @@ import zipfile
 
 from verification import validate_report, verify_archive, sha256
 from runtime_files import server_files,SERVER_BINARIES,SERVER_UPSTREAM
-from build_config import config
+from build_config import config, model_contract
 from linux_arch import verify_elf
 
 ROOT=Path(__file__).resolve().parents[1]
@@ -37,7 +37,7 @@ def main():
     release=json.loads((ROOT/f'dist/linux-{arch}/release.json').read_text())
     version=release['version']
     if version!=build['version']:raise ValueError('Server executable version differs from requested package version')
-    if release!=dict(version=version,protocol=2,schema=6,os='linux',arch=arch):
+    if release!=dict(version=version,**model_contract(),os='linux',arch=arch):
         raise ValueError('incompatible server release')
     args.output.mkdir(parents=True,exist_ok=True)
     source=Path(subprocess.check_output([sys.executable,'-B',str(ROOT/'scripts/prepare-upstream.py'),'--path-only'],text=True).strip())

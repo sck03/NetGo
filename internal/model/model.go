@@ -10,7 +10,7 @@ import (
 )
 
 const Protocol = 2
-const Schema = 6
+const Schema = 7
 
 // Version is set by the build scripts through the Go linker; protocol/schema
 // remain fixed independently of the selected release version.
@@ -60,12 +60,13 @@ func (u User) Active(now time.Time) bool {
 }
 
 type Resource struct {
-	ID       string        `json:"id"`
-	Name     string        `json:"name"`
-	CIDR     string        `json:"cidr"`
-	Protocol string        `json:"protocol"`
-	Ports    Array[uint16] `json:"ports"`
-	Enabled  bool          `json:"enabled"`
+	EditToken string        `json:"edit_token"`
+	ID        string        `json:"id"`
+	Name      string        `json:"name"`
+	CIDR      string        `json:"cidr"`
+	Protocol  string        `json:"protocol"`
+	Ports     Array[uint16] `json:"ports"`
+	Enabled   bool          `json:"enabled"`
 }
 type Device struct {
 	CleanupRetry

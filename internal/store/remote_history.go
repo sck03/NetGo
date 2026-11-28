@@ -1,6 +1,7 @@
 package store
 
 import (
+	"context"
 	"encoding/base64"
 	"encoding/json"
 	"errors"
@@ -23,11 +24,11 @@ type NativeInventory struct {
 }
 
 // Hosts, live dependencies and generation watermark share one SQL snapshot.
-func (s *Store) RemoteInventory(c model.Credential, after string) (NativeInventory, error) {
+func (s *Store) RemoteInventory(ctx context.Context, c model.Credential, after string) (NativeInventory, error) {
 	if !validSearch(after, "") {
 		return NativeInventory{}, errors.New("invalid_remote_page")
 	}
-	tx, err := s.reader.Begin()
+	tx, err := s.reader.BeginTx(ctx, nil)
 	if err != nil {
 		return NativeInventory{}, err
 	}
@@ -43,9 +44,9 @@ func (s *Store) RemoteInventory(c model.Credential, after string) (NativeInvento
 	return out, tx.Commit()
 }
 
-func (s *Store) RemoteCleanupDue(now time.Time) (bool, error) {
+func (s *Store) RemoteCleanupDue(ctx context.Context, now time.Time) (bool, error) {
 	var due bool
-	err := s.reader.QueryRow(`SELECT EXISTS(SELECT 1 FROM remote_sessions WHERE state IN ('issued','active')) OR
+	err := s.reader.QueryRowContext(ctx, `SELECT EXISTS(SELECT 1 FROM remote_sessions WHERE state IN ('issued','active')) OR
 	 EXISTS(SELECT 1 FROM remote_sessions WHERE state='closed' AND julianday(json_extract(data,'$.closed_at')) < julianday(?1)-1) OR
 	 EXISTS(SELECT 1 FROM remote_operations WHERE julianday(json_extract(data,'$.expires_at')) <= julianday(?1))`, now.UTC().Format(time.RFC3339Nano)).Scan(&due)
 	return due, err

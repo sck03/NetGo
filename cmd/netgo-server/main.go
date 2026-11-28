@@ -102,10 +102,12 @@ func run() error {
 		case e := <-errc:
 			return errors.Join(e, shutdown())
 		case <-ticker.C:
-			if e = remotes.Sweep(); e != nil {
+			check, cancel := context.WithTimeout(ctx, 4*time.Second)
+			if e = remotes.Sweep(check); e != nil {
 				slog.Error("remote sweep failed")
 			}
-			check, cancel := context.WithTimeout(ctx, 4*time.Second)
+			cancel()
+			check, cancel = context.WithTimeout(ctx, 4*time.Second)
 			if e = leases.Sweep(check); e != nil {
 				slog.Error("lease sweep failed")
 			}

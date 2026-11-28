@@ -1,6 +1,7 @@
 package remote
 
 import (
+	"context"
 	"math"
 	"netgo/internal/model"
 	"sort"
@@ -50,8 +51,8 @@ type Inventory struct {
 	NextGeneration uint64                `json:"next_generation"`
 }
 
-func (m *Manager) List(c model.Credential, after string) (Inventory, error) {
-	page, err := m.Store.RemoteInventory(c, after)
+func (m *Manager) List(ctx context.Context, c model.Credential, after string) (Inventory, error) {
+	page, err := m.Store.RemoteInventory(ctx, c, after)
 	if err != nil {
 		return Inventory{}, err
 	}
@@ -89,8 +90,8 @@ type InventoryPage struct {
 	Users map[string]string `json:"users"`
 }
 
-func (m *Manager) AdminList(c model.Credential, after, search string) (InventoryPage, error) {
-	st, next, err := m.Store.AdminRemotePage(c, after, search)
+func (m *Manager) AdminList(ctx context.Context, c model.Credential, after, search string) (InventoryPage, error) {
+	st, next, err := m.Store.AdminRemotePage(ctx, c, after, search)
 	if err != nil {
 		return InventoryPage{}, err
 	}

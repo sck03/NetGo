@@ -490,6 +490,12 @@ Listener::Listener(const std::string &ip, std::uint16_t port, const Key &seed, C
     require(setsockopt(impl_->socket.value, SOL_SOCKET, SO_EXCLUSIVEADDRUSE,
                        reinterpret_cast<const char *>(&exclusive), sizeof(exclusive)) == 0,
             "remote_socket_failed");
+#else
+    // Allow a stopped host to rebind while prior connections finish TIME_WAIT.
+    // SO_REUSEPORT is deliberately absent: a live listener remains exclusive.
+    int reuse = 1;
+    require(setsockopt(impl_->socket.value, SOL_SOCKET, SO_REUSEADDR, &reuse, sizeof(reuse)) == 0,
+            "remote_socket_failed");
 #endif
     require(bind(impl_->socket.value, reinterpret_cast<sockaddr *>(&addr), length) == 0 &&
                 listen(impl_->socket.value, 2) == 0,

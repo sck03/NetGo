@@ -8,6 +8,7 @@ var schema = []string{
 	`INSERT INTO metadata VALUES(1,0,0,'')`,
 	`CREATE TABLE users(id TEXT PRIMARY KEY NOT NULL, data TEXT NOT NULL CHECK(json_valid(data)), alias TEXT GENERATED ALWAYS AS(nullif(lower(json_extract(data,'$.alias')),'')) VIRTUAL UNIQUE)`,
 	`CREATE TABLE resources(id TEXT PRIMARY KEY NOT NULL, data TEXT NOT NULL CHECK(json_valid(data)))`,
+	`CREATE INDEX user_email ON users(lower(json_extract(data,'$.email')))`,
 	`CREATE TABLE devices(id TEXT PRIMARY KEY NOT NULL, data TEXT NOT NULL CHECK(json_valid(data)), user_id TEXT GENERATED ALWAYS AS(json_extract(data,'$.user_id')) VIRTUAL NOT NULL REFERENCES users(id) DEFERRABLE INITIALLY DEFERRED)`,
 	`CREATE INDEX devices_user ON devices(user_id)`,
 	`CREATE TABLE vpn_leases(id TEXT PRIMARY KEY NOT NULL, data TEXT NOT NULL CHECK(json_valid(data)), user_id TEXT GENERATED ALWAYS AS(json_extract(data,'$.user_id')) VIRTUAL NOT NULL REFERENCES users(id) DEFERRABLE INITIALLY DEFERRED, device_id TEXT GENERATED ALWAYS AS(json_extract(data,'$.device_id')) VIRTUAL NOT NULL REFERENCES devices(id) DEFERRABLE INITIALLY DEFERRED)`,
@@ -41,5 +42,5 @@ var schema = []string{
 	`CREATE INDEX nonce_expiry ON ticket_nonces(expires_ms)`,
 	`CREATE TABLE audit_events(sequence INTEGER PRIMARY KEY AUTOINCREMENT, data TEXT NOT NULL CHECK(json_valid(data)))`,
 	`PRAGMA application_id=1313296178`,
-	`PRAGMA user_version=6`,
+	`PRAGMA user_version=7`,
 }
