@@ -25,11 +25,11 @@ func (s *Store) AdminRemotePage(ctx context.Context, c model.Credential, after, 
 	}
 	var next string
 	st, err := s.viewWithContext(ctx, func(tx *sql.Tx) (model.State, error) {
-		st, err := read(tx, 0)
+		st, err := readContext(ctx, tx, 0)
 		if err != nil {
 			return st, err
 		}
-		err = readRows(tx, "hosts", st.Hosts,
+		err = readRowsContext(ctx, tx, "hosts", st.Hosts,
 			"WHERE id>? AND instr(lower(coalesce(json_extract(data,'$.name'),'')||' '||coalesce(json_extract(data,'$.platform'),'')),lower(?))>0 ORDER BY id LIMIT ?",
 			after, strings.TrimSpace(search), adminPageSize+1)
 		if err != nil {
@@ -42,10 +42,10 @@ func (s *Store) AdminRemotePage(ctx context.Context, c model.Credential, after, 
 		}
 		// Only active sessions enter the live inventory.
 		raw, _ := json.Marshal(ids)
-		if err = readRows(tx, "remote_sessions", st.RemoteSessions, "WHERE state IN ('issued','active') AND host_id IN (SELECT value FROM json_each(?))", string(raw)); err != nil {
+		if err = readRowsContext(ctx, tx, "remote_sessions", st.RemoteSessions, "WHERE state IN ('issued','active') AND host_id IN (SELECT value FROM json_each(?))", string(raw)); err != nil {
 			return st, err
 		}
-		err = remoteDependencies(tx, &st, c)
+		err = remoteDependencies(ctx, tx, &st, c)
 		return st, err
 	})
 	return st, next, err
@@ -62,12 +62,12 @@ type UserChoices struct {
 }
 
 // Search choices never require loading the complete account permission records.
-func (s *Store) UserChoices(after, search string) (UserChoices, error) {
+func (s *Store) UserChoices(ctx context.Context, after, search string) (UserChoices, error) {
 	page := UserChoices{Users: []UserChoice{}}
 	if !validSearch(after, search) {
 		return page, errors.New("invalid_user_page")
 	}
-	rows, err := s.reader.Query(`SELECT id,json_extract(data,'$.alias'),coalesce(json_extract(data,'$.name'),'') FROM users
+	rows, err := s.reader.QueryContext(ctx, `SELECT id,json_extract(data,'$.alias'),coalesce(json_extract(data,'$.name'),'') FROM users
         WHERE id>? AND coalesce(json_extract(data,'$.delete_pending'),0)=0
         AND coalesce(json_extract(data,'$.disabled'),0)=0
         AND (coalesce(json_extract(data,'$.expires_at'),'0001-01-01T00:00:00Z')='0001-01-01T00:00:00Z'

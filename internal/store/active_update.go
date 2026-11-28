@@ -13,18 +13,11 @@ func (s *Store) VPNUpdate(ctx context.Context, fn func(*model.State) error) erro
 	return s.activeUpdate(ctx, allTables&^(remoteSessions|remoteOperations), fn)
 }
 
-// Host/grant changes close live sessions. Closed history is immutable on these
-// paths and has no dependency on a grant row. Issuance uses RemoteAcquireUpdate
-// with SQL generation/capacity checks over retained history.
-func (s *Store) RemotePolicyUpdate(ctx context.Context, fn func(*model.State) error) error {
-	return s.activeUpdate(ctx, remoteTables&^(remoteSessions|remoteOperations), fn)
-}
-
 func (s *Store) activeUpdate(ctx context.Context, tables scope, fn func(*model.State) error) error {
 	return s.updateWithContext(ctx, func(tx *sql.Tx) (model.State, error) {
-		st, err := read(tx, tables)
+		st, err := readContext(ctx, tx, tables)
 		if err == nil {
-			err = readRows(tx, "remote_sessions", st.RemoteSessions, "WHERE state IN ('issued','active')")
+			err = readRowsContext(ctx, tx, "remote_sessions", st.RemoteSessions, "WHERE state IN ('issued','active')")
 		}
 		return st, err
 	}, fn)

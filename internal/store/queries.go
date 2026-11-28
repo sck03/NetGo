@@ -61,12 +61,12 @@ type AuditPage struct {
 }
 
 // Audit uses a stable sequence cursor. Concurrent appends never shift older pages.
-func (s *Store) Audit(before int64, limit int) (AuditPage, error) {
+func (s *Store) Audit(ctx context.Context, before int64, limit int) (AuditPage, error) {
 	page := AuditPage{Events: []AuditEntry{}}
 	if limit < 1 || limit > 100 || before < 0 {
 		return page, errors.New("invalid audit cursor or limit")
 	}
-	rows, err := s.reader.Query("SELECT sequence,data FROM audit_events WHERE (?=0 OR sequence<?) ORDER BY sequence DESC LIMIT ?", before, before, limit+1)
+	rows, err := s.reader.QueryContext(ctx, "SELECT sequence,data FROM audit_events WHERE (?=0 OR sequence<?) ORDER BY sequence DESC LIMIT ?", before, before, limit+1)
 	if err != nil {
 		return page, err
 	}
@@ -141,7 +141,6 @@ const (
 	remoteOperations
 )
 const allTables = users | resources | devices | leases | credentials | operations | hosts | grants | remoteSessions | remoteOperations
-const remoteTables = users | devices | leases | credentials | hosts | grants | remoteSessions | remoteOperations
 
 func (s *Store) PolicyView() (model.State, error) {
 	return s.viewWith(func(tx *sql.Tx) (model.State, error) {

@@ -3,6 +3,7 @@
 #include <stdexcept>
 #include <iostream>
 #include <cmath>
+#include <algorithm>
 void check(bool ok){if(!ok)throw std::runtime_error("display layout mismatch");}
 int main(){try{
  using namespace netgo::desktop::layout;
@@ -27,5 +28,17 @@ int main(){try{
  netgo::video::nv12_to_bgra(converted,bgra);check(bgra.size()==1280*720*4&&bgra.front()>250);
  auto storage=bgra.data();netgo::video::nv12_to_bgra(converted,bgra);check(storage==bgra.data());
  bool invalid=false;try{netgo::video::bgra_to_nv12(pixels.data(),0,480,640*4,1280,720,converted);}catch(const std::invalid_argument&){invalid=true;}check(invalid);
+ // Compare padded, borrowed planes against the scalar color definition.
+ std::vector<std::uint8_t> yplane(32*18), uvplane(32*9);
+ for(size_t i=0;i<yplane.size();++i)yplane[i]=std::uint8_t(i*71+13);
+ for(size_t i=0;i<uvplane.size();++i)uvplane[i]=std::uint8_t(i*37+29);
+ netgo::video::FrameView view{16,18,32,yplane,uvplane};
+ netgo::video::nv12_to_bgra(view,bgra);
+ auto clip=[](int v){return std::uint8_t(std::clamp(v,0,255));};
+ for(unsigned y=0;y<18;++y)for(unsigned x=0;x<16;++x){
+  int c=yplane[y*32+x]-16,d=uvplane[(y/2)*32+(x&~1u)]-128,e=uvplane[(y/2)*32+(x&~1u)+1]-128;
+  auto p=(y*16+x)*4;check(bgra[p]==clip((298*c+516*d+128)>>8));check(bgra[p+1]==clip((298*c-100*d-208*e+128)>>8));check(bgra[p+2]==clip((298*c+409*e+128)>>8));check(bgra[p+3]==255);
+ }
+ view.uv=view.uv.first(10);invalid=false;try{netgo::video::nv12_to_bgra(view,bgra);}catch(const std::invalid_argument&){invalid=true;}check(invalid);
  std::cout<<"PASS aspect-preserving video size, letterbox input exclusion, drag clamp and minimized window\n";return 0;
  }catch(const std::exception& e){std::cerr<<e.what()<<'\n';return 1;}}

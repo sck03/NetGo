@@ -1,7 +1,8 @@
 import type { Resource } from './models.generated'
 export type { Resource } from './models.generated'
 export type ResourceForm = Omit<Resource, 'ports'> & { ports: string }
-export type NetworkAccess = { lan_interface: string; local_cidrs: string[]; internet_enabled: boolean; gateway?: string; dns: string[]; fake_ip_cidr?: string }
+export type { Access as NetworkAccess } from './models.generated'
+import type { Access as NetworkAccess } from './models.generated'
 
 export function validateResourceNetwork(resource: Resource, network: NetworkAccess): void {
   if (!resource.enabled) return

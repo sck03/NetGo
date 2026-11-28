@@ -41,7 +41,7 @@ func BenchmarkReadPaths(b *testing.B) {
 	b.Run("AdminSummary", func(b *testing.B) {
 		b.ReportAllocs()
 		for b.Loop() {
-			if _, _, e := db.AdminSummary(time.Now()); e != nil {
+			if _, _, e := db.AdminSummary(context.Background(), time.Now()); e != nil {
 				b.Fatal(e)
 			}
 		}
@@ -57,7 +57,7 @@ func BenchmarkReadPaths(b *testing.B) {
 	b.Run("AuditPage100", func(b *testing.B) {
 		b.ReportAllocs()
 		for b.Loop() {
-			if _, e := db.Audit(0, 100); e != nil {
+			if _, e := db.Audit(context.Background(), 0, 100); e != nil {
 				b.Fatal(e)
 			}
 		}

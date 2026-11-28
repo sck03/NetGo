@@ -16,7 +16,7 @@ $taskTargets = @(
     '.cache/toolchain/go-build', '.cache/toolchain/go', '.cache/toolchain/npm-cache',
     '.cache/toolchain/tmp', '.cache/toolchain/gradle', '.cache/toolchain/android-local',
     '.cache/refactor-native', '.cache/refactor-linux', '.cache/refactor-server', '.cache/apple-tests',
-    '.cache/refactor-native-build', '.cache/audit-linux-build', '.cache/audit-remote-core', '.cache/audit-web-dist',
+    '.cache/refactor-check', '.cache/refactor-native-build', '.cache/audit-linux-build', '.cache/audit-remote-core', '.cache/audit-web-dist',
     'apps/android/.gradle', 'apps/android/.kotlin', 'apps/android/.cxx',
     'apps/android/build', 'apps/android/app/build', 'apps/android/app/.cxx',
     'apps/android/app/libs/netgo-mobile.aar', 'apps/android/app/libs/netgo-mobile-sources.jar',

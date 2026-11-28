@@ -1,6 +1,7 @@
 package store
 
 import (
+	"context"
 	"database/sql"
 	"encoding/json"
 	"errors"
@@ -16,15 +17,15 @@ const activeLeaseFilter = `julianday(json_extract(l.data,'$.expires_at'))>julian
 
 // Summary counts rows inside the same snapshot as policy status without loading
 // user, device or lease bodies into the overview poll.
-func (s *Store) AdminSummary(now time.Time) (model.State, map[string]int, error) {
+func (s *Store) AdminSummary(ctx context.Context, now time.Time) (model.State, map[string]int, error) {
 	counts := map[string]int{}
-	st, err := s.viewWith(func(tx *sql.Tx) (model.State, error) {
-		st, err := read(tx, 0)
+	st, err := s.viewWithContext(ctx, func(tx *sql.Tx) (model.State, error) {
+		st, err := readContext(ctx, tx, 0)
 		if err != nil {
 			return st, err
 		}
 		var users, resources, devices, leases, cleanups int
-		err = tx.QueryRow(`SELECT (SELECT count(*) FROM users),
+		err = tx.QueryRowContext(ctx, `SELECT (SELECT count(*) FROM users),
    (SELECT count(*) FROM resources WHERE json_extract(data,'$.protocol')<>'internet'),
    (SELECT count(*) FROM devices WHERE coalesce(json_extract(data,'$.client_type'),'')<>'admin'),
 		   (SELECT count(*) FROM vpn_leases l JOIN users u ON l.user_id=u.id WHERE `+activeLeaseFilter+`),
@@ -37,19 +38,19 @@ func (s *Store) AdminSummary(now time.Time) (model.State, map[string]int, error)
 
 // Page lists share the state envelope but load only the page and the supporting
 // options/labels needed to edit it. This is not a full policy snapshot.
-func (s *Store) AdminPage(section, before string, limit int) (model.State, string, error) {
+func (s *Store) AdminPage(ctx context.Context, section, before string, limit int) (model.State, string, error) {
 	if limit < 1 || limit > 100 {
 		limit = 50
 	}
 	next := ""
-	st, err := s.viewWith(func(tx *sql.Tx) (model.State, error) {
-		st, err := read(tx, 0)
+	st, err := s.viewWithContext(ctx, func(tx *sql.Tx) (model.State, error) {
+		st, err := readContext(ctx, tx, 0)
 		if err != nil {
 			return st, err
 		}
 		switch section {
 		case "users":
-			err = readRows(tx, "users", st.Users, "WHERE id>? ORDER BY id LIMIT ?", before, limit+1)
+			err = readRowsContext(ctx, tx, "users", st.Users, "WHERE id>? ORDER BY id LIMIT ?", before, limit+1)
 			next = trimPage(st.Users, limit)
 			if err == nil {
 				ids := map[string]bool{}
@@ -58,18 +59,18 @@ func (s *Store) AdminPage(section, before string, limit int) (model.State, strin
 						ids[id] = true
 					}
 				}
-				err = readRows(tx, "resources", st.Resources, "WHERE id IN (SELECT value FROM json_each(?))", keyJSON(ids))
+				err = readRowsContext(ctx, tx, "resources", st.Resources, "WHERE id IN (SELECT value FROM json_each(?))", keyJSON(ids))
 			}
 		case "resources":
-			err = readRows(tx, "resources", st.Resources, "WHERE id>? ORDER BY id LIMIT ?", before, limit+1)
+			err = readRowsContext(ctx, tx, "resources", st.Resources, "WHERE id>? ORDER BY id LIMIT ?", before, limit+1)
 			next = trimPage(st.Resources, limit)
 		case "sessions", "devices":
 			if section == "devices" {
-				err = readRows(tx, "devices", st.Devices, "WHERE id>? AND coalesce(json_extract(data,'$.client_type'),'')<>'admin' ORDER BY id LIMIT ?", before, limit+1)
+				err = readRowsContext(ctx, tx, "devices", st.Devices, "WHERE id>? AND coalesce(json_extract(data,'$.client_type'),'')<>'admin' ORDER BY id LIMIT ?", before, limit+1)
 				next = trimPage(st.Devices, limit)
 			} else {
 				now := time.Now().UTC().Format(time.RFC3339Nano)
-				err = readRows(tx, "vpn_leases", st.Leases, `WHERE id>? AND id IN
+				err = readRowsContext(ctx, tx, "vpn_leases", st.Leases, `WHERE id>? AND id IN
 				 (SELECT l.id FROM vpn_leases l JOIN users u ON l.user_id=u.id WHERE `+activeLeaseFilter+`) ORDER BY id LIMIT ?`, before, now, now, limit+1)
 				next = trimPage(st.Leases, limit)
 				if err == nil {
@@ -78,7 +79,7 @@ func (s *Store) AdminPage(section, before string, limit int) (model.State, strin
 						ids = append(ids, lease.DeviceID)
 					}
 					raw, _ := json.Marshal(ids)
-					err = readRows(tx, "devices", st.Devices, "WHERE id IN (SELECT value FROM json_each(?))", string(raw))
+					err = readRowsContext(ctx, tx, "devices", st.Devices, "WHERE id IN (SELECT value FROM json_each(?))", string(raw))
 				}
 			}
 			if err == nil {
@@ -94,7 +95,7 @@ func (s *Store) AdminPage(section, before string, limit int) (model.State, strin
 					keys = append(keys, id)
 				}
 				raw, _ := json.Marshal(keys)
-				err = readRows(tx, "users", st.Users, "WHERE id IN (SELECT value FROM json_each(?))", string(raw))
+				err = readRowsContext(ctx, tx, "users", st.Users, "WHERE id IN (SELECT value FROM json_each(?))", string(raw))
 			}
 		default:
 			return st, errors.New("invalid_admin_section")

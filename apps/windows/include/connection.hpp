@@ -3,6 +3,7 @@
 #include <array>
 #include <deque>
 #include <future>
+#include <optional>
 #include <condition_variable>
 
 struct ssl_ctx_st;
@@ -36,6 +37,7 @@ HttpResponse decodeHttp(const std::string& raw);
 struct RequestOptions {
  std::function<bool()> cancelled;
  bool cleanup = false;
+ std::optional<Clock::time_point> deadline = std::nullopt;
 };
 class Transport {
  Json profile_;

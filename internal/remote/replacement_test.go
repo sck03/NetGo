@@ -72,7 +72,7 @@ func TestInventoryLoadsOnlyVisibleDependencies(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(inventory.Sessions) != 1 || inventory.Sessions[0].ID != a.Session.ID {
+	if len(state.RemoteSessions) != 1 || state.RemoteSessions[a.Session.ID].ID != a.Session.ID {
 		t.Fatal("incomplete authorization dependencies", inventory)
 	}
 	found := false

@@ -13,7 +13,7 @@ import (
 func TestActiveUpdatesPreserveHistoryAndInvalidateRoutes(t *testing.T) {
 	for _, policy := range []bool{false, true} {
 		t.Run(fmt.Sprint(policy), func(t *testing.T) {
-			s, _ := renewalFixture(t)
+			s, c := renewalFixture(t)
 			err := s.Update(func(st *model.State) error {
 				for i := 0; i < 100; i++ {
 					r := st.RemoteSessions["remote"]
@@ -30,11 +30,16 @@ func TestActiveUpdatesPreserveHistoryAndInvalidateRoutes(t *testing.T) {
 			before, _ := s.View()
 			write := func(fn func(*model.State) error) error { return s.VPNUpdate(context.Background(), fn) }
 			if policy {
-				write = func(fn func(*model.State) error) error { return s.RemotePolicyUpdate(context.Background(), fn) }
+				write = func(fn func(*model.State) error) error {
+					return s.RemoteGrantUpdate(context.Background(), c, model.RemoteGrant{ID: "g"}, fn)
+				}
 			}
 			mutation := func(st *model.State) error {
 				if len(st.RemoteSessions) != 1 || len(st.RemoteOperations) != 0 {
 					t.Fatal("retained history loaded on active path")
+				}
+				if policy && (len(st.Users) != 2 || len(st.Devices) != 2 || len(st.RemoteGrants) != 1) {
+					t.Fatal("unrelated policy dependencies loaded")
 				}
 				if len(model.RemoteRoutes(*st)) != 1 {
 					t.Fatal("active route dependency missing")

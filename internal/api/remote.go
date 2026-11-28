@@ -39,7 +39,7 @@ func (s *Server) remoteRoutes(secured func(string, bool, http.HandlerFunc)) {
 	})
 	register("GET /netgo/v2/admin/remote/history", true, func(w http.ResponseWriter, r *http.Request) {
 		limit, _ := strconv.Atoi(r.URL.Query().Get("limit"))
-		page, err := s.Store.RemoteHistory(r.URL.Query().Get("before"), limit)
+		page, err := s.Store.RemoteHistory(r.Context(), r.URL.Query().Get("before"), limit)
 		if err != nil {
 			failure(w, err)
 			return

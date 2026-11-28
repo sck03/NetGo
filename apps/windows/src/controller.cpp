@@ -147,7 +147,7 @@ void Controller::connect(const Json& r) {
 void Controller::run(uint64_t gen,Json p,std::string alias,std::string password,bool replace,bool remember,bool internet) {
  std::string seed,token,refresh,jwt;Json lease=Json::object();std::unique_ptr<Transport> transport;
  std::shared_timed_mutex authMutex;std::atomic_bool remoteStop=false;std::thread remoteWorker;
- bool prepared=false;
+ bool prepared=false, refreshPending=false;
  const auto scope=accountScope(p.at("ID"),alias);
  auto check=[&]{if(cancel_)throw Error("cancelled");};
  auto engine=[&](const std::string& action,const Json& fields=Json::object()){
@@ -217,6 +217,7 @@ void Controller::run(uint64_t gen,Json p,std::string alias,std::string password,
     }
     check();
     if (remoteStop || job->abandoned) throw Error("cancelled");
+    if (refreshPending) throw Error("authentication_refresh_pending");
     auto value=transport->call(method,path,job->request.value("body",Json()),seed,token,job->request.value("idempotency",""),{[&]{return job->abandoned.load();}});
     check();job->result.set_value(std::move(value));
    }catch(const std::exception& e){job->result.set_value({{"error",e.what()}});}
@@ -247,8 +248,28 @@ void Controller::run(uint64_t gen,Json p,std::string alias,std::string password,
       if (Clock::now() >= refreshDeadline) throw Error("control_timeout");
      }
      check();
-     auto authNew=transport->call("POST","/netgo/v2/auth/refresh",{{"refresh_token",refresh}},seed,token);
-     wipe(token);wipe(refresh);wipe(jwt);token=authNew.at("token");refresh=authNew.value("refresh_token","");jwt=authNew.at("id_token");authExpires=parseTime(authNew.at("expires_at"));
+     refreshPending = true;
+     Json authNew;
+     for (int attempt = 0; attempt < 2; ++attempt) {
+      check();
+      try {
+       RequestOptions options;
+       options.deadline = std::min(refreshDeadline, Clock::now() + std::chrono::seconds(2));
+       authNew = transport->call("POST", "/netgo/v2/auth/refresh", {{"refresh_token", refresh}}, seed, token, "", options);
+       if (authNew.value("token", "").empty()) throw Error("invalid_auth_response");
+       break;
+      } catch (const Error& e) {
+       const std::string error = e.what();
+       if (attempt || cancel_ || error == "unauthorized" || error == "forbidden" || error == "not_found" || Clock::now() >= refreshDeadline) throw;
+      }
+     }
+     auto nextToken = authNew.at("token").get<std::string>();
+     auto nextRefresh = authNew.value("refresh_token", "");
+     auto nextJWT = authNew.at("id_token").get<std::string>();
+     auto nextExpiry = parseTime(authNew.at("expires_at"));
+     wipe(token); wipe(refresh); wipe(jwt);
+     token = std::move(nextToken); refresh = std::move(nextRefresh); jwt = std::move(nextJWT); authExpires = nextExpiry;
+     refreshPending = false;
      authLock.unlock();
      engine("login",{{"id_token",jwt}});engine("up");engine("routes",{{"resources",selectedResources(lease.at("resources"),internet)}});
     }

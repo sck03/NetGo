@@ -22,7 +22,7 @@ func TestRemoteTransactionsCancelWhilePoolBusy(t *testing.T) {
 	defer conn.Close()
 	for name, call := range map[string]func(context.Context) error{
 		"policy": func(ctx context.Context) error {
-			return s.RemotePolicyUpdate(ctx, func(*model.State) error { t.Error("cancelled callback ran"); return nil })
+			return s.RemoteGrantUpdate(ctx, model.Credential{}, model.RemoteGrant{ID: "g"}, func(*model.State) error { t.Error("cancelled callback ran"); return nil })
 		},
 		"target": func(ctx context.Context) error {
 			_, err := s.RemoteTargetView(ctx, model.Credential{}, "", "")
@@ -60,7 +60,7 @@ func TestResourceChoicesPageAndSelectedLabels(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	state, _, err := s.AdminPage("users", "", 50)
+	state, _, err := s.AdminPage(context.Background(), "users", "", 50)
 	if err != nil || len(state.Resources) != 1 || state.Resources["r054"].ID == "" {
 		t.Fatal(state.Resources, err)
 	}

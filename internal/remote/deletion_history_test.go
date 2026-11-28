@@ -1,6 +1,7 @@
 package remote
 
 import (
+	"context"
 	"netgo/internal/model"
 	"testing"
 )
@@ -20,7 +21,7 @@ func TestHistorySurvivesIdentityDeletionAndClosesActiveSession(t *testing.T) {
 			}); err != nil {
 				t.Fatal(err)
 			}
-			history, err := f.m.Store.RemoteHistory("", 10)
+			history, err := f.m.Store.RemoteHistory(context.Background(), "", 10)
 			if err != nil || len(history.Sessions) != 1 {
 				t.Fatal("history removed", history, err)
 			}

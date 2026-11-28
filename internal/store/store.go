@@ -145,12 +145,12 @@ func (s *Store) viewWithContext(ctx context.Context, load func(*sql.Tx) (model.S
 	return st, e
 }
 
-func readMap[T any](tx *sql.Tx, table string, target map[string]T) error {
-	return readRows(tx, table, target, "")
+func readRows[T any](tx *sql.Tx, table string, target map[string]T, where string, args ...any) error {
+	return readRowsContext(context.Background(), tx, table, target, where, args...)
 }
 
-func readRows[T any](tx *sql.Tx, table string, target map[string]T, where string, args ...any) error {
-	rows, e := tx.Query("SELECT id,data FROM "+table+" "+where, args...)
+func readRowsContext[T any](ctx context.Context, tx *sql.Tx, table string, target map[string]T, where string, args ...any) error {
+	rows, e := tx.QueryContext(ctx, "SELECT id,data FROM "+table+" "+where, args...)
 	if e != nil {
 		return e
 	}
@@ -171,8 +171,12 @@ func readRows[T any](tx *sql.Tx, table string, target map[string]T, where string
 }
 
 func read(tx *sql.Tx, tables scope) (model.State, error) {
+	return readContext(context.Background(), tx, tables)
+}
+
+func readContext(ctx context.Context, tx *sql.Tx, tables scope) (model.State, error) {
 	st := model.NewState()
-	e := tx.QueryRow("SELECT revision,observed_revision,last_error FROM metadata WHERE id=1").Scan(&st.Revision, &st.ObservedRevision, &st.LastError)
+	e := tx.QueryRowContext(ctx, "SELECT revision,observed_revision,last_error FROM metadata WHERE id=1").Scan(&st.Revision, &st.ObservedRevision, &st.LastError)
 	if e != nil {
 		return st, e
 	}
@@ -180,16 +184,16 @@ func read(tx *sql.Tx, tables scope) (model.State, error) {
 		table scope
 		read  func() error
 	}{
-		{users, func() error { return readMap(tx, "users", st.Users) }},
-		{resources, func() error { return readMap(tx, "resources", st.Resources) }},
-		{devices, func() error { return readMap(tx, "devices", st.Devices) }},
-		{leases, func() error { return readMap(tx, "vpn_leases", st.Leases) }},
-		{credentials, func() error { return readMap(tx, "credentials", st.Credentials) }},
-		{operations, func() error { return readMap(tx, "operation_keys", st.Operations) }},
-		{hosts, func() error { return readMap(tx, "hosts", st.Hosts) }},
-		{grants, func() error { return readMap(tx, "remote_grants", st.RemoteGrants) }},
-		{remoteSessions, func() error { return readMap(tx, "remote_sessions", st.RemoteSessions) }},
-		{remoteOperations, func() error { return readMap(tx, "remote_operations", st.RemoteOperations) }},
+		{users, func() error { return readRowsContext(ctx, tx, "users", st.Users, "") }},
+		{resources, func() error { return readRowsContext(ctx, tx, "resources", st.Resources, "") }},
+		{devices, func() error { return readRowsContext(ctx, tx, "devices", st.Devices, "") }},
+		{leases, func() error { return readRowsContext(ctx, tx, "vpn_leases", st.Leases, "") }},
+		{credentials, func() error { return readRowsContext(ctx, tx, "credentials", st.Credentials, "") }},
+		{operations, func() error { return readRowsContext(ctx, tx, "operation_keys", st.Operations, "") }},
+		{hosts, func() error { return readRowsContext(ctx, tx, "hosts", st.Hosts, "") }},
+		{grants, func() error { return readRowsContext(ctx, tx, "remote_grants", st.RemoteGrants, "") }},
+		{remoteSessions, func() error { return readRowsContext(ctx, tx, "remote_sessions", st.RemoteSessions, "") }},
+		{remoteOperations, func() error { return readRowsContext(ctx, tx, "remote_operations", st.RemoteOperations, "") }},
 	} {
 		if tables&load.table != 0 {
 			if e = load.read(); e != nil {
@@ -263,7 +267,7 @@ func (s *Store) updateWithContext(ctx context.Context, load func(*sql.Tx) (model
 	if reflect.DeepEqual(before, after) {
 		return nil
 	}
-	if !reflect.DeepEqual(before.Users, after.Users) || !reflect.DeepEqual(before.Resources, after.Resources) || !reflect.DeepEqual(model.RemoteRoutes(before), model.RemoteRoutes(after)) {
+	if model.NetworkPolicyChanged(&before, &after) {
 		after.Revision++
 	}
 	for _, save := range []func() error{

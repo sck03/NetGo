@@ -33,11 +33,11 @@ func (s *Store) RemoteInventory(ctx context.Context, c model.Credential, after s
 		return NativeInventory{}, err
 	}
 	defer tx.Rollback()
-	out, err := inventoryState(tx, c, after)
+	out, err := inventoryState(ctx, tx, c, after)
 	if err != nil {
 		return out, err
 	}
-	err = tx.QueryRow("SELECT coalesce(max(json_extract(data,'$.generation')),0) FROM remote_sessions WHERE controller_id=?", c.DeviceID).Scan(&out.Generation)
+	err = tx.QueryRowContext(ctx, "SELECT coalesce(max(json_extract(data,'$.generation')),0) FROM remote_sessions WHERE controller_id=?", c.DeviceID).Scan(&out.Generation)
 	if err != nil {
 		return out, err
 	}
@@ -59,7 +59,7 @@ type historyCursor struct {
 
 // The cursor includes the immutable creation time, so expiry or removal of the
 // last row on a page cannot invalidate the following page. IDs break time ties.
-func (s *Store) RemoteHistory(before string, limit int) (RemoteHistory, error) {
+func (s *Store) RemoteHistory(ctx context.Context, before string, limit int) (RemoteHistory, error) {
 	if limit < 1 || limit > 100 {
 		limit = 100
 	}
@@ -74,7 +74,7 @@ func (s *Store) RemoteHistory(before string, limit int) (RemoteHistory, error) {
 			return page, errors.New("invalid_remote_history_cursor")
 		}
 	}
-	rows, err := s.reader.Query(`SELECT r.data,coalesce(json_extract(u.data,'$.alias'),''),coalesce(json_extract(h.data,'$.name'),'')
+	rows, err := s.reader.QueryContext(ctx, `SELECT r.data,coalesce(json_extract(u.data,'$.alias'),''),coalesce(json_extract(h.data,'$.name'),'')
      FROM remote_sessions r LEFT JOIN users u ON u.id=r.user_id LEFT JOIN hosts h ON h.id=r.host_id
      WHERE r.state='closed' AND (?1='' OR
      (julianday(json_extract(r.data,'$.created_at')),r.id) < (julianday(?2),?3))

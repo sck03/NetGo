@@ -2,17 +2,13 @@ package api
 
 import (
 	"context"
-	"encoding/json"
 	"errors"
-	"io"
 	"log/slog"
 	"net/http"
 	"netgo/internal/accounts"
-	"netgo/internal/authorization"
 	"netgo/internal/devices"
 	"netgo/internal/diagnostics"
 	"netgo/internal/engine/netbird"
-	"netgo/internal/gateway"
 	"netgo/internal/identity"
 	"netgo/internal/model"
 	"netgo/internal/protocol"
@@ -20,7 +16,6 @@ import (
 	"netgo/internal/session"
 	"netgo/internal/site"
 	"netgo/internal/store"
-	"slices"
 	"strconv"
 	"strings"
 	"sync"
@@ -44,73 +39,7 @@ type Server struct {
 	Monitor      *diagnostics.Monitor
 	Logger       *slog.Logger
 }
-type ctxKey int
 
-const credKey ctxKey = 1
-const principalKey ctxKey = 2
-
-type principal struct {
-	device model.Device
-}
-
-func reply(w http.ResponseWriter, status int, v any) {
-	w.Header().Set("Content-Type", "application/json")
-	w.Header().Set("Cache-Control", "no-store")
-	w.WriteHeader(status)
-	_ = json.NewEncoder(w).Encode(v)
-}
-func failure(w http.ResponseWriter, e error) {
-	status := 400
-	code := "invalid_request"
-	switch {
-	case errors.Is(e, model.ErrEditConflict):
-		status, code = http.StatusConflict, "edit_conflict"
-	case errors.Is(e, model.ErrControlUnavailable), errors.Is(e, context.DeadlineExceeded):
-		status, code = http.StatusServiceUnavailable, "control_unavailable"
-	case errors.Is(e, model.ErrControlCapacity):
-		status, code = http.StatusServiceUnavailable, "control_capacity_exceeded"
-		w.Header().Set("Retry-After", "1")
-	case errors.Is(e, context.Canceled):
-		status, code = http.StatusRequestTimeout, "control_cancelled"
-	case errors.Is(e, session.ErrStopped):
-		status = http.StatusServiceUnavailable
-		code = "session_manager_stopped"
-	case errors.Is(e, model.ErrUnauthorized):
-		status = 401
-		code = "unauthorized"
-	case errors.Is(e, model.ErrForbidden):
-		status = 403
-		code = "forbidden"
-	case errors.Is(e, remote.ErrBusy):
-		status = 409
-		code = "remote_host_busy"
-	case errors.Is(e, remote.ErrUnavailable):
-		status = 409
-		code = "remote_host_unavailable"
-	case errors.Is(e, gateway.ErrCapacity):
-		status = 503
-		code = "gateway_capacity_exceeded"
-	case errors.Is(e, model.ErrConflict):
-		status = 409
-		code = "session_conflict"
-	case errors.Is(e, model.ErrNotFound):
-		status = 404
-		code = "not_found"
-	case e.Error() == "rate_limited":
-		status = http.StatusTooManyRequests
-		code = "rate_limited"
-	default:
-		code = e.Error()
-		if len(code) > 160 {
-			code = "operation_failed"
-		}
-	}
-	reply(w, status, map[string]string{"error": code})
-}
-func body(w http.ResponseWriter, r *http.Request, v any) error {
-	r.Body = http.MaxBytesReader(w, r.Body, 64<<10)
-	return site.Decode(r.Body, v)
-}
 func (s *Server) Handler() http.Handler {
 	s.initializeServices()
 	m := http.NewServeMux()
@@ -241,103 +170,7 @@ func (s *Server) Handler() http.Handler {
 		}
 		reply(w, 200, map[string]bool{"revoked": true})
 	})
-	secured("POST /netgo/v2/admin/reconcile", true, func(w http.ResponseWriter, r *http.Request) {
-		if s.Reconcile == nil {
-			failure(w, errors.New("coordinator unavailable"))
-			return
-		}
-		if e := s.Reconcile(r.Context()); e != nil {
-			failure(w, e)
-			return
-		}
-		reply(w, 200, map[string]bool{"applied": true})
-	})
-	secured("GET /netgo/v2/admin/state", true, func(w http.ResponseWriter, r *http.Request) {
-		st, next, e := s.Store.AdminPage(r.URL.Query().Get("section"), r.URL.Query().Get("after"), 50)
-		if e != nil {
-			failure(w, e)
-			return
-		}
-		monitor := s.Monitor
-		if monitor == nil {
-			monitor = diagnostics.NewMonitor()
-		}
-		reply(w, 200, map[string]any{"users": st.Users, "resources": st.Resources, "devices": st.Devices, "leases": st.Leases, "revision": st.Revision, "observed_revision": st.ObservedRevision, "last_error": st.LastError, "runtime": monitor.Snapshot(s.Config, st), "network": s.Config.Access(), "next_after": next})
-	})
-	secured("GET /netgo/v2/admin/resources/choices", true, func(w http.ResponseWriter, r *http.Request) {
-		page, err := s.Store.ResourceChoices(r.Context(), r.URL.Query().Get("after"), r.URL.Query().Get("q"))
-		if err != nil {
-			failure(w, err)
-			return
-		}
-		reply(w, 200, page)
-	})
-	secured("GET /netgo/v2/admin/summary", true, func(w http.ResponseWriter, r *http.Request) {
-		st, counts, err := s.Store.AdminSummary(time.Now())
-		if err != nil {
-			failure(w, err)
-			return
-		}
-		monitor := s.Monitor
-		if monitor == nil {
-			monitor = diagnostics.NewMonitor()
-		}
-		report := monitor.Snapshot(s.Config, st)
-		report.Counts = counts
-		reply(w, 200, map[string]any{"counts": counts, "revision": st.Revision, "observed_revision": st.ObservedRevision, "last_error": st.LastError, "runtime": report})
-	})
-	secured("GET /netgo/v2/admin/audit", true, func(w http.ResponseWriter, r *http.Request) {
-		before := int64(0)
-		if value := r.URL.Query().Get("before"); value != "" {
-			var e error
-			before, e = strconv.ParseInt(value, 10, 64)
-			if e != nil || before < 0 {
-				failure(w, errors.New("invalid audit cursor"))
-				return
-			}
-		}
-		page, e := s.Store.Audit(before, 100)
-		if e != nil {
-			failure(w, e)
-			return
-		}
-		reply(w, 200, page)
-	})
-	secured("GET /netgo/v2/admin/users/choices", true, func(w http.ResponseWriter, r *http.Request) {
-		page, err := s.Store.UserChoices(r.URL.Query().Get("after"), r.URL.Query().Get("q"))
-		if err != nil {
-			failure(w, err)
-			return
-		}
-		reply(w, 200, page)
-	})
-	secured("PUT /netgo/v2/admin/users/{id}", true, s.putUser)
-	secured("POST /netgo/v2/admin/users", true, s.createUser)
-	secured("DELETE /netgo/v2/admin/users/{id}", true, s.deleteUser)
-	secured("DELETE /netgo/v2/admin/devices/{id}", true, s.deleteDevice)
-	secured("PUT /netgo/v2/admin/resources/{id}", true, s.putResource)
-	secured("DELETE /netgo/v2/admin/resources/{id}", true, func(w http.ResponseWriter, r *http.Request) {
-		e := s.Sessions.MutateResource(r.Context(), r.PathValue("id"), func(st *model.State) error {
-			if err := authorization.CheckAdmin(r.Context(), st); err != nil {
-				return err
-			}
-			delete(st.Resources, r.PathValue("id"))
-			st.Record(authorization.Actor(r.Context()), "resource.delete", r.PathValue("id"))
-			return nil
-		})
-		if e != nil {
-			failure(w, e)
-			return
-		}
-		reply(w, 200, map[string]bool{"deleted": true})
-	})
-	secured("DELETE /netgo/v2/admin/sessions/{id}", true, func(w http.ResponseWriter, r *http.Request) {
-		if e := s.Sessions.Revoke(r.Context(), "admin", r.PathValue("id")); e != nil {
-			failure(w, e)
-			return
-		}
-		reply(w, 200, map[string]bool{"revoked": true})
-	})
+	s.adminRoutes(secured)
 	if s.Web != nil {
 		m.Handle("/", s.Web)
 	}
@@ -360,55 +193,6 @@ func (s *Server) Handler() http.Handler {
 		m.ServeHTTP(w, r)
 	}))
 }
-func (s *Server) authorize(admin bool, next http.Handler) http.Handler {
-	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		token := strings.TrimPrefix(r.Header.Get("Authorization"), "Bearer ")
-		c, u, d, e := s.Store.Identity(r.Context(), model.Hash(token))
-		if errors.Is(e, model.ErrUnauthorized) && r.Method == http.MethodPost && r.URL.Path == "/netgo/v2/auth/refresh" {
-			c, u, d, e = s.Store.RefreshIdentity(r.Context(), model.Hash(token))
-		}
-		if e != nil {
-			failure(w, model.ControlFailure(e))
-			return
-		}
-		if d.DeletePending || d.UserID != c.UserID || !time.Now().Before(c.ExpiresAt) || !u.Active(time.Now()) {
-			failure(w, model.ErrUnauthorized)
-			return
-		}
-		if admin && u.Role != "admin" {
-			failure(w, model.ErrForbidden)
-			return
-		}
-		stamp, nonce, sig := r.Header.Get("X-NetGo-Time"), r.Header.Get("X-NetGo-Nonce"), r.Header.Get("X-NetGo-Signature")
-		ts, e := strconv.ParseInt(stamp, 10, 64)
-		if e != nil || time.Since(time.Unix(ts, 0)) > 30*time.Second || time.Until(time.Unix(ts, 0)) > 30*time.Second || len(nonce) < 32 || len(nonce) > 128 {
-			failure(w, model.ErrUnauthorized)
-			return
-		}
-		b, e := io.ReadAll(http.MaxBytesReader(w, r.Body, 64<<10))
-		if e != nil {
-			failure(w, e)
-			return
-		}
-		r.Body = io.NopCloser(strings.NewReader(string(b)))
-		if !identity.Verify(d.PublicKey, identity.SignatureMessage(r.Method, r.URL.RequestURI(), stamp, nonce, b, token), sig) {
-			failure(w, model.ErrUnauthorized)
-			return
-		}
-		// Retain through the entire accepted timestamp window, including a stamp
-		// 30 seconds in the future. SQLite arbitrates concurrent server processes.
-		if e := s.Store.ConsumeNonce(r.Context(), model.Hash("api:"+c.DeviceID+":"+nonce), time.Now(), time.Now().Add(61*time.Second)); e != nil {
-			failure(w, model.ControlFailure(e))
-			return
-		}
-		ctx := context.WithValue(r.Context(), credKey, c)
-		if admin {
-			ctx = authorization.WithAdmin(ctx, c)
-		}
-		ctx = context.WithValue(ctx, principalKey, principal{d})
-		next.ServeHTTP(w, r.WithContext(ctx))
-	})
-}
 func (s *Server) initializeServices() {
 	s.servicesOnce.Do(func() {
 		if s.Accounts == nil {
@@ -418,97 +202,4 @@ func (s *Server) initializeServices() {
 			s.Devices = &devices.Service{Store: s.Store, Sessions: s.Sessions, Management: s.Management}
 		}
 	})
-}
-func (s *Server) putUser(w http.ResponseWriter, r *http.Request) {
-	var u model.User
-	if e := body(w, r, &u); e != nil {
-		failure(w, e)
-		return
-	}
-	if u.ID != r.PathValue("id") {
-		failure(w, errors.New("user ID mismatch"))
-		return
-	}
-	u, e := s.Accounts.Update(r.Context(), u)
-	if e != nil {
-		failure(w, e)
-		return
-	}
-	reply(w, 200, u)
-}
-func (s *Server) createUser(w http.ResponseWriter, r *http.Request) {
-	var b accounts.NewUser
-	if e := body(w, r, &b); e != nil {
-		failure(w, e)
-		return
-	}
-	created, e := s.Accounts.Create(r.Context(), b)
-	if e != nil {
-		failure(w, e)
-		return
-	}
-	reply(w, 201, created)
-}
-func (s *Server) putResource(w http.ResponseWriter, r *http.Request) {
-	var v model.Resource
-	if e := body(w, r, &v); e != nil {
-		failure(w, e)
-		return
-	}
-	if v.ID != r.PathValue("id") {
-		failure(w, errors.New("resource ID mismatch"))
-		return
-	}
-	if e := s.Config.ValidateResource(v); e != nil {
-		failure(w, e)
-		return
-	}
-	v = v.Normalized()
-	e := s.Sessions.MutateResource(r.Context(), v.ID, func(st *model.State) error {
-		if err := authorization.CheckAdmin(r.Context(), st); err != nil {
-			return err
-		}
-		old, exists := st.Resources[v.ID]
-		if err := model.CheckEditToken(old.EditToken, v.EditToken, exists); err != nil {
-			return err
-		}
-		if exists && old.Name == v.Name && old.SameAccess(v) && slices.Equal(old.Ports, v.Ports) {
-			return nil
-		}
-		v.EditToken = model.ID()
-		st.Resources[v.ID] = v
-		st.Record(authorization.Actor(r.Context()), "resource.update", v.ID)
-		return nil
-	})
-	if e != nil {
-		failure(w, e)
-		return
-	}
-	reply(w, 200, v)
-}
-
-func (s *Server) deleteUser(w http.ResponseWriter, r *http.Request) {
-	result, e := s.Accounts.Delete(r.Context(), r.PathValue("id"))
-	if e != nil {
-		failure(w, e)
-		return
-	}
-	status := http.StatusOK
-	if result.CleanupPending {
-		status = http.StatusAccepted
-	}
-	reply(w, status, result)
-}
-
-func (s *Server) deleteDevice(w http.ResponseWriter, r *http.Request) {
-	result, err := s.Devices.Delete(r.Context(), r.PathValue("id"))
-	if err != nil {
-		failure(w, err)
-		return
-	}
-	status := http.StatusOK
-	if result.CleanupPending {
-		status = http.StatusAccepted
-	}
-	reply(w, status, result)
 }

@@ -648,7 +648,7 @@ void view(const std::string &site, const std::string &hostID, uint32_t capabilit
     options.video = [](void *p, const uint8_t *bytes, size_t size, int64_t stamp) -> int32_t {
         try {
             auto &b = *static_cast<Bridge *>(p);
-            b.decoder->decode(bytes, size, stamp, [&](const video::Frame& decoded) {
+            b.decoder->decode(bytes, size, stamp, [&](const video::FrameView& decoded) {
                 for (auto& frame : b.frames) {
                     if (!frame) frame = std::make_shared<Frame>();
                     if (frame.use_count() != 1) continue;

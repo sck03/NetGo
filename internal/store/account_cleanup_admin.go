@@ -5,15 +5,22 @@ import (
 	"encoding/json"
 	"netgo/internal/authorization"
 	"netgo/internal/model"
+	"time"
 )
 
+type AccountCleanupTask struct {
+	AccountCleanup
+	CanManage bool `json:"can_manage"`
+}
+
 type AccountCleanupPage struct {
-	Tasks     []AccountCleanup `json:"tasks"`
-	NextAfter string           `json:"next_after"`
+	Tasks     []AccountCleanupTask `json:"tasks"`
+	NextAfter string               `json:"next_after"`
 }
 
 func (s *Store) AccountCleanups(ctx context.Context, after string) (AccountCleanupPage, error) {
-	page := AccountCleanupPage{Tasks: []AccountCleanup{}}
+	page := AccountCleanupPage{Tasks: []AccountCleanupTask{}}
+	now := time.Now()
 	if !validSearch(after, "") {
 		return page, model.ErrNotFound
 	}
@@ -35,7 +42,7 @@ func (s *Store) AccountCleanups(ctx context.Context, after string) (AccountClean
 			page.NextAfter = page.Tasks[len(page.Tasks)-1].ID
 			break
 		}
-		page.Tasks = append(page.Tasks, item)
+		page.Tasks = append(page.Tasks, AccountCleanupTask{AccountCleanup: item, CanManage: item.CanManage(now)})
 	}
 	return page, rows.Err()
 }

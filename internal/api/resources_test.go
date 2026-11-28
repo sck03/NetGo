@@ -2,6 +2,7 @@ package api
 
 import (
 	"bytes"
+	"context"
 	"encoding/json"
 	"net/http/httptest"
 	"netgo/internal/model"
@@ -48,7 +49,7 @@ func TestResourceCollectionsMatchFrontendFixture(t *testing.T) {
 		if w.Code != 200 || saved.EditToken == "" || !saved.SameAccess(fixture) || saved.Name != fixture.Name || saved.Ports == nil {
 			t.Fatalf("unexpected API response: %d %s", w.Code, w.Body.String())
 		}
-		page, _, err := db.AdminPage("resources", "", 50)
+		page, _, err := db.AdminPage(context.Background(), "resources", "", 50)
 		if err != nil {
 			t.Fatal(err)
 		}

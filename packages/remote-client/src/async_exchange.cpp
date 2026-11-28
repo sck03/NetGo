@@ -32,9 +32,14 @@ bool AsyncExchange::push(const Json& command) {
     auto accepted = exchange_.push(command);
     if (accepted) {
         if (command.value("action", "") == "cancel") cancelIO();
-        wake_.notify_one();
+        submitted_ = true;
+        notify();
     }
     return accepted;
+}
+void AsyncExchange::notify() {
+    { std::lock_guard lock(mutex_); ++wakeVersion_; }
+    wake_.notify_one();
 }
 void AsyncExchange::cancelIO() {
 #ifdef _WIN32
@@ -45,6 +50,7 @@ void AsyncExchange::cancelIO() {
 void AsyncExchange::events() {
     std::deque<Json> values;
     { std::lock_guard lock(mutex_); values.swap(events_); }
+    if (!values.empty()) notify();
     for (const auto& value : values) event_(value);
 }
 AsyncExchange::Json AsyncExchange::next(uint32_t caps) {
@@ -52,7 +58,8 @@ AsyncExchange::Json AsyncExchange::next(uint32_t caps) {
     auto previous = caps_.exchange(caps);
     const auto started = ioStarted_.load();
     if ((previous & ~caps) || (started && monotonicMS() - started >= 10000)) cancelIO();
-    if (!worker_.joinable()) {
+    if (previous != caps) notify();
+    if (!worker_.joinable() && submitted_) {
         stopped_ = false; finished_ = false;
         worker_ = std::thread([this] { run(); });
     }
@@ -61,17 +68,19 @@ AsyncExchange::Json AsyncExchange::next(uint32_t caps) {
     if (!failure_.empty()) throw std::runtime_error(failure_);
     // Capabilities may have changed while IO was running. Never transmit an old
     // authorized request after revocation; its pending ID expires into file.cancel.
-    while (!requests_.empty() && !(caps & commandCapability(requests_.front()))) requests_.pop_front();
+    while (!requests_.empty() && !(caps & commandCapability(requests_.front()))) {
+        requests_.pop_front(); ++wakeVersion_; wake_.notify_one();
+    }
     if (requests_.empty()) return {};
     auto result = std::move(requests_.front()); requests_.pop_front();
-    wake_.notify_one();
+    ++wakeVersion_; wake_.notify_one();
     return result;
 }
 void AsyncExchange::receive(Json reply) {
     std::lock_guard lock(mutex_);
     // At most eight issued requests plus the timeout cancellation can be outstanding.
     if (replies_.size() >= 16) throw std::runtime_error("remote_command_overflow");
-    replies_.push_back(std::move(reply)); wake_.notify_one();
+    replies_.push_back(std::move(reply)); ++wakeVersion_; wake_.notify_one();
 }
 void AsyncExchange::run() noexcept {
 #ifdef _WIN32
@@ -80,15 +89,17 @@ void AsyncExchange::run() noexcept {
     try {
         while (!stopped_ && !cancelled_) {
             std::deque<Json> replies;
-            { std::lock_guard lock(mutex_); replies.swap(replies_); }
+            uint64_t version;
+            { std::lock_guard lock(mutex_); version = wakeVersion_; replies.swap(replies_); }
             for (const auto& reply : replies) {
                 if (stopped_) break;
                 ioStarted_ = monotonicMS();
                 exchange_.receive(reply);
                 ioStarted_ = 0;
             }
+            bool backpressure = false;
             for (unsigned count = 0; count < 8 && !stopped_; ++count) {
-                { std::lock_guard lock(mutex_); if (requests_.size() >= 8 || events_.size() >= 16) break; }
+                { std::lock_guard lock(mutex_); if (requests_.size() >= 8 || events_.size() >= 16) { backpressure = true; break; } }
                 ioStarted_ = monotonicMS();
                 auto request = exchange_.next(caps_);
                 ioStarted_ = 0;
@@ -96,8 +107,11 @@ void AsyncExchange::run() noexcept {
                 std::lock_guard lock(mutex_);
                 if (!stopped_) requests_.push_back(std::move(request));
             }
+            const auto deadline = backpressure ? std::chrono::steady_clock::time_point::max() : exchange_.wakeAt();
             std::unique_lock lock(mutex_);
-            wake_.wait_for(lock, std::chrono::milliseconds(10), [this] { return stopped_ || !replies_.empty(); });
+            const auto ready = [this, version] { return stopped_ || cancelled_ || wakeVersion_ != version; };
+            if (deadline == std::chrono::steady_clock::time_point::max()) wake_.wait(lock, ready);
+            else wake_.wait_until(lock, deadline, ready);
         }
     } catch (const std::exception& error) {
         std::lock_guard lock(mutex_); failure_ = error.what();
@@ -130,6 +144,6 @@ void AsyncExchange::reset() noexcept {
 }
 void AsyncExchange::cancel() {
     cancelled_ = true; stopped_ = true; caps_ = 0;
-    wake_.notify_all(); cancelIO();
+    notify(); cancelIO();
 }
 }

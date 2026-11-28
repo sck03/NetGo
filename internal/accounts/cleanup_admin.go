@@ -28,13 +28,13 @@ func (s *Service) ManageCreation(ctx context.Context, id string, confirmedAbsent
 	if err = authorization.CheckAdmin(ctx, &state); err != nil {
 		return err
 	}
-	if item.Pending && (item.CreatedAt.IsZero() || time.Since(item.CreatedAt) < 10*time.Minute) {
+	if !item.CanManage(time.Now()) {
 		return errors.New("account_creation_still_running")
 	}
 	if !confirmedAbsent {
 		return s.recoverCreation(ctx, item)
 	}
-	if !item.Pending || item.CreatedAt.IsZero() || time.Since(item.CreatedAt) < 10*time.Minute {
+	if !item.Pending {
 		return errors.New("account_creation_still_running")
 	}
 	check, cancel := context.WithTimeout(ctx, 2*time.Second)

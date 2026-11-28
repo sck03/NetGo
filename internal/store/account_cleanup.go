@@ -20,6 +20,11 @@ type AccountCleanup struct {
 	model.CleanupRetry
 }
 
+// CanManage uses server time for both the operator DTO and final authorization.
+func (item AccountCleanup) CanManage(now time.Time) bool {
+	return !item.Pending || !item.CreatedAt.IsZero() && now.Sub(item.CreatedAt) >= 10*time.Minute
+}
+
 // ReserveAccountCreation precedes the upstream POST. Alias and email reservations
 // survive restarts and fence other processes using this database as well.
 func (s *Store) ReserveAccountCreation(item AccountCleanup) error {

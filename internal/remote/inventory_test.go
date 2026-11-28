@@ -153,7 +153,7 @@ func TestRemoteSweepLoadsOnlySessionDependencies(t *testing.T) {
 	}
 }
 
-func TestNativeInventoryPagesAreBoundedAndKeepOwnSessions(t *testing.T) {
+func TestNativeInventoryPagesAreBoundedAndKeepGeneration(t *testing.T) {
 	f := setup(t)
 	a := f.acquire(t)
 	if err := f.m.Store.Update(func(st *model.State) error {
@@ -176,7 +176,7 @@ func TestNativeInventoryPagesAreBoundedAndKeepOwnSessions(t *testing.T) {
 		if err != nil {
 			t.Fatal(err)
 		}
-		if len(page.Hosts) > 50 || len(page.Sessions) != 1 || page.Sessions[0].ID != a.Session.ID {
+		if len(page.Hosts) > 50 || page.NextGeneration != a.Session.Generation+1 {
 			t.Fatalf("unbounded or incomplete native page: %+v", page)
 		}
 		for _, h := range page.Hosts {

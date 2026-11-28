@@ -115,6 +115,7 @@ Transport::Transport(Json p,std::chrono::milliseconds cooldown,std::function<boo
 }
 Json Transport::requestAt(size_t index,const std::string& method,const std::string& path,const std::string& body,const std::string& headers,const RequestOptions& options) {
  auto deadline=Clock::now()+std::chrono::seconds(path=="/netgo/v2/health"?3:options.cleanup||path=="/netgo/v2/auth/refresh"?4:20);
+ if (options.deadline) deadline = std::min(deadline, *options.deadline);
  auto cancelled=[&]{return (!options.cleanup&&cancelled_&&cancelled_())||(options.cancelled&&options.cancelled());};
  auto check=[&]{if(cancelled())throw Error("cancelled");if(Clock::now()>=deadline)throw Error("control_timeout");};
  check();

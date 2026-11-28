@@ -1,6 +1,6 @@
 # 执行方案与源码追踪
 
-修订：2026-11-28。当前 API v2 / schema 8。本轮补齐刷新恢复、创建异常管理、独立授权分页、请求取消、输入容错和发布版本校验；定向验证与限制见 [当前重构记录](REFACTOR_CURRENT.zh-CN.md)。下表历史平台证据只对应各自提交，不代表本次改动已完成平台验收。
+修订：2026-11-28。当前 API v2 / schema 8。本轮补齐原生刷新恢复屏障、创建异常查询、生成契约、定向授权事务、请求取消、事件调度和视频复制优化；定向验证与限制见 [当前重构记录](REFACTOR_CURRENT.zh-CN.md)。下表历史平台证据只对应各自提交，不代表本次改动已完成平台验收。
 
 | 需求 | 实现入口 | 已有验证证据（对应各自提交） | 仍须验收 |
 | --- | --- | --- | --- |
@@ -23,7 +23,7 @@
 
 | 本轮新增维护边界 | 源码入口 | 定向证据 |
 | --- | --- | --- |
-| 刷新恢复与防重放容量 | identity/refresh、store/queries、store/schema、api/refresh_recovery_test | 持久恢复、签名/端点/过期边界、容量分类 |
-| 创建异常管理 | accounts/cleanup_admin、store/account_cleanup_admin、ui/AccountCreations | 等待时限、存在拒绝、撤权拒绝、浏览器布局 |
-| 远控管理分页 | store/remote_grant_page、remote/grant_page、ui/RemoteGrants | 1000 授权分页、跨页版本、冲突草稿 |
-| 输入降级与版本统一 | remote-client/host、linux/input_mapping、apple/host_media、model/version | 共享主机会话回环、SemVer 构建元数据；平台原生编译待验证 |
+| 原生刷新恢复屏障 | client/control、windows/controller、remote-client/remote_control | 丢响应后立即恢复、持续失败屏障、撤权不重试、取消与共享错误分类 |
+| 创建异常与管理契约 | accounts/cleanup_admin、store/account_cleanup_admin、api/admin_dto、ui/AccountCreations | 服务器等待边界、慢请求复用、翻页取消、错误恢复；生成类型与生产构建 |
+| 有界查询与事务 | store/admin、remote_policy、remote_dependencies、model/network_policy | 查询取消、相关实体隔离、回滚/撤权与历史保留、展示编辑不触发策略重算 |
+| 远控调度与视频 | remote-client/async_exchange、windows/remote/video_pixels、video_codec | 异步文件往返/取消/未启动清理、帧行距/颜色边界、Windows 30 帧合成编解码 |

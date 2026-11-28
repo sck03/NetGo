@@ -14,26 +14,26 @@ func (s *Store) AdminGrantPage(ctx context.Context, c model.Credential, host, us
 	}
 	var next string
 	st, err := s.viewWithContext(ctx, func(tx *sql.Tx) (model.State, error) {
-		st, err := read(tx, 0)
+		st, err := readContext(ctx, tx, 0)
 		if err != nil {
 			return st, err
 		}
-		if err = readRows(tx, "hosts", st.Hosts, "WHERE id=?", host); err != nil {
+		if err = readRowsContext(ctx, tx, "hosts", st.Hosts, "WHERE id=?", host); err != nil {
 			return st, err
 		}
 		if len(st.Hosts) == 0 {
 			return st, model.ErrNotFound
 		}
 		if user != "" {
-			err = readRows(tx, "remote_grants", st.RemoteGrants, "WHERE id=?", model.Hash(user+":"+host))
+			err = readRowsContext(ctx, tx, "remote_grants", st.RemoteGrants, "WHERE id=?", model.Hash(user+":"+host))
 		} else {
-			err = readRows(tx, "remote_grants", st.RemoteGrants, "WHERE host_id=? AND id>? ORDER BY id LIMIT ?", host, after, adminPageSize+1)
+			err = readRowsContext(ctx, tx, "remote_grants", st.RemoteGrants, "WHERE host_id=? AND id>? ORDER BY id LIMIT ?", host, after, adminPageSize+1)
 			next = trimPage(st.RemoteGrants, adminPageSize)
 		}
 		if err != nil {
 			return st, err
 		}
-		err = remoteDependencies(tx, &st, c)
+		err = remoteDependencies(ctx, tx, &st, c)
 		return st, err
 	})
 	return st, next, err

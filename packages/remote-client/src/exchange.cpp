@@ -202,6 +202,13 @@ Exchange::Json Exchange::next(uint32_t caps, std::chrono::steady_clock::time_poi
         return {};
     }
 }
+std::chrono::steady_clock::time_point Exchange::wakeAt() {
+    std::lock_guard lock(mutex_);
+    if (cancel_ || !discarded_.empty() ||
+        (pending_.empty() && ((!queue_.empty() && (active_.is_null() || blockedCancel_)) || cancelling_ || !ready_.is_null())))
+        return std::chrono::steady_clock::now();
+    return pending_.empty() ? std::chrono::steady_clock::time_point::max() : pending_.front().deadline;
+}
 void Exchange::advanceUpload() {
     auto chunk = local_->read(localToken_, sent_);
     dataDone_ = chunk.at("done").get<bool>();

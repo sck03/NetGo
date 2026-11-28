@@ -16,6 +16,8 @@ class Exchange {
     bool push(const Json &command);
     Json next(uint32_t caps, std::chrono::steady_clock::time_point now = std::chrono::steady_clock::now());
     void receive(const Json &reply);
+    // Worker-only: next protocol deadline, or max() while idle.
+    std::chrono::steady_clock::time_point wakeAt();
     void reset() noexcept;
 
   private:

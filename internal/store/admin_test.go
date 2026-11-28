@@ -1,6 +1,7 @@
 package store
 
 import (
+	"context"
 	"fmt"
 	"netgo/internal/model"
 	"testing"
@@ -30,19 +31,19 @@ func TestAdminSummaryAndPages(t *testing.T) {
 	}); err != nil {
 		t.Fatal(err)
 	}
-	st, counts, err := s.AdminSummary(now)
+	st, counts, err := s.AdminSummary(context.Background(), now)
 	if err != nil || len(st.Users) != 0 || counts["leases"] != 54 || counts["users"] != 55 || counts["resources"] != 1 {
 		t.Fatal(counts, err)
 	}
-	page, next, err := s.AdminPage("users", "", 50)
+	page, next, err := s.AdminPage(context.Background(), "users", "", 50)
 	if err != nil || len(page.Users) != 50 || next != "049" || len(page.Resources) != 0 {
 		t.Fatal(next, err)
 	}
-	page, next, err = s.AdminPage("users", next, 50)
+	page, next, err = s.AdminPage(context.Background(), "users", next, 50)
 	if err != nil || len(page.Users) != 5 || next != "" {
 		t.Fatal(next, err)
 	}
-	page, _, err = s.AdminPage("sessions", "049", 50)
+	page, _, err = s.AdminPage(context.Background(), "sessions", "049", 50)
 	if err != nil || len(page.Devices) != 5 || len(page.Users) != 5 || len(page.Leases) != 5 {
 		t.Fatal("missing session owner labels", err)
 	}
@@ -66,15 +67,15 @@ func TestSessionPagesAreIndependentOfIdleDevices(t *testing.T) {
 	}); err != nil {
 		t.Fatal(err)
 	}
-	st, next, err := s.AdminPage("sessions", "", 50)
+	st, next, err := s.AdminPage(context.Background(), "sessions", "", 50)
 	if err != nil || len(st.Leases) != 1 || st.Leases["last"].DeviceID != "d050" || len(st.Users) != 1 || next != "" {
 		t.Fatalf("session missing: %+v %q %v", st.Leases, next, err)
 	}
-	st, next, err = s.AdminPage("devices", "", 50)
+	st, next, err = s.AdminPage(context.Background(), "devices", "", 50)
 	if err != nil || len(st.Devices) != 50 || len(st.Leases) != 0 || next != "d049" {
 		t.Fatal("device pagination mixed with sessions", next, err)
 	}
-	st, next, err = s.AdminPage("devices", next, 50)
+	st, next, err = s.AdminPage(context.Background(), "devices", next, 50)
 	if err != nil || len(st.Devices) != 1 || next != "" {
 		t.Fatal("last device missing", err)
 	}

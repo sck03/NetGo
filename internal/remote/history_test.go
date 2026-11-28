@@ -30,10 +30,15 @@ func TestInventoryExcludesHistoryAndHistoryIsBounded(t *testing.T) {
 		t.Fatal(err)
 	}
 	b, _ := json.Marshal(inv)
-	if len(b) > 1<<20 || len(inv.Sessions) != 1 || inv.NextGeneration != 2502 {
+	var payload map[string]json.RawMessage
+	_ = json.Unmarshal(b, &payload)
+	if payload["grants"] != nil || payload["sessions"] != nil {
+		t.Fatal("unused native response fields", string(b))
+	}
+	if len(b) > 1<<20 || inv.NextGeneration != 2502 {
 		t.Fatal("history polluted inventory", len(b), inv.NextGeneration)
 	}
-	page, err := f.m.Store.RemoteHistory("", 50)
+	page, err := f.m.Store.RemoteHistory(context.Background(), "", 50)
 	if err != nil || len(page.Sessions) != 50 || page.NextBefore == "" {
 		t.Fatal(page, err)
 	}
@@ -42,7 +47,7 @@ func TestInventoryExcludesHistoryAndHistoryIsBounded(t *testing.T) {
 			t.Fatal("credential leaked")
 		}
 	}
-	next, err := f.m.Store.RemoteHistory(page.NextBefore, 50)
+	next, err := f.m.Store.RemoteHistory(context.Background(), page.NextBefore, 50)
 	if err != nil || len(next.Sessions) != 50 || next.Sessions[0].ID >= page.Sessions[len(page.Sessions)-1].ID {
 		t.Fatal("cursor repeated history", err)
 	}
@@ -75,18 +80,18 @@ func TestHistoryUsesCreationTimeAndRetainsItAcrossRenewal(t *testing.T) {
 	}); err != nil {
 		t.Fatal(err)
 	}
-	first, err := f.m.Store.RemoteHistory("", 2)
+	first, err := f.m.Store.RemoteHistory(context.Background(), "", 2)
 	if err != nil || len(first.Sessions) != 2 || first.Sessions[0].ID != a.Session.ID || first.Sessions[1].ID != "a-newest" {
 		t.Fatal("history not chronological", first, err)
 	}
 	if err = f.m.Store.Update(func(st *model.State) error { delete(st.RemoteSessions, "a-newest"); return nil }); err != nil {
 		t.Fatal(err)
 	}
-	next, err := f.m.Store.RemoteHistory(first.NextBefore, 2)
+	next, err := f.m.Store.RemoteHistory(context.Background(), first.NextBefore, 2)
 	if err != nil || len(next.Sessions) != 2 || next.Sessions[0].ID != "m-middle" || next.Sessions[1].ID != "z-oldest" {
 		t.Fatal("cursor depended on retained row", next, err)
 	}
-	if _, err = f.m.Store.RemoteHistory("invalid!", 2); err == nil {
+	if _, err = f.m.Store.RemoteHistory(context.Background(), "invalid!", 2); err == nil {
 		t.Fatal("invalid cursor accepted")
 	}
 }

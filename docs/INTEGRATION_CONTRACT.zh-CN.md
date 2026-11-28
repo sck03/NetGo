@@ -48,7 +48,7 @@ MiniRTC 保持候选，不能因为跨平台就默认打包其全部 SDK。必�
 
 Windows 已接入 DXGI → D3D11 NV12 → Media Foundation 硬件编码，失败时明确软件回退。macOS 使用 ScreenCaptureKit → VideoToolbox，Linux 使用 X11 或 portal/PipeWire → GStreamer。Android/Apple 平台层管理 Surface/设备资源，共享层管理会话与包格式。
 
-Windows/macOS 硬件路径使用平台纹理；Windows 的独立光标通过复用的 GDI 兼容纹理合成，驱动同步成本需实测。Windows 软件回退和 Linux 管线可能经过 CPU，Windows 查看端仍有 CPU 颜色转换。原始帧允许丢弃，已编码参考帧不得静默丢弃；Windows GPU 样本最多 8 个，异步编码器释放样本后才可复用。文件最多 8 个分块在途并逐项确认，共用 TLS 通道；主机文件/剪贴板任务有独立的单工作线程和最多 8 个未完成任务，取消与析构回收有明确所有权。独立网络 QoS、自适应码率和高时延性能仍需后续优化和实测。
+Windows/macOS 硬件路径使用平台纹理；Windows 的独立光标通过复用的 GDI 兼容纹理合成，驱动同步成本需实测。Windows 软件回退和 Linux 管线可能经过 CPU，Windows 查看端仍有 CPU 颜色转换；解码回调借用锁定的 NV12 平面与行距，直接写入最多三个复用的 BGRA 展示缓冲，省去中间整帧复制。转换按 2×2 像素复用色度计算，不改变整数舍入与图像边界检查。原始帧允许丢弃，已编码参考帧不得静默丢弃；Windows GPU 样本最多 8 个，异步编码器释放样本后才可复用。文件最多 8 个分块在途并逐项确认，共用 TLS 通道；主机文件/剪贴板任务有独立的单工作线程和最多 8 个未完成任务，取消与析构回收有明确所有权。独立网络 QoS、自适应码率和高时延性能仍需后续优化和实测。
 
 Windows 路由 RPC 只传去重的 CIDR，对象名称、协议和端口留在服务端授权及界面模型中。Windows 与 NetBird RPC 请求都限制为 2 MiB；网关完整策略上限继续为 1 MiB / 1024 租约。新旧开发版本不混用。服务端单租约续期只能更新已安装且资源策略未变的成员；未知、过期或需要修复时在同一 SQL 写事务内回到完整策略路径，不放宽撤权或提交失败关闭要求。
 
@@ -106,7 +106,7 @@ I01–I10 尚未完成。门禁单元测试、采集探针、VPN 网络测试分
 - `GET /netgo/v2/admin/remote/inventory?after=&q=` 仅管理员可用。每页 50 台主机，按 ID 升序，返回 `hosts/sessions/users/next_after`；活动会话仅属于本页主机，授权使用独立分页接口，仍校验当前凭据及完整会话依赖。`q` 搜索全部主机名称/系统，页面状态筛选只作用于本页；计数明确标注“本页”。
 - `GET /netgo/v2/admin/users/choices?after=&q=` 返回 `{users:[{id,alias,name}],next_after}`，每页 50 项，排除待删除、禁用和已到期账号；按用户名和显示名称搜索。两个接口的 `after` 原样回传，`q` 最多 128 个 Unicode 字符，不返回账号权限详情。空游标从第一页开始，空 `next_after` 表示结束。
 - 登录名 `alias` 创建后不可改，违规更新返回 `alias_immutable`，不能先修改凭据再报错。`name` 是 NetGo 管理页显示名称，修剪空白，空值使用登录名，最多 256 UTF-8 字节。创建账号时也向上游传递名称，后续显示名编辑以本地字段为准；不新增另一套上游账号资料编辑 API。
-- Go 客户端连接流程与路由选择分别由 `connection.go`、`routes.go` 管理。初始连接、续租和恢复的每次路由操作最多 15 秒；认证刷新后的引擎重新登录、启动、路由共用 20 秒恢复期限。更短的父期限或取消优先。
+- Go 客户端的签名传输/凭据屏障、连接流程与路由选择分别由 `control.go`、`connection.go`、`routes.go` 管理。初始连接、续租和恢复的每次路由操作最多 15 秒；认证刷新后的引擎重新登录、启动、路由共用 20 秒恢复期限。更短的父期限或取消优先。
 - iOS 的独立 `TunnelRuntime` 从系统偏好恢复现有管理器并观察状态；停止在偏好读取完成前也有效，异步连接使用代次校验，应用启动不隐式发起新登录。Android 只在界面可见或连接进行中查询状态，终止状态移除 VPN 前台通知；返回界面重新建立服务入口。上述改动仍需设备验证。
 - Android/Apple 提供“仅查看”和音频请求选项，传给共享查看器能力协商；不会启用主机未登记的能力。Linux X11 按轴累计细粒度滚动增量，释放输入时清空余量。
 - 认证注册/刷新与远控扫描使用独立、定向的存储入口，保留原有写锁、事务、配额与撤权检查。领域规则留在 `identity` / `remote`，数据库模块只选择所需记录并持久化变更。
@@ -115,7 +115,7 @@ I01–I10 尚未完成。门禁单元测试、采集探针、VPN 网络测试分
 
 - 服务关闭进入不可逆的会话停止状态；在途授权提交也必须检查。停止状态返回 HTTP 503 `session_manager_stopped`。清理失败可以重试 Close，Reset 不得恢复授权。
 - 资源 `ports`、账号和租约的 `resources` 即使输入为空、null 或未提供，也统一输出数组 `[]`。共享 DTO 类型从 Go JSON 模型生成，执行 `go generate ./internal/contracts` 更新；`go test ./internal/contracts` 检查漂移。测试共用 `tests/contracts/resource-icmp.json` 验证后端响应和 Vue 组件。
-- Go 凭据刷新含可取消锁等待共 4 秒；Windows 锁等待和刷新 HTTP 分别最多 4 秒。普通请求与轮换的顺序约束不变；父请求取消优先，不自动重放写请求。
+- Go 与 Windows 凭据刷新共用含锁等待的 4 秒预算，每次 HTTP 最多 2 秒，最多尝试两次恢复。响应丢失后保持恢复屏障，普通请求返回暂时错误 `authentication_refresh_pending`，不携带旧 token 访问业务 API；只有恢复成功才解除。普通业务写请求不自动重放；取消、明确撤权和既有 watchdog 到期仍终止，恢复不能延长授权期限。
 - iOS 应用消息最多 2 个同时执行、8 个未完成；隧道停止直接取消连接且拒绝新消息，排队消息仍获得结束响应。生命周期与网络执行器独立。
 - 文件交换目录的 `.netgo-exchange.lock` 为零字节锁标识，不能按普通临时文件删除。同目录上传和崩溃回收互斥；只回收可识别的过期 `.part`，其他普通隐藏文件也占配额。持锁进程退出后由 OS 释放锁。
 - Linux 与其他端的“仅查看”选择只收窄键鼠输入；其他能力仍由独立授权控制。GTK 呈现保持不可变帧引用直到纹理释放。
@@ -124,7 +124,7 @@ I01–I10 尚未完成。门禁单元测试、采集探针、VPN 网络测试分
 ## 2026-11-27 一致性补充
 
 - `GET /netgo/v2/remote?after=<cursor>` 返回最多 50 个 host、`next_after` 和 `next_generation`。空 cursor 读第一页，空 `next_after` 表示结束。各页基于独立 SQL 快照，不是跨页冻结快照；客户端要求 cursor 严格前进，最多 200 页。列表刷新与创建会话仍分别鉴权，不把列表当作授权缓存。
-- 原生接口仅返回当前账号对应主机的 grants 和当前设备参与的 sessions。管理员的全站授权管理使用独立的 `/admin/remote/inventory`。忙碌状态仍加载页内主机的活动会话及完整依赖后判定。
+- 原生接口只返回 `{hosts,next_after,next_generation}`，移除未被客户端消费的 `grants` / `sessions`。管理员的主机和会话管理使用独立的 `/admin/remote/inventory`，授权使用 `/admin/remote/grants`。忙碌状态仍加载页内主机的活动会话及完整依赖后判定，不将授权记录作为客户端缓存。
 - Windows IPC 请求保持 1 MiB，响应与 HTTP/共享远控均为 4 MiB；超限明确返回 `ipc_response_too_large`，不再静默丢弃响应。分页正常返回远小于此上限。
 - 管理页普通请求可以并发，刷新凭据必须排空已开始的普通请求；刷新开始后新请求等待同一轮换结果。登出取消旧代请求，失败操作不自动重放。
 - `netgo-rpc routes` 接受空资源并显式清空网络选择；重复 CIDR 去重。空 LAN 授权不等于没有 overlay/远控权限。
@@ -155,7 +155,14 @@ I01–I10 尚未完成。门禁单元测试、采集探针、VPN 网络测试分
 
 - 刷新轮换的原 token 只在 `POST /netgo/v2/auth/refresh` 的两分钟恢复窗口内可用，仍须原设备签名、新 nonce 和原 refresh token。业务 API 立即拒绝旧 token。加密恢复结果随新凭据保存，重启可读取，撤权和过期不可恢复。
 - nonce 容量不足返回 `503 control_capacity_exceeded`、`Retry-After: 1`；客户端保留认证状态。计数由 SQLite 触发器维护，清理最多每秒一次。
-- `GET /netgo/v2/admin/account-creations?after=` 返回 `{tasks,next_after}`，每页最多 50 条。`POST /netgo/v2/admin/account-creations/{id}` 的 `{confirmed_absent:false}` 触发核对；`true` 表示管理员确认原上游请求已结束且账号未创建。待确认任务创建十分钟后才允许人工处理，服务端仍查询上游并在提交时核验身份和任务版本。
-- 管理主机接口返回 `{hosts,sessions,users,next_after}`，不再附带整批 grants 或未使用的 next_generation。`GET /netgo/v2/admin/remote/grants?host_id=&after=` 返回 `{grants,users,next_after}`；额外传 `user_id` 时只查该主机/账号的授权，缺失返回空 grants。修改仍要求当前 edit_token。原生 `/netgo/v2/remote` 的 Inventory 保持原契约。
-- 前端读取经 LatestQuery 传递 AbortSignal，切页、改搜索、刷新失效时中止旧请求；共同认证刷新不归某个页面控制。所有新增数据类型由 Go 合同生成器输出。
+- `GET /netgo/v2/admin/account-creations?after=` 返回 `{tasks,next_after}`，每页最多 50 条。`POST /netgo/v2/admin/account-creations/{id}` 的 `{confirmed_absent:false}` 触发核对；`true` 表示管理员确认原上游请求已结束且账号未创建。待确认任务创建十分钟后才允许人工处理。每个任务增加服务端计算的 `can_manage`，前端不以浏览器时钟计算等待时间；真正处理时服务端仍重新检查等待条件、查询上游并在提交时核验身份和任务版本。
+- 管理主机接口返回 `{hosts,sessions,users,next_after}`，不再附带整批 grants 或未使用的 next_generation。`GET /netgo/v2/admin/remote/grants?host_id=&after=` 返回 `{grants,users,next_after}`；额外传 `user_id` 时只查该主机/账号的授权，缺失返回空 grants。修改仍要求当前 edit_token。原生 `/netgo/v2/remote` 的 Inventory 按上面的精简契约输出。
+- 前端读取经 LatestQuery 传递 AbortSignal，切页、改搜索、刷新失效时中止旧请求；共同认证刷新不归某个页面控制。管理列表、摘要、审计、网络设置和任务状态均由 Go DTO 生成 TypeScript；管理列表、选项、审计和历史读取将请求 context 贯通至 SQL。账号异常面板的定时轮询复用未完成请求；翻页、操作和卸载使旧请求失效，读取恢复仅清除读取错误。
 - 主机输入回调：0 成功，正数为不支持事件（释放已按输入、放弃当前批剩余事件、保持会话），负数为平台故障（结束会话）；协议非法输入和无权限仍直接拒绝。
+
+## 当前执行边界（2026-11-28）
+
+- API 的路由装配、签名认证、HTTP 响应、管理查询 DTO 和管理写入分开维护；权限最终核验仍在领域服务/写事务中，前端按钮不是授权依据。
+- 账号与资源的展示名称、编辑 token、编辑版本及重试元数据不再推进网络策略 revision。网络字段、资源集合、可用性、有效期和远控路由变化仍推进；账号 edit_revision/auth_revision 各自保持原有冲突与撤权用途。
+- 主机注册和授权变更只读取相关主机、授权、活动会话及其完整依赖，保留事务锁、回滚、历史记录、路由版本和审计。需要全局网关快照的 VPN 事务保留全局原子栅栏。
+- 查看端文件/剪贴板工作线程在第一次命令后启动，空闲时等待事件，在途请求按最近协议截止时间唤醒。仍最多 8 个在途请求，保留取消槽、迟到回复退休、完成事件释放平台资源和 reset 的 join 所有权。

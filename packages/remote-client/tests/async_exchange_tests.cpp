@@ -43,8 +43,10 @@ int main() {
             }
             throw std::runtime_error("asynchronous transfer stalled");
         };
+        check(exchange.next(63).is_null(), "idle exchange produced a request");
         check(exchange.push({{"action", "upload"}, {"name", "received.bin"}, {"path", path_text(root / "local/source.bin")}}), "upload queue");
         pump("upload"); events.clear();
+        std::this_thread::sleep_for(std::chrono::milliseconds(20)); // Worker is waiting without a polling timer.
         check(exchange.push({{"action", "download"}, {"name", "received.bin"}, {"path", path_text(root / "local/result.bin")}}), "download queue");
         pump("download");
         { std::ifstream input(root / "local/result.bin", std::ios::binary);
@@ -57,6 +59,12 @@ int main() {
         for(const auto& event:events) if(event.value("action", "")=="download"&&event.value("done",false)) ++completions;
         check(completions==4, "disconnect lost queued completion or duplicated cleanup");
         files.cancel();
+        // Cancelling before the first media tick must still release staged files.
+        std::vector<Json> queuedEvents;
+        AsyncExchange queued([&](const Json& event) { queuedEvents.push_back(event); });
+        check(queued.push({{"action", "upload"}, {"name", "unused.bin"}, {"path", path_text(root / "local/source.bin")}}), "lazy queue");
+        queued.reset();
+        check(queuedEvents.size() == 1 && queuedEvents[0].value("done", false), "unstarted worker lost cleanup");
         }
         fs::remove_all(root);
         std::cout << "PASS asynchronous file roundtrip, bounded ownership and disconnect cleanup\n";

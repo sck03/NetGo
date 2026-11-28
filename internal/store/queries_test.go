@@ -29,12 +29,12 @@ func TestAuditCursorIsolationAndRollback(t *testing.T) {
 		st.Record("admin", "rollback", "")
 		return errors.New("rollback")
 	})
-	first, e := s.Audit(0, 100)
+	first, e := s.Audit(context.Background(), 0, 100)
 	if e != nil || len(first.Events) != 100 || first.NextBefore == 0 {
 		t.Fatal(first, e)
 	}
 	_ = s.Update(func(st *model.State) error { st.Record("admin", "new", ""); return nil })
-	second, e := s.Audit(first.NextBefore, 100)
+	second, e := s.Audit(context.Background(), first.NextBefore, 100)
 	if e != nil || len(second.Events) != 25 || second.NextBefore != 0 {
 		t.Fatal(second, e)
 	}
@@ -61,7 +61,7 @@ func TestScopedUpdatePreservesUnloadedRowsAndIdentity(t *testing.T) {
 	if e != nil {
 		t.Fatal(e)
 	}
-	e = s.RemotePolicyUpdate(context.Background(), func(st *model.State) error {
+	e = s.RemoteHostUpdate(context.Background(), model.Credential{UserID: "u", DeviceID: "d", TokenHash: "c"}, "d", func(st *model.State) error {
 		if len(st.Resources) != 0 || len(st.Operations) != 0 {
 			t.Fatal("unrelated table loaded")
 		}

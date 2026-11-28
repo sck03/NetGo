@@ -14,7 +14,8 @@ class AsyncExchange {
     std::condition_variable wake_;
     std::deque<Json> requests_, replies_, events_;
     std::atomic_bool stopped_{true}, finished_{true};
-    std::atomic_bool cancelled_{false};
+    std::atomic_bool cancelled_{false}, submitted_{false};
+    uint64_t wakeVersion_ = 0;
     std::atomic_uint32_t caps_{0};
     std::atomic<void*> ioThread_{nullptr};
     std::atomic<int64_t> ioStarted_{0};
@@ -24,6 +25,7 @@ class AsyncExchange {
     void run() noexcept;
     void events();
     void cancelIO();
+    void notify();
 public:
     explicit AsyncExchange(std::function<void(const Json&)> event);
     ~AsyncExchange();
