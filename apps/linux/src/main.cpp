@@ -791,7 +791,12 @@ void activate(GtkApplication *app, void *) {
     gtk_box_append(GTK_BOX(row), clipSend);
     state->remoteActions.add(clipSend, NG_REMOTE_CLIPBOARD);
     g_signal_connect(clipSend, "clicked", callback(+[](GtkButton *, void *) {
-                         task([] { submit({{"action", "clipboard.set"}, {"text", clipboard(false, "")}}); });
+                         task([] {
+                             auto text = netgo::desktop_linux::remoteClipboard(
+                                 [] { return GTK_WINDOW(state->window); }, mainThread,
+                                 [] { return state->alive && state->remoteActive; }, false, "");
+                             submit({{"action", "clipboard.set"}, {"text", text}});
+                         });
                      }),
                      nullptr);
     auto clipGet = gtk_button_new_with_label("获取剪贴板");

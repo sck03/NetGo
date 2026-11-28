@@ -88,3 +88,4 @@ bool requestConsent(WindowProvider window, MainDispatch dispatch, DialogActive a
     result->stop();
     return false;
 }
+} // namespace netgo::desktop_linux
