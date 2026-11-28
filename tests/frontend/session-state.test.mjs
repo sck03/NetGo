@@ -9,7 +9,7 @@ import { ref, computed, watch, nextTick } from 'vue'
 
 function app() {
   const source = fs.readFileSync(new URL('../../apps/ui/src/App.vue', import.meta.url), 'utf8').match(/<script setup lang="ts">([\s\S]*?)<\/script>/)[1]
-  const code = ts.transpileModule(source + '\nexports.test = {admin,logged,notice,initialPassword,state,createUser,logout,action,page,busy};', { compilerOptions: { module: ts.ModuleKind.CommonJS, target: ts.ScriptTarget.ES2022 } }).outputText
+  const code = ts.transpileModule(source + '\nexports.test = {admin,logged,notice,initialPassword,state,createUser,logout,action,page,busy,refresh,error,readError};', { compilerOptions: { module: ts.ModuleKind.CommonJS, target: ts.ScriptTarget.ES2022 } }).outputText
   const context = { exports: {}, console, setInterval, clearInterval, setTimeout, document: {hidden:false}, require(name) {
     if (name==='vue') return {ref,computed,watch,onMounted:()=>{},onUnmounted:()=>{}}
     if(name.endsWith('/auth'))return {AdminSession}
@@ -72,5 +72,27 @@ test('a completed mutation supersedes a page query started while saving', async 
   assert.equal(reads,2)
   assert.equal(ui.state.value.users.new.id,'new')
   assert.equal(ui.state.value.users.old,undefined)
+  ui.logout()
+})
+
+test('overview polling recovers without erasing action failures or repeating successful writes', async () => {
+  const ui = app()
+  ui.admin.onActiveChange(true)
+  Object.defineProperty(ui.admin, 'active', {get: () => true})
+  let offline = true, writes = 0
+  ui.admin.request = async path => {
+    if (path === '/netgo/v2/admin/users') { writes++; return {initial_password:'one-time'} }
+    if (offline) throw 'offline'
+    return {}
+  }
+  assert.equal(await ui.createUser({Alias:'new',Email:'new@example.test',Name:'New'}), true)
+  assert.equal(ui.readError.value, 'offline')
+  assert.equal(ui.initialPassword.value, 'one-time')
+  await ui.action(async () => { throw 'write failed' })
+  offline = false
+  await ui.refresh()
+  assert.equal(ui.readError.value, '')
+  assert.equal(ui.error.value, 'write failed')
+  assert.equal(writes, 1)
   ui.logout()
 })

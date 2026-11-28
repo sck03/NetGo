@@ -27,6 +27,7 @@ var schema = []string{
 	`CREATE INDEX account_cleanup_due ON account_cleanups(julianday(json_extract(data,'$.cleanup_after')),id)`,
 	`CREATE TABLE hosts(id TEXT PRIMARY KEY NOT NULL REFERENCES devices(id) DEFERRABLE INITIALLY DEFERRED, data TEXT NOT NULL CHECK(json_valid(data)), revision INTEGER GENERATED ALWAYS AS(json_extract(data,'$.revision')) VIRTUAL NOT NULL CHECK(revision>0))`,
 	`CREATE TABLE remote_grants(id TEXT PRIMARY KEY NOT NULL, data TEXT NOT NULL CHECK(json_valid(data)), user_id TEXT GENERATED ALWAYS AS(json_extract(data,'$.user_id')) VIRTUAL NOT NULL REFERENCES users(id) DEFERRABLE INITIALLY DEFERRED, host_id TEXT GENERATED ALWAYS AS(json_extract(data,'$.host_id')) VIRTUAL NOT NULL REFERENCES hosts(id) DEFERRABLE INITIALLY DEFERRED, UNIQUE(user_id,host_id))`,
+	`CREATE INDEX remote_grants_host ON remote_grants(host_id,id)`,
 	`CREATE TABLE remote_sessions(id TEXT PRIMARY KEY NOT NULL, data TEXT NOT NULL CHECK(json_valid(data)), user_id TEXT GENERATED ALWAYS AS(json_extract(data,'$.user_id')) VIRTUAL NOT NULL, host_id TEXT GENERATED ALWAYS AS(json_extract(data,'$.host_id')) VIRTUAL NOT NULL, controller_id TEXT GENERATED ALWAYS AS(json_extract(data,'$.controller_id')) VIRTUAL NOT NULL, state TEXT GENERATED ALWAYS AS(json_extract(data,'$.state')) VIRTUAL NOT NULL CHECK(state IN ('issued','active','closed')),
 	 live_user TEXT GENERATED ALWAYS AS(CASE WHEN state!='closed' THEN user_id END) VIRTUAL REFERENCES users(id) DEFERRABLE INITIALLY DEFERRED,
 	 live_host TEXT GENERATED ALWAYS AS(CASE WHEN state!='closed' THEN host_id END) VIRTUAL REFERENCES hosts(id) DEFERRABLE INITIALLY DEFERRED,
@@ -45,5 +46,5 @@ var schema = []string{
 	`CREATE TRIGGER nonce_delete AFTER DELETE ON ticket_nonces BEGIN UPDATE metadata SET nonce_count=nonce_count-1 WHERE id=1; END`,
 	`CREATE TABLE audit_events(sequence INTEGER PRIMARY KEY AUTOINCREMENT, data TEXT NOT NULL CHECK(json_valid(data)))`,
 	`PRAGMA application_id=1313296178`,
-	`PRAGMA user_version=8`,
+	`PRAGMA user_version=9`,
 }

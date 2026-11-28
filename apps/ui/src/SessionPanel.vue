@@ -7,49 +7,57 @@ import ListPager from './ListPager.vue'
 
 const props = defineProps<{ request: AdminRequest }>()
 const sessions = ref<AdminState>(emptyState()), inventory = ref<AdminState>(emptyState())
-const sessionAfter = ref(''), deviceAfter = ref(''), busy = ref(false), error = ref(''), notice = ref('')
+const sessionAfter = ref(''), deviceAfter = ref(''), busy = ref(false), actionError = ref(''), notice = ref('')
+const sessionError = ref(''), deviceError = ref('')
+const error = computed(() => sessionError.value || deviceError.value)
 const loaded = ref(false)
 const leases = computed(() => Object.values(sessions.value.leases))
 const devices = computed(() => Object.values(inventory.value.devices))
-const sessionQuery = new LatestQuery(signal => props.request<Partial<AdminState>>('/netgo/v2/admin/state?section=sessions&after=' + encodeURIComponent(sessionAfter.value), 'GET', undefined, signal), value => { sessions.value = { ...emptyState(), ...value } })
-const deviceQuery = new LatestQuery(signal => props.request<Partial<AdminState>>('/netgo/v2/admin/state?section=devices&after=' + encodeURIComponent(deviceAfter.value), 'GET', undefined, signal), value => { inventory.value = { ...emptyState(), ...value } })
+const sessionQuery = new LatestQuery(signal => props.request<Partial<AdminState>>('/netgo/v2/admin/state?section=sessions&after=' + encodeURIComponent(sessionAfter.value), 'GET', undefined, signal), value => { sessions.value = { ...emptyState(), ...value }; sessionError.value = '' })
+const deviceQuery = new LatestQuery(signal => props.request<Partial<AdminState>>('/netgo/v2/admin/state?section=devices&after=' + encodeURIComponent(deviceAfter.value), 'GET', undefined, signal), value => { inventory.value = { ...emptyState(), ...value }; deviceError.value = '' })
 let timer: ReturnType<typeof setInterval> | undefined
-let mounted = true
-function failure(e: unknown) { if (mounted) error.value = e instanceof Error ? e.message : String(e) }
+let mounted = true, revision = 0
+async function load(kind: 'sessions' | 'devices') {
+  const version = revision, query = kind === 'sessions' ? sessionQuery : deviceQuery
+  try { await query.run() } catch (e) {
+    if (mounted && version === revision) (kind === 'sessions' ? sessionError : deviceError).value = e instanceof Error ? e.message : String(e)
+  }
+}
 async function refresh() {
   if (!mounted) return
-  await Promise.all([sessionQuery.run(), deviceQuery.run()])
-  if (mounted) loaded.value = true
+  await Promise.all([load('sessions'), load('devices')])
+  if (mounted && !error.value) loaded.value = true
 }
 async function navigate(kind: 'sessions' | 'devices', after: string) {
   if (busy.value) return
-  busy.value = true; error.value = ''
+  busy.value = true; ++revision
   const query = kind === 'sessions' ? sessionQuery : deviceQuery
   query.invalidate()
   if (kind === 'sessions') sessionAfter.value = after
   else deviceAfter.value = after
-  try { await query.run() } catch (e) { failure(e) } finally { busy.value = false }
+  try { await load(kind) } finally { busy.value = false }
 }
 async function revoke(kind: 'sessions' | 'devices', id: string) {
   if (busy.value) return
-  busy.value = true; error.value = ''; notice.value = ''
+  busy.value = true; ++revision; actionError.value = ''; notice.value = ''
   sessionQuery.invalidate(); deviceQuery.invalidate()
   try {
     const result = await props.request<Partial<DeleteResult>>('/netgo/v2/admin/' + kind + '/' + encodeURIComponent(id), 'DELETE')
     if (!mounted) return
-    await refresh()
     notice.value = result.cleanup_pending ? '访问已撤销，上游暂不可用，后台将自动重试清理。' : '访问已撤销。'
-  } catch (e) { failure(e) } finally { busy.value = false }
+  } catch (e) { if (mounted) actionError.value = e instanceof Error ? e.message : String(e) }
+  finally { if (mounted) { await refresh(); busy.value = false } }
 }
 onMounted(() => {
   busy.value = true
-  refresh().catch(failure).finally(() => { busy.value = false })
-  timer = setInterval(() => { if (!document.hidden && !busy.value) refresh().catch(failure) }, 5000)
+  refresh().finally(() => { busy.value = false })
+  timer = setInterval(() => { if (!document.hidden && !busy.value) void refresh() }, 5000)
 })
 onUnmounted(() => { mounted = false; if (timer) clearInterval(timer); sessionQuery.invalidate(); deviceQuery.invalidate() })
 </script>
 <template>
   <p v-if="error" class="alert error" role="alert">{{ error }}</p>
+  <p v-if="actionError" class="alert error" role="alert">{{ actionError }}</p>
   <p v-if="notice" class="alert" role="status">{{ notice }}</p>
   <p v-if="!loaded" class="muted" aria-live="polite">正在加载设备与会话…</p>
   <template v-else>

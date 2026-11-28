@@ -1,6 +1,6 @@
 # NetGo 实施任务清单
 
-修订：2026-11-28。当前0.3.0-dev / API v2 / schema 8，采用新接口与新数据。Windows只有一个日常入口，五个客户端、LAN服务端和VPS各有独立脚本/工作流；节点维护统一Go。落点见 [源码追踪](IMPLEMENTATION_MATRIX.zh-CN.md)，验证见 [进度](PROGRESS.zh-CN.md)。
+修订：2026-11-28。当前0.3.0-dev / API v2 / schema 9，采用新接口与新数据。Windows只有一个日常入口，五个客户端、LAN服务端和VPS各有独立脚本/工作流；节点维护统一Go。落点见 [源码追踪](IMPLEMENTATION_MATRIX.zh-CN.md)，验证见 [进度](PROGRESS.zh-CN.md)。
 
 | 任务 | 当前结果 | 剩余退出条件 |
 | --- | --- | --- |
@@ -10,7 +10,7 @@
 | RD0-C 清理与仓库 | 运行包白名单；无Python维护器、开发工具、密钥、缓存或数据库 | 最终main/远端及七份CI产物复核；保留有效历史证据 |
 | RD1a 会话核心 | C ABI门禁、权限/同意、单调期限、续期/撤销、票据/持钥证明、持久一次消费 | 非合作客户端及全部RD安全场景 |
 | RD1b 媒体 | 共享TLS/主机/查看器、Windows有界GPU样本池、借用NV12平面和色度复用、独立光标合成、音频降级、有界文件工作队列和六项权限 | 跨设备媒体/输入/音频/撤权、显示驱动、CPU呈现优化及负载 |
-| RD2 新控制面 | schema 8/API2、主机/授权/票据/会话/peer策略、管理页、Go/前端回归 | 主机功能全链路、故障恢复、全部I01–I10 |
+| RD2 新控制面 | schema 9/API2、主机/授权/票据/会话/peer策略、管理页、Go/前端回归 | 主机功能全链路、故障恢复、全部I01–I10 |
 | RD3 Windows | 单NetGo.exe、Setup/绿色版、主机/查看器、网络授权与凭据隔离 | Win10/11、锁屏/UAC/多屏、跨用户、休眠/换网和安装生命周期 |
 | RD4 Android | Kotlin/VpnService、Go VPN、JNI、APK及lint构建通过 | 实机VPN/远控、IME、DNS、后台限制和恢复 |
 | RD5 Apple/Linux | Apple App/Packet Tunnel/查看器及独立构建；GTK/FFmpeg和Go网络安装生命周期 | Apple签名/实机；Linux物理桌面、主机/X11/Wayland和音频 |

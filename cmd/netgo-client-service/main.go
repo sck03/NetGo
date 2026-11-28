@@ -57,7 +57,6 @@ func main() {
 		log.Fatal(e)
 	}
 	defer l.Close()
-	defer os.Remove(*socketFlag)
 	s := http.Server{Handler: c.Handler(), ReadHeaderTimeout: 5 * time.Second, ReadTimeout: 10 * time.Second, WriteTimeout: 30 * time.Second}
 	ctx, stop := process.StopContext()
 	defer stop()

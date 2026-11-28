@@ -4,6 +4,7 @@ import (
 	"context"
 	"database/sql"
 	"errors"
+	"fmt"
 	"netgo/internal/model"
 	"path/filepath"
 	"sync"
@@ -37,12 +38,12 @@ func TestRejectOldDatabaseWithoutModification(t *testing.T) {
 }
 
 func TestRejectPreviousSchemaWithoutMigration(t *testing.T) {
-	path := filepath.Join(t.TempDir(), "schema5.db")
+	path := filepath.Join(t.TempDir(), "previous-schema.db")
 	db, err := sql.Open("sqlite", path)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if _, err = db.Exec("CREATE TABLE metadata(id INTEGER); PRAGMA application_id=1313296178; PRAGMA user_version=5"); err != nil {
+	if _, err = db.Exec(fmt.Sprintf("CREATE TABLE metadata(id INTEGER); PRAGMA application_id=1313296178; PRAGMA user_version=%d", model.Schema-1)); err != nil {
 		t.Fatal(err)
 	}
 	db.Close()
@@ -50,7 +51,7 @@ func TestRejectPreviousSchemaWithoutMigration(t *testing.T) {
 		if s != nil {
 			s.Close()
 		}
-		t.Fatal("accepted schema 5", err)
+		t.Fatal("accepted previous schema", err)
 	}
 	db, err = sql.Open("sqlite", path)
 	if err != nil {
@@ -58,7 +59,7 @@ func TestRejectPreviousSchemaWithoutMigration(t *testing.T) {
 	}
 	defer db.Close()
 	var version int
-	if err = db.QueryRow("PRAGMA user_version").Scan(&version); err != nil || version != 5 {
+	if err = db.QueryRow("PRAGMA user_version").Scan(&version); err != nil || version != model.Schema-1 {
 		t.Fatal("old database changed", version, err)
 	}
 }

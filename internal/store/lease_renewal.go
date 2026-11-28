@@ -25,19 +25,19 @@ func (s *Store) VPNRenew(ctx context.Context, c model.Credential, id string, now
 		return err
 	}
 	defer tx.Rollback()
-	if _, err = tx.Exec("UPDATE metadata SET id=id WHERE id=1"); err != nil {
+	if _, err = tx.ExecContext(ctx, "UPDATE metadata SET id=id WHERE id=1"); err != nil {
 		return err
 	}
 	var lr, ur, dr, cr []byte
 	// Authentication takes precedence even when revocation removed the lease too.
-	err = tx.QueryRow("SELECT data FROM credentials WHERE id=?", c.TokenHash).Scan(&cr)
+	err = tx.QueryRowContext(ctx, "SELECT data FROM credentials WHERE id=?", c.TokenHash).Scan(&cr)
 	if errors.Is(err, sql.ErrNoRows) {
 		return model.ErrUnauthorized
 	}
 	if err != nil {
 		return err
 	}
-	err = tx.QueryRow(`SELECT l.data,u.data,d.data FROM vpn_leases l
+	err = tx.QueryRowContext(ctx, `SELECT l.data,u.data,d.data FROM vpn_leases l
 		JOIN users u ON u.id=json_extract(l.data,'$.user_id')
 		JOIN devices d ON d.id=json_extract(l.data,'$.device_id')
 		WHERE l.id=?`, id).Scan(&lr, &ur, &dr)
@@ -65,7 +65,7 @@ func (s *Store) VPNRenew(ctx context.Context, c model.Credential, id string, now
 	if err != nil {
 		return err
 	}
-	if err = readRows(tx, "resources", st.Resources, "WHERE id IN (SELECT value FROM json_each(?))", string(resources)); err != nil {
+	if err = readRowsContext(ctx, tx, "resources", st.Resources, "WHERE id IN (SELECT value FROM json_each(?))", string(resources)); err != nil {
 		return err
 	}
 	if err = renew(&st); err != nil {
@@ -81,7 +81,7 @@ func (s *Store) VPNRenew(ctx context.Context, c model.Credential, id string, now
 	if err != nil {
 		return err
 	}
-	if _, err = tx.Exec("UPDATE vpn_leases SET data=? WHERE id=?", string(raw), id); err != nil {
+	if _, err = tx.ExecContext(ctx, "UPDATE vpn_leases SET data=? WHERE id=?", string(raw), id); err != nil {
 		return err
 	}
 	if gate.Refresh != nil {
@@ -93,7 +93,7 @@ func (s *Store) VPNRenew(ctx context.Context, c model.Credential, id string, now
 			return tx.Commit()
 		}
 	}
-	leases, err := gateMembership(tx, now)
+	leases, err := gateMembership(ctx, tx, now)
 	if err != nil {
 		return err
 	}
@@ -105,8 +105,8 @@ func (s *Store) VPNRenew(ctx context.Context, c model.Credential, id string, now
 
 // Expired memberships are excluded immediately; periodic sweep owns deletion
 // and route reconciliation. Do not decode/clone every device, user or session.
-func gateMembership(tx *sql.Tx, now time.Time) ([]model.Lease, error) {
-	rows, err := tx.Query(`SELECT l.data,json_extract(u.data,'$.expires_at') FROM vpn_leases l
+func gateMembership(ctx context.Context, tx *sql.Tx, now time.Time) ([]model.Lease, error) {
+	rows, err := tx.QueryContext(ctx, `SELECT l.data,json_extract(u.data,'$.expires_at') FROM vpn_leases l
 		JOIN users u ON u.id=json_extract(l.data,'$.user_id')
 		JOIN devices d ON d.id=json_extract(l.data,'$.device_id')
 		WHERE json_extract(u.data,'$.disabled')=0 AND json_extract(u.data,'$.delete_pending')=0

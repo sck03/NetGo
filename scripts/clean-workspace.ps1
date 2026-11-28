@@ -13,6 +13,7 @@ $tracked = @(& git -C $taskRoot ls-files)
 if ($LASTEXITCODE -ne 0) { throw 'Cannot verify tracked project files' }
 $taskTargets = @(
     'node_modules', 'dist', '.cache/native-build', '.cache/review',
+    '.cache/optimization-tools', '.cache/optimization-build',
     '.cache/toolchain/go-build', '.cache/toolchain/go', '.cache/toolchain/npm-cache',
     '.cache/toolchain/tmp', '.cache/toolchain/gradle', '.cache/toolchain/android-local',
     '.cache/refactor-native', '.cache/refactor-linux', '.cache/refactor-server', '.cache/apple-tests',

@@ -8,9 +8,9 @@ import { LatestQuery } from '../../packages/ui/query.ts'
 
 function panel(request) {
   const source = fs.readFileSync(new URL('../../apps/ui/src/SessionPanel.vue', import.meta.url), 'utf8').match(/<script setup lang="ts">([\s\S]*?)<\/script>/)[1]
-  const code = ts.transpileModule(source + '\nexports.test={refresh,navigate,revoke,sessions,inventory,sessionAfter,deviceAfter};', {compilerOptions:{module:ts.ModuleKind.CommonJS,target:ts.ScriptTarget.ES2022}}).outputText
+  const code = ts.transpileModule(source + '\nexports.test={refresh,navigate,revoke,sessions,inventory,sessionAfter,deviceAfter,error,actionError};', {compilerOptions:{module:ts.ModuleKind.CommonJS,target:ts.ScriptTarget.ES2022}}).outputText
   let stop
-  const context={exports:{},defineProps:()=>({request}),setInterval,clearInterval,document:{hidden:false},require(name){
+  const context={exports:{},Error,defineProps:()=>({request}),setInterval,clearInterval,document:{hidden:false},require(name){
     if(name==='vue')return {ref,computed,onMounted:()=>{},onUnmounted:callback=>{stop=callback}}
     if(name.endsWith('/query'))return {LatestQuery}
     if(name.endsWith('/contracts'))return {emptyState:()=>({users:{},resources:{},devices:{},leases:{}})}
@@ -49,4 +49,23 @@ test('leaving the page during revocation does not schedule new reads', async () 
   deleted.resolve({deleted:true})
   await saving
   assert.deepEqual(calls,['/netgo/v2/admin/devices/obsolete'])
+})
+
+test('recovered reads clear read failures but retain failed revocations', async () => {
+  let offline = true
+  const ui = panel(async (_, method) => {
+    if (method === 'DELETE') throw Error('revoke failed')
+    if (offline) throw Error('offline')
+    return {}
+  })
+  await ui.refresh()
+  assert.equal(ui.error.value, 'offline')
+  offline = false
+  await ui.refresh()
+  assert.equal(ui.error.value, '')
+  await ui.revoke('devices', 'device')
+  await ui.refresh()
+  assert.equal(ui.actionError.value, 'revoke failed')
+  assert.equal(ui.error.value, '')
+  ui.stop()
 })

@@ -6,6 +6,8 @@ import androidx.compose.foundation.layout.*
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.Alignment
+import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.text.input.TextFieldValue
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.viewinterop.AndroidView
@@ -14,6 +16,14 @@ import org.json.JSONObject
 
 @Composable internal fun RemoteScreen(site: String, host: String, viewOnly: Boolean, audio: Boolean, close: () -> Unit) {
     var remote by remember(site, host) { mutableStateOf<NativeRemote?>(null) }
+    var videoRatio by remember(site, host) { mutableFloatStateOf(16f / 9f) }
+    val displayHeight = LocalConfiguration.current.screenHeightDp.dp * 0.6f
+    DisposableEffect(remote) {
+        val session = remote
+        videoRatio = session?.videoAspectRatio ?: (16f / 9f)
+        session?.videoSizeChanged = { videoRatio = it }
+        onDispose { session?.videoSizeChanged = null }
+    }
     var input by remember(site, host) { mutableStateOf(TextFieldValue()) }
     val textLimit = remember { NativeRemote.textLimitNative() }
     val context=androidx.compose.ui.platform.LocalContext.current
@@ -77,11 +87,13 @@ import org.json.JSONObject
     } }
 
     DisposableEffect(site, host) { onDispose { pendingTransfer=null;downloads.dispose();remote?.stop();if(uploadOwner==null){uploadPath?.delete();uploadPath=null} } }
-    AndroidView(modifier = Modifier.fillMaxWidth().aspectRatio(16f / 9f), onRelease = { it.release() }, factory = { viewContext ->
-        RemoteDisplay(viewContext, { activity.documentPickerActive }, { surface ->
-            NetGoRuntime.client?.let { remote = NativeRemote(site, host, surface, it, 1 or 8 or 16 or 32 or (if (viewOnly) 0 else 2) or (if (audio) 4 else 0)).apply { downloads.started(); finished={ downloads.finish() }; start() } }
-        }, { remote })
-    })
+    BoxWithConstraints(Modifier.fillMaxWidth()) {
+        AndroidView(modifier = Modifier.width(minOf(maxWidth, displayHeight * videoRatio)).aspectRatio(videoRatio).align(Alignment.Center), onRelease = { it.release() }, factory = { viewContext ->
+            RemoteDisplay(viewContext, { activity.documentPickerActive }, { surface ->
+                NetGoRuntime.client?.let { remote = NativeRemote(site, host, surface, it, 1 or 8 or 16 or 32 or (if (viewOnly) 0 else 2) or (if (audio) 4 else 0)).apply { downloads.started(); finished={ downloads.finish() }; start() } }
+            }, { remote })
+        })
+    }
     OutlinedTextField(input, enabled = capabilities and 2 != 0, onValueChange = { value ->
         input = value
     }, isError = input.text.toByteArray(Charsets.UTF_8).size > textLimit,

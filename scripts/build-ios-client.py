@@ -25,6 +25,8 @@ def main():
     if args.plan:print(json.dumps(dict(build_config,sdk=args.sdk,build_number=args.build_number)));print('iOS 17+: SwiftUI app, Packet Tunnel extension, Keychain device identity, Go VPN runtime and native viewer; simulator build or team-signed device build.');return
     env=environment()
     tests=ROOT/'.cache/apple-tests';tests.mkdir(parents=True,exist_ok=True)
+    run(['xcrun','swiftc','-swift-version','5','-parse-as-library',ROOT/'apps/apple/Shared/ControlResponse.swift',ROOT/'apps/apple/tests/ControlResponseTests.swift','-o',tests/'control-response'],env=env)
+    run([tests/'control-response'],env=env)
     run(['xcrun','swiftc','-swift-version','5','-parse-as-library',ROOT/'apps/apple/iOS/TunnelRequestQueue.swift',ROOT/'apps/apple/tests/TunnelRequestQueueTests.swift','-o',tests/'tunnel-requests'],env=env)
     run([tests/'tunnel-requests'],env=env)
     archive=native(args.sdk,'arm64','17.0',env)

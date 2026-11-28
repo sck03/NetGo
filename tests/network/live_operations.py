@@ -86,6 +86,9 @@ def main():
     admin = Session(profile)
     records, releases = [], []
     original = Path('/opt/netgo/current').resolve()
+    installed = json.loads(run([CTL, 'version']))
+    manifest = json.loads((original / 'release.json').read_text())
+    require(all(manifest[key] == installed[key] for key in ('protocol', 'schema')), 'installed release contract mismatch')
     previous = Path('/opt/netgo/previous-release.json')
     previous_bytes = previous.read_bytes() if previous.exists() else None
     user = None
@@ -135,7 +138,7 @@ def main():
                 raise RuntimeError('doctor did not recover: ' + ', '.join(failed))
             time.sleep(.5)
     def make_release(label, broken=False):
-        version = '0.2.4-lab-' + label + '-' + secrets.token_hex(3)
+        version = installed['version'].split('-')[0] + '-lab-' + label + '-' + secrets.token_hex(3)
         folder = output / version
         folder.mkdir()
         for name in PRODUCTS:
@@ -143,7 +146,7 @@ def main():
         if broken:
             (folder / 'netgo-server').write_text('#!/bin/sh\nexit 19\n')
             (folder / 'netgo-server').chmod(0o755)
-        (folder / 'release.json').write_text(json.dumps({'version': version, 'protocol': 2, 'schema': 1, 'os': 'linux', 'arch': 'amd64'}) + '\n')
+        (folder / 'release.json').write_text(json.dumps(dict(manifest, version=version)) + '\n')
         (folder / 'SHA256SUMS').write_text(''.join(hashlib.sha256((folder / name).read_bytes()).hexdigest() + '  ' + name + '\n' for name in (*PRODUCTS, 'release.json')))
         releases.append(Path('/opt/netgo/releases') / version)
         return folder, hashlib.sha256((folder / 'SHA256SUMS').read_bytes()).hexdigest()
@@ -246,7 +249,7 @@ def main():
         (output / 'result.json').write_text(json.dumps({'schema': 1, 'status': 'FAIL' if failure else 'PASS',
             'generated_utc': datetime.now(timezone.utc).isoformat(), 'checks': records,
             'limits': ['Restore is verified into a separate directory; original data stays in place',
-                       'Release switching uses the same schema-1 binaries and an intentional failing lab image, not an upstream migration']}, indent=2)+'\n')
+                       'Release switching uses the installed protocol/schema and an intentional failing lab image, not an upstream migration']}, indent=2)+'\n')
     return 1 if failure else 0
 
 

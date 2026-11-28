@@ -4,6 +4,7 @@
 
 | 历史报告 | 固定提交中的记录 |
 | --- | --- |
+| 2026-11-28 凭据恢复、定向事务与媒体复制重构 | [当时的重构与验证记录](https://github.com/sck03/NetGo/blob/bd581ddf01744a9c2c34d557723741c57a1d1de8/docs/REFACTOR_CURRENT.zh-CN.md) |
 | 0.2.1-dev 续作与审阅报告 | [evidence/0.2.1-dev/REPORT.zh-CN.md](https://github.com/sck03/NetGo/blob/cc36472058c310b7812089df60abdcc5d513e625/docs/evidence/0.2.1-dev/REPORT.zh-CN.md) |
 | 网络验收证据汇总 | [evidence/2026-11-22-completion/network-summary/REPORT.zh-CN.md](https://github.com/sck03/NetGo/blob/cc36472058c310b7812089df60abdcc5d513e625/docs/evidence/2026-11-22-completion/network-summary/REPORT.zh-CN.md) |
 | 方案 v1.5 完整性复核与实施记录 | [evidence/2026-11-22-completion/REPORT.zh-CN.md](https://github.com/sck03/NetGo/blob/cc36472058c310b7812089df60abdcc5d513e625/docs/evidence/2026-11-22-completion/REPORT.zh-CN.md) |

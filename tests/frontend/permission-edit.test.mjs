@@ -49,6 +49,25 @@ test('grant refresh detects changes without overwriting draft authority or expir
   current = undefined; await p.refresh(); assert.equal(p.stale.value, true)
 })
 
+test('grant polling clears read failures and preserves action failures', async () => {
+  let offline = true
+  const props = { hosts: [{id:'h',capabilities:3}], hostId:'h', request: async (_, method) => {
+    if (method === 'PUT') throw 'write failed'
+    if (offline) throw 'offline'
+    return {grants:[],users:{},next_after:''}
+  } }
+  const p = panel('RemoteGrants', props, 'refresh, change, error, actionError')
+  await p.refresh()
+  assert.equal(p.error.value, 'offline')
+  offline = false
+  await p.refresh()
+  assert.equal(p.error.value, '')
+  await p.change('/grants', 'PUT', {})
+  await p.refresh()
+  assert.equal(p.actionError.value, 'write failed')
+  assert.equal(p.error.value, '')
+})
+
 test('resource picker retains selected labels across pages and searches', async () => {
   const paths = []
   const props = vue.reactive({ modelValue: ['a'], resources: [{ id: 'a', name: 'Archive' }], disabled: false,

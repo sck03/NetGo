@@ -74,11 +74,20 @@ func (s *Store) RemoteHistory(ctx context.Context, before string, limit int) (Re
 			return page, errors.New("invalid_remote_history_cursor")
 		}
 	}
-	rows, err := s.reader.QueryContext(ctx, `SELECT r.data,coalesce(json_extract(u.data,'$.alias'),''),coalesce(json_extract(h.data,'$.name'),'')
+	query := `SELECT r.data,coalesce(json_extract(u.data,'$.alias'),''),coalesce(json_extract(h.data,'$.name'),'')
      FROM remote_sessions r LEFT JOIN users u ON u.id=r.user_id LEFT JOIN hosts h ON h.id=r.host_id
-     WHERE r.state='closed' AND (?1='' OR
-     (julianday(json_extract(r.data,'$.created_at')),r.id) < (julianday(?2),?3))
-     ORDER BY julianday(json_extract(r.data,'$.created_at')) DESC,r.id DESC LIMIT ?4`, before, cursor.At.UTC().Format(time.RFC3339Nano), cursor.ID, limit+1)
+     WHERE r.state='closed'`
+	var args []any
+	if before != "" {
+		// SQLite does not seek an expression index from a row-value predicate
+		// alone. The scalar bound seeks the time range; the tuple breaks ties.
+		query += ` AND julianday(json_extract(r.data,'$.created_at')) <= julianday(?1)
+          AND (julianday(json_extract(r.data,'$.created_at')),r.id) < (julianday(?1),?2)`
+		args = append(args, cursor.At.UTC().Format(time.RFC3339Nano), cursor.ID)
+	}
+	query += ` ORDER BY julianday(json_extract(r.data,'$.created_at')) DESC,r.id DESC LIMIT ?`
+	args = append(args, limit+1)
+	rows, err := s.reader.QueryContext(ctx, query, args...)
 	if err != nil {
 		return page, err
 	}

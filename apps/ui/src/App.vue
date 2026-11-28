@@ -13,6 +13,7 @@ import type { User, AdminState, AuditPage, AdminRequest, DeleteResult } from '..
 import { emptyState } from '../../../packages/ui/contracts'
 import type { Resource } from '../../../packages/ui/resources'
 const page = ref('overview'), alias = ref(''), password = ref(''), error = ref(''), notice = ref(''), busy = ref(false), logged = ref(false)
+const readError = ref('')
 const state = ref<AdminState>(emptyState())
 const pageReady = ref(false)
 const initialPassword = ref('')
@@ -23,7 +24,7 @@ const admin = new AdminSession(active => {
   logged.value = active
   if (!active) clearSession()
 })
-let timer: ReturnType<typeof setInterval> | undefined
+let timer: ReturnType<typeof setInterval> | undefined, refreshRevision = 0
 const request: AdminRequest = (path, method, body, signal) => admin.request(path, method, body, signal)
 async function exportDiagnostics() {
   const summary = await admin.request<AdminState>('/netgo/v2/admin/summary')
@@ -39,13 +40,22 @@ const resources = computed(() => Object.values(state.value.resources))
 async function action(fn: () => Promise<void>) {
   if (busy.value) return false
   stateQuery.invalidate()
+  ++refreshRevision
   busy.value = true; error.value = ''; notice.value = ''; initialPassword.value = ''
   try { await fn(); return true } catch (e) { error.value = e instanceof Error ? e.message : String(e); if (logged.value && !admin.active) logout(); return false } finally { busy.value = false }
 }
 async function refresh(fresh = false) {
   if (!logged.value) return
+  const version = ++refreshRevision
   if (fresh) { stateQuery.invalidate(); auditQuery.invalidate() }
-  try { await stateQuery.run(); if (page.value === 'diagnostics') await auditQuery.run() } catch (e) { if (!admin.active) logout(); throw e }
+  try {
+    await stateQuery.run()
+    if (page.value === 'diagnostics') await auditQuery.run()
+    if (version === refreshRevision) readError.value = ''
+  } catch (e) {
+    if (!admin.active) logout()
+    else if (version === refreshRevision) readError.value = e instanceof Error ? e.message : String(e)
+  }
 }
 async function login() {
   await action(async () => {
@@ -55,6 +65,7 @@ async function login() {
   })
 }
 function clearSession() {
+  ++refreshRevision; readError.value = ''
   pageReady.value = false
   stateQuery.invalidate(); auditQuery.invalidate()
   state.value = emptyState(); listAfter.value = ''; audit.value = { events: [], next_before: 0 }; auditBefore.value = 0
@@ -109,8 +120,8 @@ function download(value: unknown, name: string) {
   const a = document.createElement('a'), url = URL.createObjectURL(new Blob([JSON.stringify(value, null, 2)], { type: 'application/json' }))
   a.href = url; a.download = name; a.click(); setTimeout(() => URL.revokeObjectURL(url), 1000)
 }
-watch(page, () => { initialPassword.value = ''; pageReady.value = false; stateQuery.invalidate(); auditQuery.invalidate(); listAfter.value = ''; state.value = emptyState(); if (logged.value) refresh().catch(e => { error.value = String(e.message || e) }) })
-onMounted(() => { timer = setInterval(() => { if (!document.hidden && !busy.value && ['overview','diagnostics'].includes(page.value)) refresh().catch(e => { error.value = String(e.message || e) }) }, 5000) })
+watch(page, () => { initialPassword.value = ''; pageReady.value = false; readError.value = ''; stateQuery.invalidate(); auditQuery.invalidate(); listAfter.value = ''; state.value = emptyState(); if (logged.value) void refresh() })
+onMounted(() => { timer = setInterval(() => { if (!document.hidden && !busy.value && ['overview','diagnostics'].includes(page.value)) void refresh() }, 5000) })
 onUnmounted(() => { if (timer) clearInterval(timer); stateQuery.invalidate(); auditQuery.invalidate(); admin.logout() })
 </script>
 <template>
@@ -133,6 +144,7 @@ onUnmounted(() => { if (timer) clearInterval(timer); stateQuery.invalidate(); au
     <main>
       <header><div><div class="eyebrow">LOCAL NETWORK CONTROL</div><h1>{{ page === 'overview' ? '管理你的局域网接入' : page === 'users' ? '账号与访问权限' : page === 'resources' ? '局域网资源' : page === 'sessions' ? '设备与在线会话' : page === 'remote' ? '远程桌面与授权' : '管理审计' }}</h1></div><button v-if="logged" class="secondary" @click="logout">退出管理</button><span v-else class="badge">Linux 控制台</span></header>
       <div v-if="error" class="alert error" role="alert">{{ error }}</div><div v-if="logged && notice" class="alert" role="status">{{ notice }}</div>
+      <div v-if="readError && readError !== error" class="alert error" role="alert">{{ readError }}</div>
       <div v-if="logged && initialPassword" class="alert" role="status">初始密码（仅本次显示）：<code>{{ initialPassword }}</code> <button class="secondary" @click="initialPassword = ''">已保存，隐藏密码</button></div>
       <section v-if="!logged" class="card login-card">
         <div class="eyebrow">ADMIN ACCESS</div><h2>登录站点管理</h2><p>使用这台 Linux 上的管理员账号。</p>
@@ -141,7 +153,7 @@ onUnmounted(() => { if (timer) clearInterval(timer); stateQuery.invalidate(); au
       </section>
       <section v-else-if="!pageReady" class="card" role="status">
         <p>{{ error ? '页面尚未加载，请重试。' : '正在加载页面…' }}</p>
-        <button v-if="error" class="secondary" @click="action(() => refresh(true))">重新加载</button>
+        <button v-if="error || readError" class="secondary" @click="action(() => refresh(true))">重新加载</button>
       </section>
       <template v-else-if="page === 'overview'">
         <p v-if="state.counts?.account_cleanups" class="alert" role="status">有 {{ state.counts.account_cleanups }} 项账号创建正在核对或清理，后台会自动重试。请勿重复创建同一用户名或邮箱。</p>

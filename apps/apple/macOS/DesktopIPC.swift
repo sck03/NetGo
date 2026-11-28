@@ -20,9 +20,9 @@ func desktopIPC(_ socket: String, _ method: String, _ path: String, _ body: Stri
     }
     let text = output.withUnsafeBytes { String(decoding: $0.prefix(size), as: UTF8.self) }
     guard result == 0 else {
-        let response = try? JSONSerialization.jsonObject(with: Data(text.utf8)) as? [String: Any]
+        let response = try? ControlResponse.operationError(Data(text.utf8))
         let failures: [Int32: String] = [-5: "control_response_too_large", -6: "control_cancelled", -7: "control_timeout"]
-        let code = result > 0 ? (response?["error"] as? String ?? "remote_invalid_control_response") : (failures[result] ?? "ipc_failed")
+        let code = result > 0 ? (response ?? "remote_invalid_control_response") : (failures[result] ?? "ipc_failed")
         throw NSError(domain: "NetGo", code: Int(result), userInfo: [NSLocalizedDescriptionKey: code])
     }
     return text

@@ -97,7 +97,7 @@ final class TunnelRuntime: ObservableObject {
         guard active() else { throw Self.controlError("control_cancelled") }
         guard let data = response.load() else { throw Self.controlError("ipc_failed") }
         guard data.count <= 4 << 20 else { throw Self.controlError("control_response_too_large") }
-        if let object = try JSONSerialization.jsonObject(with: data) as? [String: Any], let error = object["error"] as? String {
+        if let error = try ControlResponse.operationError(data) {
             throw Self.controlError(error)
         }
         return String(decoding: data, as: UTF8.self)

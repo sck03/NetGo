@@ -22,7 +22,7 @@ export GOMODCACHE="${GOMODCACHE:-$GOPATH/pkg/mod}" GOTMPDIR="${GOTMPDIR:-$root/.
 mkdir -p "$GOCACHE" "$GOMODCACHE" "$GOTMPDIR" .tools/native-json dist/linux-desktop-amd64
 python3 -c 'import hashlib,json,pathlib,urllib.request; c=json.load(open("upstream/versions.lock.json"))["json"]; p=pathlib.Path(".tools/native-json/nlohmann/json.hpp"); p.parent.mkdir(parents=True,exist_ok=True); data=p.read_bytes() if p.exists() else urllib.request.urlopen(c["url"],timeout=30).read(); assert hashlib.sha256(data).hexdigest()==c["sha256"]; p.write_bytes(data)'
 bash scripts/build-linux-native.sh
-go test ./internal/client
+go test ./internal/client ./internal/ipc
 CGO_ENABLED=0 go build -trimpath -ldflags "-s -w -X netgo/internal/model.Version=$version" -o dist/linux-desktop-amd64/netgo-client-service ./cmd/netgo-client-service
 upstream=$(python3 -B scripts/prepare-upstream.py --path-only)
 (cd "$upstream" && CGO_ENABLED=0 go build -trimpath -ldflags '-s -w' -o "$root/dist/linux-desktop-amd64/netbird" ./client)

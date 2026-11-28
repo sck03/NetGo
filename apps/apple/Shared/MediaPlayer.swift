@@ -10,6 +10,9 @@ final class MediaPlayer {
     private var audioEngine: AVAudioEngine?
     private var audioNode: AVAudioPlayerNode?
     private var pendingAudio = 0
+    private let audioFormat = AVAudioFormat(commonFormat: .pcmFormatFloat32, sampleRate: 48000, channels: 2, interleaved: false)!
+    private var audioDisabled = false
+    var audioUnavailable: (() -> Void)?
     private let stateLock = NSLock()
     private var generation: UInt64 = 0
     private var active = false
@@ -89,13 +92,21 @@ final class MediaPlayer {
         stateLock.lock();let version=generation;stateLock.unlock()
         return queue.sync {
             guard current(version), bytes.count > 0, bytes.count % 4 == 0, bytes.count <= 3840 else { return false }
-            let format = AVAudioFormat(commonFormat: .pcmFormatFloat32,sampleRate: 48000,channels: 2,interleaved: false)!
+            if audioDisabled { return true }
+            let format = audioFormat
             if self.audioEngine == nil {
                 let engine = AVAudioEngine(), node = AVAudioPlayerNode()
                 engine.attach(node); engine.connect(node,to: engine.mainMixerNode,format: format)
-                do { try engine.start(); node.play(); self.audioEngine = engine; self.audioNode = node } catch { return false }
+                do { try engine.start(); node.play(); self.audioEngine = engine; self.audioNode = node }
+                catch {
+                    engine.stop(); self.audioDisabled = true
+                    DispatchQueue.main.async { [weak self] in if let self, self.current(version) { self.audioUnavailable?() } }
+                    return true
+                }
             }
-            guard self.pendingAudio < 8, let buffer = AVAudioPCMBuffer(pcmFormat: format,frameCapacity: AVAudioFrameCount(bytes.count / 4)) else { return false }
+            // PCM packets can be skipped under transient playback pressure.
+            // Permission and protocol validation above still fail the session.
+            guard self.pendingAudio < 8, let buffer = AVAudioPCMBuffer(pcmFormat: format,frameCapacity: AVAudioFrameCount(bytes.count / 4)) else { return true }
             buffer.frameLength = buffer.frameCapacity
             bytes.withUnsafeBytes { raw in
                 let samples = raw.bindMemory(to: Int16.self)
@@ -110,7 +121,7 @@ final class MediaPlayer {
         stateLock.lock();generation &+= 1;let version=generation;active=false;stateLock.unlock()
         queue.async { [weak self] in
             guard let self=self else{return}
-            self.audioNode?.stop(); self.audioEngine?.stop(); self.audioEngine=nil;self.audioNode=nil;self.pendingAudio=0;self.format=nil;self.sps=Data();self.pps=Data()
+            self.audioNode?.stop(); self.audioEngine?.stop(); self.audioEngine=nil;self.audioNode=nil;self.pendingAudio=0;self.audioDisabled=false;self.format=nil;self.sps=Data();self.pps=Data()
         }
         DispatchQueue.main.async { [weak self] in
             guard let self=self else{return};self.stateLock.lock();defer{self.stateLock.unlock()};if self.generation==version {self.layer.flushAndRemoveImage()}

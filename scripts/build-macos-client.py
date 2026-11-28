@@ -22,7 +22,10 @@ def main():
     if args.build_number<1:parser.error('build number must be positive')
     if args.plan:print(json.dumps(dict(build_config,build_number=args.build_number)));print('macOS: SwiftUI app, Keychain-backed local controller, native viewer, independently managed NetBird daemon; macOS 14+; stable Xcode required.');return
     env=environment()
+    run(['go','test','./internal/ipc'],env=env)
     tests=ROOT/'.cache/apple-tests';tests.mkdir(parents=True,exist_ok=True)
+    run(['xcrun','swiftc','-swift-version','5','-parse-as-library',ROOT/'apps/apple/Shared/ControlResponse.swift',ROOT/'apps/apple/tests/ControlResponseTests.swift','-o',tests/'control-response'],env=env)
+    run([tests/'control-response'],env=env)
     run(['xcrun','swiftc','-swift-version','5','-parse-as-library',ROOT/'apps/apple/Shared/DesktopConnectionCoordinator.swift',ROOT/'apps/apple/tests/ConnectionCoordinatorTests.swift','-o',tests/'connections'],env=env)
     run([tests/'connections'],env=env)
     archive=native('macosx',args.arch,'14.0',env)

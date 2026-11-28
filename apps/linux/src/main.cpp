@@ -40,7 +40,7 @@ struct State {
               *notice = nullptr, *hosts = nullptr, *picture = nullptr, *connect = nullptr,
               *remoteButton = nullptr;
     GtkIMContext *ime = nullptr;
-    GSubprocess *service = nullptr;
+    netgo::desktop_linux::ServiceSupervisor service;
     GtkWidget *internet = nullptr;
     GtkWidget *replace = nullptr, *viewOnly = nullptr, *audio = nullptr;
     GtkWidget *resources = nullptr;
@@ -76,10 +76,7 @@ struct State {
             remote.join();
         if (cancelJob.joinable())
             cancelJob.join();
-        if (service) {
-            g_subprocess_send_signal(service, SIGTERM);
-            g_object_unref(service);
-        }
+        service.stop();
         if (ime)
             g_object_unref(ime);
     }
@@ -121,25 +118,21 @@ void status(std::string text) {
 Json call(const std::string &method, const std::string &path, const Json &body = nullptr) {
     return netgo::desktop_linux::ipc(state->socket, method, path, body, state->alive);
 }
-void startService() { state->service = netgo::desktop_linux::launchService(state->root, state->socket); }
-void prepareNetwork() {
-    if (!netgo::desktop_linux::ensureNetwork()) return;
-    if (state->service) {
-        g_subprocess_send_signal(state->service, SIGTERM);
-        g_subprocess_wait(state->service, nullptr, nullptr);
-        g_object_unref(state->service);
-        state->service = nullptr;
-    }
-    startService();
+void waitForService() {
     for (int i = 0; i < 100 && state->alive; ++i) {
         try {
-            call("GET", "/desktop/status");
-            return;
-        } catch (...) {
-            g_usleep(100000);
-        }
+            if (state->service.ensure(state->root, state->socket)) {
+                call("GET", "/desktop/status");
+                return;
+            }
+        } catch (...) {}
+        g_usleep(100000);
     }
-    throw std::runtime_error("连接服务未就绪，请重新启动 NetGo");
+    throw std::runtime_error("连接服务暂未就绪，正在自动恢复，请稍后重试");
+}
+void prepareNetwork() {
+    if (netgo::desktop_linux::ensureNetwork()) state->service.restart();
+    waitForService();
 }
 void task(std::function<void()> action) {
     if (state->cancelling || state->jobBusy.exchange(true)) {
@@ -548,21 +541,22 @@ void transferChosen(GObject *obj, GAsyncResult *result, void *data) {
     if (error)
         g_error_free(error);
 }
+void applyProfiles(Json profiles) {
+    if (!state->alive) return;
+    auto previous = selected(state->profiles, state->profileList, "ID");
+    state->loadingProfiles = true;
+    state->profileList = std::move(profiles);
+    names(state->profiles, state->profileList, "Name");
+    for (size_t i = 0; i < state->profileList.size(); ++i)
+        if (state->profileList[i].value("ID", "") == previous)
+            gtk_drop_down_set_selected(GTK_DROP_DOWN(state->profiles), unsigned(i));
+    state->loadingProfiles = false;
+}
 void refresh() {
     task([] {
+        waitForService();
         auto profiles = call("GET", "/desktop/profiles");
-        mainThread([profiles = std::move(profiles)] {
-            if (!state->alive)
-                return;
-            auto previous = selected(state->profiles, state->profileList, "ID");
-            state->loadingProfiles = true;
-            state->profileList = profiles;
-            names(state->profiles, profiles, "Name");
-            for (size_t i = 0; i < profiles.size(); ++i)
-                if (profiles[i].value("ID", "") == previous)
-                    gtk_drop_down_set_selected(GTK_DROP_DOWN(state->profiles), unsigned(i));
-            state->loadingProfiles = false;
-        });
+        mainThread([profiles = std::move(profiles)]() mutable { applyProfiles(std::move(profiles)); });
     });
 }
 void chooseProfile(GObject *dialog, GAsyncResult *result, void *) {
@@ -980,13 +974,6 @@ void activate(GtkApplication *app, void *) {
             nullptr);
         return;
     }
-    if (!std::filesystem::exists(state->socket)) {
-        try {
-            startService();
-        } catch (const std::exception &e) {
-            status(e.what());
-        }
-    }
     state->timer = g_timeout_add(
         1000,
         [](void *) -> gboolean {
@@ -1001,7 +988,12 @@ void activate(GtkApplication *app, void *) {
                 state->nextRestore = g_get_monotonic_time() + 30000000;
             auto version = state->epoch.current();
             task([initial, resume, retry, version] {
+                if (!state->service.ensure(state->root, state->socket)) {
+                    status("正在恢复连接服务…");
+                    return;
+                }
                 auto settings = initial ? call("GET", "/desktop/unattended") : Json();
+                auto profiles = initial ? call("GET", "/desktop/profiles") : Json();
                 auto value = call("GET", "/desktop/status");
                 auto phase = value.value("state", "");
                 bool configured = initial && !settings.value("site", "").empty();
@@ -1014,10 +1006,11 @@ void activate(GtkApplication *app, void *) {
                         status(e.what());
                     }
                 }
-                mainThread([value = std::move(value), settings = std::move(settings), initial, version] {
+                mainThread([value = std::move(value), settings = std::move(settings), profiles = std::move(profiles), initial, version]() mutable {
                     if (!state->alive || !state->epoch.matches(version))
                         return;
                     if (initial) {
+                        applyProfiles(std::move(profiles));
                         state->restoreChecked = true;
                         auto saved = settings.value("site", "");
                         if (!saved.empty()) {

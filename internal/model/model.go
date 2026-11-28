@@ -10,7 +10,7 @@ import (
 )
 
 const Protocol = 2
-const Schema = 8
+const Schema = 9
 
 // Version is set by the build scripts through the Go linker; protocol/schema
 // remain fixed independently of the selected release version.

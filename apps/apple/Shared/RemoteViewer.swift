@@ -4,6 +4,7 @@ import NetGoApple
 final class RemoteViewer {
     static let textLimit = Int(ng_remote_input_text_limit())
     let media = MediaPlayer()
+    init() { media.audioUnavailable = { [weak self] in self?.changed?("音频设备不可用，继续显示画面") } }
     private let lock = NSLock()
     private var running = false
     private var generation: UInt64 = 0

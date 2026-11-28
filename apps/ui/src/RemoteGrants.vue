@@ -14,7 +14,7 @@ const page = ref<GrantPage>({ grants: [], users: {}, next_after: '' }), after = 
 const form = ref({ user_id: '', capabilities: 1, expiry: '', edit_token: '' })
 const selectedGrant = ref<Grant>(), selectionReady = ref(false)
 const selectedLabel = ref('')
-const error = ref(''), notice = ref(''), busy = ref(false), loading = ref(false)
+const error = ref(''), actionError = ref(''), notice = ref(''), busy = ref(false), loading = ref(false)
 const stale = computed(() => selectionReady.value && form.value.edit_token !== (selectedGrant.value?.edit_token ?? ''))
 const label = (bits: number) => permissions.filter(p => bits & p.bit).map(p => p.name).join('、')
 const base = () => '/netgo/v2/admin/remote/grants?host_id=' + encodeURIComponent(props.hostId)
@@ -34,8 +34,11 @@ function reloadGrant() {
 async function refresh() {
   if (!props.hostId || busy.value || !alive || document.hidden) return
   const version = ++revision
-  loading.value = true; error.value = ''
-  try { await Promise.all([query.run(), form.value.user_id ? selection.run() : Promise.resolve()]) }
+  loading.value = true
+  try {
+    await Promise.all([query.run(), form.value.user_id ? selection.run() : Promise.resolve()])
+    if (alive && version === revision) error.value = ''
+  }
   catch (e) { if (alive && version === revision) error.value = e instanceof Error ? e.message : String(e) }
   finally { if (alive && version === revision) loading.value = false }
 }
@@ -48,17 +51,15 @@ function editGrant(grant: Grant) {
 }
 async function change(path: string, method: string, body?: unknown) {
   if (busy.value) return false
-  busy.value = true; query.invalidate(); selection.invalidate(); error.value = ''; notice.value = ''
+  busy.value = true; ++revision; query.invalidate(); selection.invalidate(); actionError.value = ''; notice.value = ''
   let changed = false
   const selected = props.hostId + ':' + form.value.user_id
   try { await props.request(path, method, body); changed = true; notice.value = '桌面权限已更新，相关会话会按新权限处理。' }
-  catch (e) { if (alive) error.value = e instanceof Error ? e.message : String(e) }
+  catch (e) { if (alive) actionError.value = e instanceof Error ? e.message : String(e) }
   finally {
     if (alive) {
       busy.value = false
-      const actionError = error.value
       await refresh()
-      if (actionError) error.value = actionError
       if (changed) { if (selected === props.hostId + ':' + form.value.user_id) reloadGrant(); emit('changed') }
     }
   }
@@ -70,13 +71,14 @@ async function save() {
     const { user_id, expiry, edit_token } = form.value
     const capabilities = remoteCapabilities(form.value.capabilities, selectedHost.value.capabilities)
     if (capabilities) await change('/netgo/v2/admin/remote/grants', 'PUT', { user_id, host_id: props.hostId, capabilities, expires_at: expiryPayload(expiry), edit_token })
-  } catch (e) { error.value = e instanceof Error ? e.message : String(e) }
+  } catch (e) { actionError.value = e instanceof Error ? e.message : String(e) }
 }
 async function revoke(grant: Grant) {
   if (window.confirm('撤销“' + (page.value.users[grant.user_id] || grant.user_id) + '”对此电脑的桌面权限？正在进行的远控也会结束。'))
     await change('/netgo/v2/admin/remote/grants/' + encodeURIComponent(grant.id), 'DELETE')
 }
 watch(() => [props.hostId, form.value.user_id], ([host], [oldHost]) => {
+  ++revision; actionError.value = ''; error.value = ''; notice.value = ''
   selection.invalidate(); selectedGrant.value = undefined; selectionReady.value = false; selectedLabel.value = ''
   if (host !== oldHost) { query.invalidate(); after.value = ''; page.value = { grants: [], users: {}, next_after: '' } }
   reloadGrant(); void refresh()
@@ -88,6 +90,7 @@ onUnmounted(() => { alive = false; query.invalidate(); selection.invalidate(); i
   <section id="remote-grant" class="card">
     <div class="panel-heading"><div><h3>桌面访问授权</h3><p>先选账号和电脑，再选择可执行的操作。仅观看适合演示和问题排查。</p></div><span v-if="selectedGrant" class="status-pill" :class="selectedGrant.active ? 'ready' : 'offline'">{{ selectedGrant.active ? '正在修改已有授权' : '原授权已到期' }}</span></div>
     <p v-if="error" class="alert error" role="alert">{{ error }}</p>
+    <p v-if="actionError" class="alert error" role="alert">{{ actionError }}</p>
     <p v-if="notice" class="alert" role="status">{{ notice }}</p>
     <form class="grant-form" @submit.prevent="save">
       <p v-if="stale" class="alert" role="status">授权已发生变化，草稿已保留。请载入最新设置并核对权限。<button type="button" class="secondary" :disabled="busy" @click="reloadGrant">载入最新设置</button></p>

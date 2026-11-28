@@ -73,6 +73,25 @@ void runCrashedUploader(const fs::path &root) {
 int main(int argc, char **argv) {
     if (argc == 3 && std::string(argv[1]) == "--crash-upload") crashUpload(utf8_path(argv[2]));
     {
+        std::promise<void> entered;
+        std::atomic_bool cancelled{false};
+        CommandWorker commands([&](const Json&, const std::function<bool()>& active) {
+            entered.set_value();
+            const auto deadline = std::chrono::steady_clock::now() + std::chrono::seconds(2);
+            while (active() && std::chrono::steady_clock::now() < deadline)
+                std::this_thread::sleep_for(std::chrono::milliseconds(1));
+            cancelled = !active();
+            return Json{{"done", true}};
+        }, [] {});
+        check(commands.submit({{"id", 1u}}), "command rejected");
+        entered.get_future().wait();
+        commands.cancel();
+        const auto deadline = std::chrono::steady_clock::now() + std::chrono::seconds(3);
+        while (commands.take().is_null() && std::chrono::steady_clock::now() < deadline)
+            std::this_thread::sleep_for(std::chrono::milliseconds(1));
+        check(cancelled, "cancellation did not reach executing command");
+    }
+    {
         std::promise<void> entered, release;
         auto unblock = release.get_future().share();
         CommandWorker commands([&](const Json& request, const std::function<bool()>&) {
