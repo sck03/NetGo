@@ -5,11 +5,13 @@
 #include <gst/gst.h>
 #include <gst/app/gstappsink.h>
 #include <X11/Xlib.h>
+#include <X11/XKBlib.h>
 #include <X11/keysym.h>
 #include <X11/extensions/XTest.h>
 #include <unistd.h>
 #include <chrono>
 #include <set>
+#include <vector>
 #include <stdexcept>
 #include <thread>
 #include <cmath>
@@ -43,7 +45,22 @@ KeySym key(unsigned code) {
         return XK_0 + code - 0x30;
     if (code >= 0x70 && code <= 0x87)
         return XK_F1 + code - 0x70;
+    if (code >= 96 && code <= 105)
+        return XK_KP_0 + code - 96;
     switch (code) {
+    case 20: return XK_Caps_Lock;
+    case 19: return XK_Pause;
+    case 44: return XK_Print;
+    case 92: return XK_Super_R;
+    case 93: return XK_Menu;
+    case 144: return XK_Num_Lock;
+    case 145: return XK_Scroll_Lock;
+    case 106: return XK_KP_Multiply;
+    case 107: return XK_KP_Add;
+    case 108: return XK_KP_Separator;
+    case 109: return XK_KP_Subtract;
+    case 110: return XK_KP_Decimal;
+    case 111: return XK_KP_Divide;
     case 8:
         return XK_BackSpace;
     case 9:
@@ -52,16 +69,16 @@ KeySym key(unsigned code) {
         return XK_Return;
     case 16:
     case 160:
-    case 161:
         return XK_Shift_L;
+    case 161: return XK_Shift_R;
     case 17:
     case 162:
-    case 163:
         return XK_Control_L;
+    case 163: return XK_Control_R;
     case 18:
     case 164:
-    case 165:
         return XK_Alt_L;
+    case 165: return XK_Alt_R;
     case 27:
         return XK_Escape;
     case 32:
@@ -294,13 +311,14 @@ struct HostPlatform::Impl {
         g_variant_unref(result);
     }
     void injectKey(KeySym k, bool down) {
-        require(k != NoSymbol, "remote_key_unavailable");
+        if (k == NoSymbol) throw UnsupportedInput();
         if (wayland)
             notify("NotifyKeyboardKeysym",
                    g_variant_new("(o@a{sv}iu)", session.c_str(), options(), int(k), down ? 1u : 0u));
         else {
             auto code = XKeysymToKeycode(display, k);
-            require(code && XTestFakeKeyEvent(display, code, down, CurrentTime), "remote_key_unavailable");
+            if (!code) throw UnsupportedInput();
+            require(XTestFakeKeyEvent(display, code, down, CurrentTime), "remote_input_unavailable");
             XFlush(display);
         }
         if (down)
@@ -464,7 +482,8 @@ void HostPlatform::input(const Json &e) {
         return;
     }
     if (type == "key") {
-        p.injectKey(key(e.at("code")), e.at("down"));
+        auto code = e.at("code").get<unsigned>();
+        p.injectKey(code == 13 && e.value("extended", false) ? XK_KP_Enter : key(code), e.at("down"));
         return;
     }
     if (type == "button") {
@@ -504,11 +523,35 @@ void HostPlatform::input(const Json &e) {
     if (type == "text") {
         auto text = e.at("text").get<std::string>();
         require(g_utf8_validate(text.data(), gssize(text.size()), nullptr), "remote_invalid_text");
+        // Preflight the active X11 layout so uppercase/punctuation are never
+        // silently injected as their unshifted counterpart. Unicode unavailable
+        // in the layout is recoverable, rather than partially typing the text.
+        std::vector<std::pair<KeySym, bool>> sequence;
+        XkbStateRec state{};
+        if (!p.wayland) require(XkbGetState(p.display, XkbUseCoreKbd, &state) == Success, "remote_input_unavailable");
         for (const char *v = text.c_str(); *v; v = g_utf8_next_char(v)) {
             auto u = g_utf8_get_char(v);
             KeySym k = u < 0x100 ? u : (0x01000000 | u);
+            bool shift = false;
+            if (!p.wayland) {
+                auto code = XKeysymToKeycode(p.display, k);
+                KeySym plain = NoSymbol, shifted = NoSymbol;
+                unsigned consumed = 0;
+                auto mods = XkbBuildCoreState(state.locked_mods, state.group);
+                if (!code) throw UnsupportedInput();
+                XkbLookupKeySym(p.display, code, mods & ~ShiftMask, &consumed, &plain);
+                XkbLookupKeySym(p.display, code, mods | ShiftMask, &consumed, &shifted);
+                if (plain != k && shifted != k) throw UnsupportedInput();
+                shift = plain != k;
+            }
+            sequence.emplace_back(k, shift);
+        }
+        p.release();
+        for (auto [k, shift] : sequence) {
+            if (shift) p.injectKey(XK_Shift_L, true);
             p.injectKey(k, true);
             p.injectKey(k, false);
+            if (shift) p.injectKey(XK_Shift_L, false);
         }
         return;
     }

@@ -10,7 +10,7 @@ import (
 )
 
 const Protocol = 2
-const Schema = 7
+const Schema = 8
 
 // Version is set by the build scripts through the Go linker; protocol/schema
 // remain fixed independently of the selected release version.
@@ -23,6 +23,7 @@ var (
 	ErrNotFound           = errors.New("not_found")
 	ErrEditConflict       = errors.New("edit_conflict")
 	ErrControlUnavailable = errors.New("control_unavailable")
+	ErrControlCapacity    = errors.New("control_capacity_exceeded")
 )
 
 func ID() string {
@@ -92,10 +93,19 @@ type Lease struct {
 }
 type Credential struct {
 	// TokenHash is attached by request authentication, never persisted or exported.
-	TokenHash string    `json:"-"`
-	UserID    string    `json:"user_id"`
-	DeviceID  string    `json:"device_id"`
-	ExpiresAt time.Time `json:"expires_at"`
+	TokenHash string           `json:"-"`
+	UserID    string           `json:"user_id"`
+	DeviceID  string           `json:"device_id"`
+	ExpiresAt time.Time        `json:"expires_at"`
+	Recovery  *RefreshRecovery `json:"refresh,omitempty"`
+}
+
+// Recovery is owned by the replacement credential and revoked with it.
+// Response is encrypted with the original device-bound refresh request.
+type RefreshRecovery struct {
+	PreviousHash string    `json:"previous_hash"`
+	Until        time.Time `json:"until"`
+	Response     []byte    `json:"response"`
 }
 type Event struct {
 	At     time.Time `json:"at"`

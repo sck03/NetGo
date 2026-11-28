@@ -4,8 +4,8 @@ package store
 // SQLite enforces ownership, uniqueness and referential integrity. Deferred
 // foreign keys allow an entire user/device revocation in a single transaction.
 var schema = []string{
-	`CREATE TABLE metadata(id INTEGER PRIMARY KEY CHECK(id=1), revision INTEGER NOT NULL, observed_revision INTEGER NOT NULL, last_error TEXT NOT NULL)`,
-	`INSERT INTO metadata VALUES(1,0,0,'')`,
+	`CREATE TABLE metadata(id INTEGER PRIMARY KEY CHECK(id=1), revision INTEGER NOT NULL, observed_revision INTEGER NOT NULL, last_error TEXT NOT NULL, nonce_count INTEGER NOT NULL DEFAULT 0, nonce_sweep_ms INTEGER NOT NULL DEFAULT 0)`,
+	`INSERT INTO metadata(id,revision,observed_revision,last_error) VALUES(1,0,0,'')`,
 	`CREATE TABLE users(id TEXT PRIMARY KEY NOT NULL, data TEXT NOT NULL CHECK(json_valid(data)), alias TEXT GENERATED ALWAYS AS(nullif(lower(json_extract(data,'$.alias')),'')) VIRTUAL UNIQUE)`,
 	`CREATE TABLE resources(id TEXT PRIMARY KEY NOT NULL, data TEXT NOT NULL CHECK(json_valid(data)))`,
 	`CREATE INDEX user_email ON users(lower(json_extract(data,'$.email')))`,
@@ -15,6 +15,7 @@ var schema = []string{
 	`CREATE INDEX vpn_leases_device ON vpn_leases(device_id)`,
 	`CREATE TABLE credentials(id TEXT PRIMARY KEY NOT NULL, data TEXT NOT NULL CHECK(json_valid(data)), user_id TEXT GENERATED ALWAYS AS(json_extract(data,'$.user_id')) VIRTUAL NOT NULL REFERENCES users(id) DEFERRABLE INITIALLY DEFERRED, device_id TEXT GENERATED ALWAYS AS(json_extract(data,'$.device_id')) VIRTUAL NOT NULL REFERENCES devices(id) DEFERRABLE INITIALLY DEFERRED)`,
 	`CREATE INDEX credentials_device ON credentials(device_id)`,
+	`CREATE UNIQUE INDEX credential_recovery ON credentials(json_extract(data,'$.refresh.previous_hash')) WHERE json_extract(data,'$.refresh.previous_hash') IS NOT NULL`,
 	`CREATE INDEX credentials_expiry ON credentials(julianday(json_extract(data,'$.expires_at')))`,
 	`CREATE INDEX vpn_lease_expiry ON vpn_leases(julianday(json_extract(data,'$.expires_at')))`,
 	`CREATE INDEX admin_devices ON devices(id) WHERE json_extract(data,'$.client_type')='admin'`,
@@ -40,7 +41,9 @@ var schema = []string{
 	`CREATE INDEX remote_operation_expiry ON remote_operations(julianday(json_extract(data,'$.expires_at')))`,
 	`CREATE TABLE ticket_nonces(id TEXT PRIMARY KEY NOT NULL CHECK(length(id)=64), expires_ms INTEGER NOT NULL)`,
 	`CREATE INDEX nonce_expiry ON ticket_nonces(expires_ms)`,
+	`CREATE TRIGGER nonce_insert AFTER INSERT ON ticket_nonces BEGIN UPDATE metadata SET nonce_count=nonce_count+1 WHERE id=1; END`,
+	`CREATE TRIGGER nonce_delete AFTER DELETE ON ticket_nonces BEGIN UPDATE metadata SET nonce_count=nonce_count-1 WHERE id=1; END`,
 	`CREATE TABLE audit_events(sequence INTEGER PRIMARY KEY AUTOINCREMENT, data TEXT NOT NULL CHECK(json_valid(data)))`,
 	`PRAGMA application_id=1313296178`,
-	`PRAGMA user_version=7`,
+	`PRAGMA user_version=8`,
 }

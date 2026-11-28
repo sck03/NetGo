@@ -109,7 +109,7 @@ func Verify(source, expected string) (ReleaseManifest, error) {
 	if err = site.Decode(strings.NewReader(string(b)), &manifest); err != nil {
 		return manifest, err
 	}
-	if !regexp.MustCompile("^[a-zA-Z0-9][a-zA-Z0-9._-]{0,63}$").MatchString(manifest.Version) || manifest.Schema != model.Schema || manifest.Protocol != model.Protocol || manifest.OS != "linux" || !platform.Supported(manifest.Arch) || manifest.Arch != runtime.GOARCH {
+	if !model.ValidVersion(manifest.Version) || manifest.Schema != model.Schema || manifest.Protocol != model.Protocol || manifest.OS != "linux" || !platform.Supported(manifest.Arch) || manifest.Arch != runtime.GOARCH {
 		return manifest, errors.New("unsupported release compatibility")
 	}
 	return manifest, nil

@@ -32,15 +32,21 @@ test('resource conflict preserves the draft and prevents restoring disabled acce
 test('grant refresh detects changes without overwriting draft authority or expiry', async () => {
   const grant = { id: 'g', user_id: 'u', host_id: 'h', capabilities: 3, expires_at: '0001-01-01T00:00:00Z', edit_token: 'first' }
   let saves = 0
-  const p = panel('RemotePanel', { request: async () => { saves++ } }, 'inventory, form, editGrant, stale, reloadGrant, save')
-  p.inventory.value = { hosts: [{ id: 'h', capabilities: 3 }], grants: [grant], sessions: [], users: {} }
-  p.editGrant(grant); p.form.value.expiry = '2030-01-01T12:00'
-  p.inventory.value.grants = [{ ...grant, capabilities: 1, edit_token: 'second' }]
+  let current = grant
+  const props = { hosts: [{id:'h',capabilities:3}], hostId:'h', request: async (path, method) => {
+    if (method === 'PUT') saves++
+    return {grants: path.includes('user_id=u') && current ? [current] : [], users: {}, next_after:''}
+  } }
+  const p = panel('RemoteGrants', props, 'form, editGrant, stale, reloadGrant, save, refresh')
+  p.editGrant(grant); await p.refresh()
+  p.form.value.expiry = '2030-01-01T12:00'
+  current = { ...grant, capabilities: 1, edit_token: 'second' }
+  await p.refresh()
   assert.equal(p.stale.value, true)
   assert.equal(p.form.value.expiry, '2030-01-01T12:00')
   await p.save(); assert.equal(saves, 0)
   p.reloadGrant(); assert.equal(p.form.value.capabilities, 1); assert.equal(p.stale.value, false)
-  p.inventory.value.grants = []; assert.equal(p.stale.value, true)
+  current = undefined; await p.refresh(); assert.equal(p.stale.value, true)
 })
 
 test('resource picker retains selected labels across pages and searches', async () => {

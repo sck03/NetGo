@@ -47,6 +47,8 @@ struct Fixture {
     std::mutex mutex;
     std::atomic_bool live = true, registered = false, mediaOpen = false, completed = false;
     std::atomic_uint opened = 0, closed = 0, consents = 0, events = 0, renewals = 0;
+    std::atomic_bool inputSent = false;
+    std::atomic_uint inputReleases = 0;
     bool denied = false, unattended = false;
     std::string clipboard = "initial", failure, hostStatus;
     std::filesystem::path root;
@@ -276,7 +278,11 @@ int main() {
                 ++f.closed;
                 f.mediaOpen = false;
             };
-            h.input = [](void *, const char *, size_t) -> int32_t { return 0; };
+            h.input = [](void *p, const char *text, size_t size) -> int32_t {
+                auto &f = *static_cast<Context *>(p)->f;
+                if (Json::parse(text, text + size).at("type") == "release") { ++f.inputReleases; return 0; }
+                return 1; // A platform-unsupported key must not terminate video/commands.
+            };
             h.clipboard = [](void *p, int32_t set, const char *text, size_t size, char *out, size_t cap,
                              size_t *n) -> int32_t {
                 auto &f = *static_cast<Context *>(p)->f;
@@ -336,6 +342,14 @@ int main() {
                         return -1;
                     }
                 };
+                o.input = [](void *p, char *out, size_t capacity, size_t *size) -> int32_t {
+                    auto &f = *static_cast<Context *>(p)->f;
+                    *size = 0;
+                    if (f.inputSent.exchange(true)) return 0;
+                    const std::string input = R"([{"type":"key","code":135,"down":true}])";
+                    if (capacity < input.size()) return -1;
+                    std::copy(input.begin(), input.end(), out); *size = input.size(); return 0;
+                };
                 o.video = [](void *, const uint8_t *, size_t, int64_t) -> int32_t { return 0; };
                 o.event = [](void *p, const char *text) {
                     auto &f = *static_cast<Context *>(p)->f;
@@ -365,6 +379,7 @@ int main() {
             if (f.denied)
                 check(!f.completed && f.opened == 0 && result == NG_REMOTE_CLIENT_FAILED, "denied capture");
             else {
+                check(f.inputReleases > 0, "unsupported key did not release held input");
                 check(f.completed && f.renewals >= 2 && f.events == 5 && f.opened == 1, "authenticated exchange");
                 check(std::filesystem::file_size(f.root / "viewer" / "download.txt") == 30,
                       "download integrity");

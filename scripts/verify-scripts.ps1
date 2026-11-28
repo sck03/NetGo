@@ -25,11 +25,9 @@ $serviceEnvironment=@(Get-NetGoServiceEnvironment -StateDirectory 'C:\ProgramDat
 if($serviceEnvironment.Count -ne 3 -or $serviceEnvironment[0] -ne 'KEEP=value' -or $serviceEnvironment[1] -ne 'NB_STATE_DIR=C:\ProgramData\NetGoNativeEngine' -or $serviceEnvironment[2] -ne 'NB_LAZY_CONN=false'){throw 'Service environment entries were merged or not replaced'}
 Write-Output 'PASS separate Windows service environment entries and legacy replacement'
 $env:PATH=(Split-Path -Parent $Bash)+';'+$env:PATH
-foreach($file in @('install-server.sh','install-vps.sh','scripts/bootstrap-linux.sh','scripts/bootstrap-vps.sh','scripts/build.sh','scripts/build-vps.sh','scripts/build-linux-client.sh','scripts/build-linux-native.sh','scripts/build-linux-server.sh','scripts/build-upstream.sh','deploy/linux/install.sh','deploy/linux/uninstall.sh','deploy/linux/switch-release.sh','deploy/linux/deploy-certificate.sh')){
+foreach($file in @('install-server.sh','install-vps.sh','scripts/bootstrap-linux.sh','scripts/bootstrap-vps.sh','scripts/build.sh','scripts/build-vps.sh','scripts/build-linux-client.sh','scripts/build-linux-native.sh','scripts/build-linux-server.sh','scripts/build-upstream.sh','deploy/linux/deploy-certificate.sh')){
  & $Bash -n $file;if($LASTEXITCODE -ne 0){throw "Bash syntax failed: $file"};Write-Output "PASS Bash syntax: $file"
 }
-& $Bash deploy/linux/install.sh --plan;if($LASTEXITCODE -ne 0){throw 'Linux install plan failed'}
-& $Bash deploy/linux/uninstall.sh --plan;if($LASTEXITCODE -ne 0){throw 'Linux uninstall plan failed'}
 & $Bash install-server.sh install --plan;if($LASTEXITCODE -ne 0){throw 'Server entry plan failed'}
 & $Bash install-vps.sh install --plan;if($LASTEXITCODE -ne 0){throw 'VPS entry plan failed'}
 & (Join-Path $root 'install-client.ps1') -Action Install -Plan | ConvertTo-Json

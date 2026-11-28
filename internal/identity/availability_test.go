@@ -8,6 +8,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"netgo/internal/model"
+	"netgo/internal/store"
 	"testing"
 	"time"
 )
@@ -55,8 +56,22 @@ func (p *unavailableProvider) Refresh(context.Context, string) (Tokens, error) {
 func TestRefreshDistinguishesOutageFromRevocation(t *testing.T) {
 	for _, cause := range []error{context.DeadlineExceeded, model.ErrForbidden, context.Canceled} {
 		p := &unavailableProvider{err: cause}
-		n := Native{Provider: p}
-		result, err := n.Refresh(context.Background(), model.Credential{UserID: "u"}, "old", "refresh")
+		db, err := store.Open(":memory:")
+		if err != nil {
+			t.Fatal(err)
+		}
+		defer db.Close()
+		c := model.Credential{UserID: "u", DeviceID: "d", ExpiresAt: time.Now().Add(time.Hour)}
+		if err = db.Update(func(st *model.State) error {
+			st.Users["u"] = model.User{ID: "u"}
+			st.Devices["d"] = model.Device{ID: "d", UserID: "u"}
+			st.Credentials[model.Hash("old")] = c
+			return nil
+		}); err != nil {
+			t.Fatal(err)
+		}
+		n := Native{Store: db, Provider: p}
+		result, err := n.Refresh(context.Background(), c, "old", "refresh")
 		if !errors.Is(err, cause) || p.refreshed || result.Token != "" {
 			t.Fatal("failed check issued credentials", err)
 		}

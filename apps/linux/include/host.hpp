@@ -1,7 +1,11 @@
 #pragma once
 #include "client.hpp"
 #include <filesystem>
+#include <stdexcept>
 namespace netgo::desktop_linux {
+struct UnsupportedInput : std::runtime_error {
+    UnsupportedInput() : std::runtime_error("remote_key_unavailable") {}
+};
 class HostPlatform {
   public:
     HostPlatform();

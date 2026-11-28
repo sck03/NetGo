@@ -18,7 +18,7 @@ function toggle(id: string, checked: boolean) {
   emit('update:modelValue', checked ? [...new Set([...props.modelValue, id])] : props.modelValue.filter(value => value !== id))
 }
 let alive = true, version = 0, timer: ReturnType<typeof setTimeout> | undefined
-const query = new LatestQuery(() => props.request<ResourceChoices>('/netgo/v2/admin/resources/choices?after=' + encodeURIComponent(after.value) + '&q=' + encodeURIComponent(search.value)), value => { page.value = value })
+const query = new LatestQuery(signal => props.request<ResourceChoices>('/netgo/v2/admin/resources/choices?after=' + encodeURIComponent(after.value) + '&q=' + encodeURIComponent(search.value), 'GET', undefined, signal), value => { page.value = value })
 async function load(cursor = '') {
   const current = ++version
   query.invalidate(); after.value = cursor; busy.value = true; error.value = ''

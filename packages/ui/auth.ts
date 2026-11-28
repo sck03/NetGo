@@ -36,7 +36,8 @@ export class AdminSession {
   private now() { return this.serverTime ? this.serverTime + performance.now() - this.observedAt : Date.now() }
   get active() { return !!this.token && !!this.key }
 
-  private async send<T = unknown>(path: string, method: string, input?: unknown): Promise<T> {
+  private async send<T = unknown>(path: string, method: string, input?: unknown, signal?: AbortSignal): Promise<T> {
+    signal?.throwIfAborted()
     if (!path.startsWith('/netgo/v2/') || path.includes('#') || path.includes('\n')) throw Error('无效的管理请求')
     const generation = this.generation
     const token = this.token, key = this.key
@@ -52,6 +53,9 @@ export class AdminSession {
     }
     if (generation !== this.generation) throw Error('管理登录已取消')
     const controller = new AbortController()
+    const abort = () => controller.abort()
+    signal?.throwIfAborted()
+    signal?.addEventListener('abort', abort, { once: true })
     this.pending.add(controller)
     const timeout = setTimeout(() => controller.abort(), 20000)
     try {
@@ -71,6 +75,7 @@ export class AdminSession {
     } finally {
       clearTimeout(timeout)
       this.pending.delete(controller)
+      signal?.removeEventListener('abort', abort)
     }
   }
 
@@ -92,7 +97,8 @@ export class AdminSession {
     return pending
   }
 
-  async request<T = unknown>(path: string, method = 'GET', input?: unknown): Promise<T> {
+  async request<T = unknown>(path: string, method = 'GET', input?: unknown, signal?: AbortSignal): Promise<T> {
+    signal?.throwIfAborted()
     const generation = this.generation
     if (this.refreshing) {
       await this.refreshing
@@ -100,7 +106,7 @@ export class AdminSession {
       await this.refresh()
     }
     if (generation !== this.generation) throw Error('管理登录已取消')
-    const pending = this.send<T>(path, method, input)
+    const pending = this.send<T>(path, method, input, signal)
     const requests = this.requests
     requests.add(pending)
     try { return await pending } finally { requests.delete(pending) }

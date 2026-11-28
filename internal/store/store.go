@@ -300,15 +300,23 @@ func (s *Store) ConsumeNonce(ctx context.Context, key string, now, expires time.
 		return e
 	}
 	defer tx.Rollback()
-	if _, e = tx.Exec("DELETE FROM ticket_nonces WHERE expires_ms<=?", now.UnixMilli()); e != nil {
+	// The write statement fences concurrent processes before reading the counter.
+	// Expiry cleanup runs at most once per second, rather than on every request.
+	if _, e = tx.ExecContext(ctx, "DELETE FROM ticket_nonces WHERE expires_ms<=? AND (SELECT nonce_sweep_ms FROM metadata WHERE id=1)<=?", now.UnixMilli(), now.UnixMilli()); e != nil {
+		return e
+	}
+	if _, e = tx.ExecContext(ctx, "UPDATE metadata SET nonce_sweep_ms=? WHERE id=1 AND nonce_sweep_ms<=?", now.Add(time.Second).UnixMilli(), now.UnixMilli()); e != nil {
 		return e
 	}
 	var count int
-	if e = tx.QueryRow("SELECT count(*) FROM ticket_nonces").Scan(&count); e != nil {
+	if e = tx.QueryRowContext(ctx, "SELECT nonce_count FROM metadata WHERE id=1").Scan(&count); e != nil {
 		return e
 	}
 	if count >= 65536 {
-		return model.ErrUnauthorized
+		if e = tx.Commit(); e != nil {
+			return e
+		}
+		return model.ErrControlCapacity
 	}
 	result, e := tx.Exec("INSERT OR IGNORE INTO ticket_nonces(id,expires_ms) VALUES(?,?)", key, expires.UnixMilli())
 	if e != nil {

@@ -19,6 +19,7 @@
 #include "input_mapping.hpp"
 #include "remote_dialogs.hpp"
 using netgo::desktop_linux::virtualKey;
+using netgo::desktop_linux::extendedKey;
 #include <algorithm>
 #include <csignal>
 #include <cstring>
@@ -471,9 +472,9 @@ void shareDesktop() {
                 try {
                     static_cast<HostContext *>(p)->media.input(Json::parse(data, data + size));
                     return 0;
-                } catch (...) {
-                    return -1;
-                }
+                } catch (const netgo::desktop_linux::UnsupportedInput &) {
+                    return 1;
+                } catch (...) { return -1; }
             };
             o.close = [](void *p) { static_cast<HostContext *>(p)->media.close(); };
             o.clipboard = [](void *, int32_t set, const char *text, size_t size, char *out, size_t capacity,
@@ -924,7 +925,7 @@ void activate(GtkApplication *app, void *) {
             if (code)
                 queue({{"type", "key"},
                        {"code", code},
-                       {"extended", code >= 33 && code <= 46},
+                       {"extended", extendedKey(key)},
                        {"down", true}});
             return TRUE;
         }),
@@ -935,7 +936,7 @@ void activate(GtkApplication *app, void *) {
                          if (code)
                              queue({{"type", "key"},
                                     {"code", code},
-                                    {"extended", code >= 33 && code <= 46},
+                                    {"extended", extendedKey(key)},
                                     {"down", false}});
                      }),
                      nullptr);

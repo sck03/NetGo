@@ -28,6 +28,14 @@ func (s State) Clone() State {
 		c.Leases[id] = l
 	}
 	c.Credentials = maps.Clone(s.Credentials)
+	for id, credential := range c.Credentials {
+		if credential.Recovery != nil {
+			recovery := *credential.Recovery
+			recovery.Response = slices.Clone(recovery.Response)
+			credential.Recovery = &recovery
+			c.Credentials[id] = credential
+		}
+	}
 	c.Operations = maps.Clone(s.Operations)
 	c.Hosts = maps.Clone(s.Hosts)
 	c.RemoteGrants = maps.Clone(s.RemoteGrants)

@@ -67,6 +67,9 @@ func failure(w http.ResponseWriter, e error) {
 		status, code = http.StatusConflict, "edit_conflict"
 	case errors.Is(e, model.ErrControlUnavailable), errors.Is(e, context.DeadlineExceeded):
 		status, code = http.StatusServiceUnavailable, "control_unavailable"
+	case errors.Is(e, model.ErrControlCapacity):
+		status, code = http.StatusServiceUnavailable, "control_capacity_exceeded"
+		w.Header().Set("Retry-After", "1")
 	case errors.Is(e, context.Canceled):
 		status, code = http.StatusRequestTimeout, "control_cancelled"
 	case errors.Is(e, session.ErrStopped):
@@ -154,6 +157,7 @@ func (s *Server) Handler() http.Handler {
 	}))
 	secured := func(pattern string, admin bool, h http.HandlerFunc) { m.Handle(pattern, s.authorize(admin, h)) }
 	s.remoteRoutes(secured)
+	s.cleanupRoutes(secured)
 	secured("GET /netgo/v2/site", false, func(w http.ResponseWriter, r *http.Request) {
 		if s.Config.Site.Validate() != nil {
 			reply(w, http.StatusServiceUnavailable, map[string]string{"error": "site_not_ready"})
@@ -360,6 +364,9 @@ func (s *Server) authorize(admin bool, next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		token := strings.TrimPrefix(r.Header.Get("Authorization"), "Bearer ")
 		c, u, d, e := s.Store.Identity(r.Context(), model.Hash(token))
+		if errors.Is(e, model.ErrUnauthorized) && r.Method == http.MethodPost && r.URL.Path == "/netgo/v2/auth/refresh" {
+			c, u, d, e = s.Store.RefreshIdentity(r.Context(), model.Hash(token))
+		}
 		if e != nil {
 			failure(w, model.ControlFailure(e))
 			return

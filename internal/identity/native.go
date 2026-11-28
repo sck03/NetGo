@@ -12,6 +12,7 @@ import (
 	"io"
 	"net/http"
 	"net/url"
+	"netgo/internal/coordination"
 	"netgo/internal/model"
 	"netgo/internal/store"
 	"strings"
@@ -152,12 +153,13 @@ type Result struct {
 	RefreshToken string     `json:"refresh_token,omitempty"`
 }
 type Native struct {
-	mu       sync.Mutex
-	SiteID   string
-	Store    *store.Store
-	Provider Provider
-	tx       map[string]Transaction
-	attempts map[string][]time.Time
+	refreshing coordination.InFlight
+	mu         sync.Mutex
+	SiteID     string
+	Store      *store.Store
+	Provider   Provider
+	tx         map[string]Transaction
+	attempts   map[string][]time.Time
 }
 
 func (n *Native) Begin(b Begin) (Transaction, error) {

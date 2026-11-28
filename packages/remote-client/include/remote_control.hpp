@@ -11,6 +11,6 @@ inline bool transient_control(const std::exception& error) {
         code == "control_unreachable" || code == "control_dns_failed" ||
         code == "control_tls_failed" || code == "ipc_failed" ||
         code == "context deadline exceeded" || code == "remote_busy" ||
-        code == "control_unavailable";
+        code == "control_unavailable" || code == "control_capacity_exceeded";
 }
 }

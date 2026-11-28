@@ -57,7 +57,7 @@ func (s *Service) Create(ctx context.Context, b NewUser) (Created, error) {
 	} else if id != "" {
 		return result, model.ErrConflict
 	}
-	intent := store.AccountCleanup{ID: model.ID(), Alias: b.Alias, Email: b.Email, Name: b.Name, Pending: true}
+	intent := store.AccountCleanup{ID: model.ID(), Alias: b.Alias, Email: b.Email, Name: b.Name, Pending: true, CreatedAt: time.Now().UTC(), Status: "checking"}
 	// Another service process must not reconcile a live request. HTTP clients
 	// have bounded deadlines; this grace period also covers shutdown and restart.
 	intent.CleanupAfter = time.Now().UTC().Add(10 * time.Minute)

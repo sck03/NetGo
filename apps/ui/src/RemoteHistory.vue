@@ -6,7 +6,7 @@ const props = defineProps<{ request: AdminRequest }>()
 const page = ref<RemoteHistoryPage>({ sessions: [], next_before: '', users: {}, hosts: {} })
 const loaded = ref(false), busy = ref(false), error = ref(''), before = ref('')
 let alive = true
-const query = new LatestQuery(() => props.request<RemoteHistoryPage>('/netgo/v2/admin/remote/history?limit=50&before=' + encodeURIComponent(before.value)), value => { page.value=value; loaded.value=true })
+const query = new LatestQuery(signal => props.request<RemoteHistoryPage>('/netgo/v2/admin/remote/history?limit=50&before=' + encodeURIComponent(before.value), 'GET', undefined, signal), value => { page.value=value; loaded.value=true })
 async function load(cursor = '') {
   if (busy.value) return
   busy.value=true; error.value=''; before.value=cursor

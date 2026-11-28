@@ -452,8 +452,15 @@ void run(ng_remote_host &h) {
                                 require(monitor.authorized() && gate.check(NG_REMOTE_INPUT),
                                         "remote_input_forbidden");
                                 auto text = event.dump();
-                                require(h.o.input && h.o.input(h.o.context, text.data(), text.size()) == 0,
-                                        "remote_input_unavailable");
+                                require(h.o.input, "remote_input_unavailable");
+                                auto result = h.o.input(h.o.context, text.data(), text.size());
+                                require(result >= 0, "remote_input_unavailable");
+                                if (result > 0) {
+                                    constexpr char release[] = "{\"type\":\"release\"}";
+                                    require(h.o.input(h.o.context, release, sizeof(release) - 1) == 0,
+                                            "remote_input_unavailable");
+                                    break;
+                                }
                             }
                         } else if (m.kind == Kind::command) {
                             lastCommand = monotonic_time_ms();

@@ -20,6 +20,15 @@ func (s *Server) remoteRoutes(secured func(string, bool, http.HandlerFunc)) {
 		})
 	}
 	credential := func(r *http.Request) model.Credential { return r.Context().Value(credKey).(model.Credential) }
+	register("GET /netgo/v2/admin/remote/grants", true, func(w http.ResponseWriter, r *http.Request) {
+		q := r.URL.Query()
+		page, err := s.Remote.AdminGrants(r.Context(), credential(r), q.Get("host_id"), q.Get("user_id"), q.Get("after"))
+		if err != nil {
+			failure(w, err)
+			return
+		}
+		reply(w, 200, page)
+	})
 	register("GET /netgo/v2/admin/remote/inventory", true, func(w http.ResponseWriter, r *http.Request) {
 		page, err := s.Remote.AdminList(r.Context(), credential(r), r.URL.Query().Get("after"), r.URL.Query().Get("q"))
 		if err != nil {

@@ -39,6 +39,11 @@ func (s *Service) recoverCreation(ctx context.Context, item store.AccountCleanup
 	attempt, cancel := context.WithTimeout(ctx, 2*time.Second)
 	defer cancel()
 	id, err := s.findCreated(attempt, item.Email, item.Name)
+	item.LastChecked = time.Now().UTC()
+	item.Status = "upstream_unavailable"
+	if err == nil && id == "" {
+		item.Status = "not_found"
+	}
 	if err != nil || id == "" {
 		return errors.Join(err, s.Store.DeferAccountCleanup(item, time.Now().UTC()))
 	}
@@ -82,6 +87,7 @@ func (s *Service) cleanupCreated(ctx context.Context, id string) error {
 	if err = s.deleteCreated(attempt, id); err == nil {
 		return s.Store.FinishAccountCleanup(id)
 	}
+	item.LastChecked, item.Status = time.Now().UTC(), "cleanup_failed"
 	return errors.Join(err, s.Store.DeferAccountCleanup(item, time.Now().UTC()))
 }
 

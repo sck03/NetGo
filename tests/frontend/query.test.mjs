@@ -3,6 +3,15 @@ import assert from 'node:assert/strict'
 import { LatestQuery } from '../../packages/ui/query.ts'
 
 const deferred = () => Promise.withResolvers()
+test('invalidating a query cancels the underlying operation', async () => {
+  let signal
+  const query = new LatestQuery(s => { signal = s; return new Promise((_, reject) => s.addEventListener('abort', () => reject(s.reason), {once:true})) }, () => assert.fail('cancelled value applied'))
+  const pending = query.run()
+  await Promise.resolve()
+  query.invalidate()
+  assert.equal(signal.aborted, true)
+  await pending
+})
 test('a mutation refresh supersedes an earlier read, including its errors and cleanup', async () => {
   for (const staleFails of [false, true]) {
     const old = deferred(), fresh = deferred(), accepted = []

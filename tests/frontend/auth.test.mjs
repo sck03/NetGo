@@ -6,6 +6,21 @@ const enc = new TextEncoder()
 const unb64 = s => Buffer.from(s, 'base64url')
 const sha = s => createHash('sha256').update(s).digest('hex')
 const health = { protocol: 2, site_id: 'site', server_unix: Math.floor(Date.now()/1000), capabilities: ['native-auth-v1','device-signature-v1','leases-v1','profile-revision-v1','admin-v1','diagnostics-v1'] }
+test('page cancellation aborts fetch without clearing the management identity', async t => {
+  server(t)
+  const session = new AdminSession()
+  await session.login('site', 'admin', 'password')
+  await session.request('/netgo/v2/admin/state')
+  const started = Promise.withResolvers()
+  globalThis.fetch = (_, options) => { started.resolve(); return new Promise((_, reject) => options.signal.addEventListener('abort', () => reject(options.signal.reason), {once:true})) }
+  const controller = new AbortController()
+  const pending = session.request('/netgo/v2/admin/state', 'GET', undefined, controller.signal)
+  await started.promise
+  controller.abort()
+  await assert.rejects(pending, {name:'AbortError'})
+  assert.equal(session.active, true)
+  session.logout()
+})
 
 function server(t, role = 'admin', clockOffset = 0) {
   const original = globalThis.fetch

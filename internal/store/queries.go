@@ -6,15 +6,30 @@ import (
 	"encoding/json"
 	"errors"
 	"netgo/internal/model"
+	"time"
 )
 
 // Identity reads only the indexed credential and its two owners in one snapshot.
 func (s *Store) Identity(ctx context.Context, hash string) (model.Credential, model.User, model.Device, error) {
+	return s.identity(ctx, hash, false)
+}
+
+// RefreshIdentity is restricted to signed refresh retries, never business APIs.
+func (s *Store) RefreshIdentity(ctx context.Context, previous string) (model.Credential, model.User, model.Device, error) {
+	return s.identity(ctx, previous, true)
+}
+
+func (s *Store) identity(ctx context.Context, hash string, recovery bool) (model.Credential, model.User, model.Device, error) {
 	var c model.Credential
 	var u model.User
 	var d model.Device
 	var cr, ur, dr []byte
-	err := s.reader.QueryRowContext(ctx, `SELECT c.data,u.data,d.data FROM credentials c JOIN users u ON u.id=c.user_id JOIN devices d ON d.id=c.device_id WHERE c.id=?`, hash).Scan(&cr, &ur, &dr)
+	where := "c.id=?"
+	if recovery {
+		where = "json_extract(c.data,'$.refresh.previous_hash')=?"
+	}
+	var current string
+	err := s.reader.QueryRowContext(ctx, `SELECT c.id,c.data,u.data,d.data FROM credentials c JOIN users u ON u.id=c.user_id JOIN devices d ON d.id=c.device_id WHERE `+where, hash).Scan(&current, &cr, &ur, &dr)
 	if errors.Is(err, sql.ErrNoRows) {
 		err = model.ErrUnauthorized
 	}
@@ -29,7 +44,10 @@ func (s *Store) Identity(ctx context.Context, hash string) (model.Credential, mo
 			return c, u, d, err
 		}
 	}
-	c.TokenHash = hash
+	c.TokenHash = current
+	if recovery && (c.Recovery == nil || !time.Now().Before(c.Recovery.Until)) {
+		return c, u, d, model.ErrUnauthorized
+	}
 	return c, u, d, nil
 }
 
@@ -104,15 +122,6 @@ func saveRemoteSessions(tx *sql.Tx, before, after map[string]model.RemoteSession
 		}
 	}
 	return saveMap(tx, "remote_sessions", before, after)
-}
-
-// Read gives the caller an isolated snapshot without acquiring SQLite's write lock.
-func (s *Store) Read(fn func(*model.State) error) error {
-	st, e := s.View()
-	if e != nil {
-		return e
-	}
-	return fn(&st)
 }
 
 // Scopes keep high-frequency queries independent from unrelated domain tables.

@@ -5,16 +5,18 @@ import (
 	"encoding/base64"
 	"netgo/internal/model"
 	"netgo/internal/store"
+	"path/filepath"
 	"testing"
 	"time"
 )
 
 func TestRefreshRebindsRemoteIdentityWithoutChangingSignedClaims(t *testing.T) {
-	db, err := store.Open(":memory:")
+	path := filepath.Join(t.TempDir(), "refresh.db")
+	db, err := store.Open(path)
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer db.Close()
+	defer func() { db.Close() }()
 	c := model.Credential{UserID: "u", DeviceID: "c", ExpiresAt: time.Now().Add(time.Hour)}
 	key := base64.RawURLEncoding.EncodeToString(make([]byte, 32))
 	wg := base64.StdEncoding.EncodeToString(make([]byte, 32))
@@ -52,7 +54,28 @@ func TestRefreshRebindsRemoteIdentityWithoutChangingSignedClaims(t *testing.T) {
 	if s.RemoteSessions["closed"].ControllerAuth != model.Hash("old") || s.RemoteSessions["closed"].State != "closed" {
 		t.Fatal("closed session rebound")
 	}
+	if err = db.Close(); err != nil {
+		t.Fatal(err)
+	}
+	db, err = store.Open(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	n.Store = db
+	again, err := n.Refresh(context.Background(), c, "old", "refresh")
+	if err != nil || again.Token != next.Token {
+		t.Fatal("lost reply was not recovered", err)
+	}
+	if _, _, _, err = db.Identity(context.Background(), model.Hash("old")); err == nil {
+		t.Fatal("old token authorized business request")
+	}
+	if _, err = n.Refresh(context.Background(), c, "old", "different"); err == nil {
+		t.Fatal("different refresh request recovered result")
+	}
+	if err = db.Update(func(s *model.State) error { return s.InvalidateUser("u") }); err != nil {
+		t.Fatal(err)
+	}
 	if _, err = n.Refresh(context.Background(), c, "old", "refresh"); err == nil {
-		t.Fatal("old credential replay accepted")
+		t.Fatal("revoked credential recovered")
 	}
 }

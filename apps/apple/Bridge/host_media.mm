@@ -3,6 +3,7 @@
 #import <VideoToolbox/VideoToolbox.h>
 #import <ApplicationServices/ApplicationServices.h>
 #include "HostMedia.h"
+#include "netgo_remote_scroll.hpp"
 #include <nlohmann/json.hpp>
 #include <atomic>
 #include <mutex>
@@ -16,6 +17,7 @@ struct HostMedia;
 @property(nonatomic, assign) HostMedia *owner;
 @end
 struct HostMedia {
+    netgo::remote::WheelAccumulator wheel;
     SCStream *stream = nil;
     NetGoScreenSink *sink = nil;
     dispatch_queue_t queue = dispatch_queue_create("org.netgo.host.capture", DISPATCH_QUEUE_SERIAL);
@@ -32,6 +34,7 @@ struct HostMedia {
     CGPoint point{};
     CGEventFlags flags = 0;
     void release() {
+        wheel.reset();
         for (auto key : keys) {
             auto e = CGEventCreateKeyboardEvent(nullptr, key, false);
             CGEventSetFlags(e, 0);
@@ -211,6 +214,14 @@ CGKeyCode key(unsigned v) {
         return digits[v - 48];
     }
     switch (v) {
+    case 20: return 57; // Caps Lock
+    case 45: return 114; // Help / Insert
+    case 144: return 71; // Keypad Clear
+    case 106: return 67;
+    case 107: return 69;
+    case 109: return 78;
+    case 110: return 65;
+    case 111: return 75;
     case 8:
         return 51;
     case 9:
@@ -281,8 +292,12 @@ CGKeyCode key(unsigned v) {
     case 222:
         return 39;
     default:
-        if (v >= 112 && v <= 123) {
-            const CGKeyCode f[] = {122, 120, 99, 118, 96, 97, 98, 100, 101, 109, 103, 111};
+        if (v >= 96 && v <= 105) {
+            const CGKeyCode digits[] = {82, 83, 84, 85, 86, 87, 88, 89, 91, 92};
+            return digits[v - 96];
+        }
+        if (v >= 112 && v <= 131) {
+            const CGKeyCode f[] = {122, 120, 99, 118, 96, 97, 98, 100, 101, 109, 103, 111, 105, 107, 113, 106, 64, 79, 80, 90};
             return f[v - 112];
         }
         return 0xffff;
@@ -424,8 +439,9 @@ extern "C" int32_t ng_apple_host_media_input(void *p, const char *text, size_t s
         }
         if (type == "key") {
             auto code = key(e.at("code"));
+            if (e.at("code") == 13 && e.value("extended", false)) code = 76;
             if (code == 0xffff)
-                return -1;
+                return 1;
             bool down = e.at("down");
             if (down)
                 h.keys.insert(code);
@@ -501,9 +517,11 @@ extern "C" int32_t ng_apple_host_media_input(void *p, const char *text, size_t s
         if (type == "wheel") {
             int delta = e.at("delta");
             bool horizontal = e.value("horizontal", false);
+            int steps = h.wheel.consume(delta, horizontal);
+            if (!steps) return 0;
             auto event =
                 CGEventCreateScrollWheelEvent(nullptr, kCGScrollEventUnitLine, 2,
-                                              horizontal ? 0 : delta / 120, horizontal ? delta / 120 : 0);
+                                              horizontal ? 0 : steps, horizontal ? steps : 0);
             CGEventPost(kCGHIDEventTap, event);
             CFRelease(event);
             return 0;

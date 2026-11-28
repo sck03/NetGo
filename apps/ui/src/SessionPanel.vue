@@ -11,8 +11,8 @@ const sessionAfter = ref(''), deviceAfter = ref(''), busy = ref(false), error = 
 const loaded = ref(false)
 const leases = computed(() => Object.values(sessions.value.leases))
 const devices = computed(() => Object.values(inventory.value.devices))
-const sessionQuery = new LatestQuery(() => props.request<Partial<AdminState>>('/netgo/v2/admin/state?section=sessions&after=' + encodeURIComponent(sessionAfter.value)), value => { sessions.value = { ...emptyState(), ...value } })
-const deviceQuery = new LatestQuery(() => props.request<Partial<AdminState>>('/netgo/v2/admin/state?section=devices&after=' + encodeURIComponent(deviceAfter.value)), value => { inventory.value = { ...emptyState(), ...value } })
+const sessionQuery = new LatestQuery(signal => props.request<Partial<AdminState>>('/netgo/v2/admin/state?section=sessions&after=' + encodeURIComponent(sessionAfter.value), 'GET', undefined, signal), value => { sessions.value = { ...emptyState(), ...value } })
+const deviceQuery = new LatestQuery(signal => props.request<Partial<AdminState>>('/netgo/v2/admin/state?section=devices&after=' + encodeURIComponent(deviceAfter.value), 'GET', undefined, signal), value => { inventory.value = { ...emptyState(), ...value } })
 let timer: ReturnType<typeof setInterval> | undefined
 let mounted = true
 function failure(e: unknown) { if (mounted) error.value = e instanceof Error ? e.message : String(e) }

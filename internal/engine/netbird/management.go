@@ -32,41 +32,88 @@ type Management struct {
 	Client     *http.Client
 }
 
-func (m *Management) Request(ctx context.Context, method, path string, in, out any) (http.Header, error) {
+func (m *Management) request(ctx context.Context, method, path string, in any) (*http.Response, error) {
 	var b []byte
+	var err error
 	if in != nil {
-		b, _ = json.Marshal(in)
+		b, err = json.Marshal(in)
+		if err != nil {
+			return nil, err
+		}
 	}
-	req, e := http.NewRequestWithContext(ctx, method, m.URL+"/api"+path, bytes.NewReader(b))
-	if e != nil {
-		return nil, e
+	req, err := http.NewRequestWithContext(ctx, method, m.URL+"/api"+path, bytes.NewReader(b))
+	if err != nil {
+		return nil, err
 	}
 	req.Header.Set("Authorization", "Token "+m.Token)
 	req.Header.Set("Content-Type", "application/json")
 	var connected atomic.Bool
-	if m.Client.Transport != nil {
-		if _, standard := m.Client.Transport.(*http.Transport); !standard {
-			// A custom RoundTripper need not emit httptrace callbacks.
+	client := m.Client
+	if client == nil {
+		client = http.DefaultClient
+	}
+	if client.Transport != nil {
+		if _, standard := client.Transport.(*http.Transport); !standard {
 			connected.Store(true)
 		}
 	}
-	req = req.WithContext(httptrace.WithClientTrace(req.Context(), &httptrace.ClientTrace{
-		GotConn: func(httptrace.GotConnInfo) { connected.Store(true) },
-	}))
-	resp, e := m.Client.Do(req)
-	if e != nil {
+	req = req.WithContext(httptrace.WithClientTrace(req.Context(), &httptrace.ClientTrace{GotConn: func(httptrace.GotConnInfo) { connected.Store(true) }}))
+	resp, err := client.Do(req)
+	if err != nil {
 		return nil, &RequestFailure{connected: connected.Load()}
 	}
-	defer resp.Body.Close()
 	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
+		resp.Body.Close()
 		return nil, &HTTPError{Status: resp.StatusCode}
 	}
+	return resp, nil
+}
+
+func (m *Management) Request(ctx context.Context, method, path string, in, out any) (http.Header, error) {
+	resp, err := m.request(ctx, method, path, in)
+	if err != nil {
+		return nil, err
+	}
+	defer resp.Body.Close()
 	if out != nil {
-		if e = json.NewDecoder(io.LimitReader(resp.Body, 4<<20)).Decode(out); e != nil {
-			return nil, e
+		if err = json.NewDecoder(io.LimitReader(resp.Body, 4<<20)).Decode(out); err != nil {
+			return nil, err
 		}
 	}
 	return resp.Header, nil
+}
+
+// Locked upstream exposes list APIs, not arbitrary single-user/key lookups.
+// Decode one row at a time and stop on a match; never cache authorization state.
+func scanList[T any](ctx context.Context, m *Management, path string, visit func(T) (bool, error)) error {
+	resp, err := m.request(ctx, "GET", path, nil)
+	if err != nil {
+		return err
+	}
+	defer resp.Body.Close()
+	dec := json.NewDecoder(io.LimitReader(resp.Body, 4<<20))
+	start, err := dec.Token()
+	if err != nil {
+		return err
+	}
+	if start != json.Delim('[') {
+		return errors.New("invalid management list")
+	}
+	for dec.More() {
+		var row T
+		if err = dec.Decode(&row); err != nil {
+			return err
+		}
+		stop, err := visit(row)
+		if err != nil {
+			return err
+		}
+		if stop {
+			return nil
+		}
+	}
+	_, err = dec.Token()
+	return err
 }
 func (m *Management) Verify(ctx context.Context, id string) (session.Binding, error) {
 	var p struct {
@@ -91,39 +138,53 @@ func (m *Management) Verify(ctx context.Context, id string) (session.Binding, er
 	return session.Binding{ID: p.ID, UserID: p.UserID, IP: p.IP, PublicKey: key, Connected: p.Connected, Expired: p.Expired}, nil
 }
 func (m *Management) UserActive(ctx context.Context, id string) error {
-	var all []struct {
+	type user struct {
 		ID      string `json:"id"`
 		Blocked bool   `json:"is_blocked"`
 		Status  string `json:"status"`
 	}
-	_, e := m.Request(ctx, "GET", "/users", nil, &all)
-	if e != nil {
-		return e
-	}
-	for _, u := range all {
-		if u.ID == id && !u.Blocked && u.Status == "active" {
-			return nil
+	active := false
+	err := scanList(ctx, m, "/users", func(u user) (bool, error) {
+		if u.ID != id {
+			return false, nil
 		}
+		active = !u.Blocked && u.Status == "active"
+		return true, nil
+	})
+	if err != nil {
+		return err
 	}
-	return model.ErrForbidden
+	if !active {
+		return model.ErrForbidden
+	}
+	return nil
 }
 func (m *Management) FindPeer(ctx context.Context, user, key string) (session.Binding, error) {
-	var all []struct {
+	type peer struct {
 		ID     string `json:"id"`
 		UserID string `json:"user_id"`
 	}
-	if _, e := m.Request(ctx, "GET", "/peers", nil, &all); e != nil {
-		return session.Binding{}, e
+	var candidates []string
+	err := scanList(ctx, m, "/peers", func(v peer) (bool, error) {
+		if v.UserID == user {
+			candidates = append(candidates, v.ID)
+		}
+		return false, nil
+	})
+	if err != nil {
+		return session.Binding{}, err
 	}
-	for _, v := range all {
-		if v.UserID != user {
+	// Close the listing response before another request: bounded connection pools
+	// must not deadlock when several registrations resolve peers concurrently.
+	for _, id := range candidates {
+		p, err := m.Verify(ctx, id)
+		if errors.Is(err, model.ErrNotFound) {
 			continue
 		}
-		p, e := m.Verify(ctx, v.ID)
-		if e != nil {
-			return p, e
+		if err != nil {
+			return session.Binding{}, err
 		}
-		if p.PublicKey == key {
+		if p.PublicKey == key && p.UserID == user {
 			return p, nil
 		}
 	}

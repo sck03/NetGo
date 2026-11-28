@@ -15,8 +15,8 @@ from fingerprint import ROOT, fingerprint
 from linux_arch import target_arch
 from verification import CHECKS, sha256, validate_report
 
-BASH_FILES = ('install-server.sh', 'scripts/bootstrap-linux.sh', 'scripts/build.sh', 'scripts/build-upstream.sh', 'deploy/linux/install.sh',
-              'deploy/linux/uninstall.sh', 'deploy/linux/switch-release.sh', 'deploy/linux/deploy-certificate.sh')
+BASH_FILES = ('install-server.sh', 'scripts/bootstrap-linux.sh', 'scripts/build.sh', 'scripts/build-upstream.sh',
+                'deploy/linux/deploy-certificate.sh')
 
 
 def steps(output, python):
@@ -39,7 +39,7 @@ def steps(output, python):
         ('go-race', [['go', 'test', '-race', './internal/...', './cmd/...']]),
         ('go-vet', [['go', 'vet', './internal/...', './cmd/...']]),
         ('scripts', [['bash', '-n', name] for name in BASH_FILES] +
-                    [['bash', 'install-server.sh', 'install', '--plan'], ['bash', 'deploy/linux/install.sh', '--plan'], ['bash', 'deploy/linux/uninstall.sh', '--plan'],
+                    [['bash', 'install-server.sh', 'install', '--plan'],
                      ['bash', 'deploy/linux/deploy-certificate.sh', '--plan', 'control', 'control.site.example']]),
         ('certificates', [[python, '-B', 'scripts/verify-certificates.py', '--bash', shutil.which('bash') or 'bash']]),
         ('upstream', [['bash', 'scripts/build-upstream.sh']]),

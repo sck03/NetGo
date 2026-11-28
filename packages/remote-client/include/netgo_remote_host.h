@@ -23,6 +23,8 @@ typedef struct ng_remote_host_options {
     /* poll returns one H.264 Annex B or audio packet; zero bytes means no packet.
      * It must return in <=100 ms. kind 5=video, 10=PCM audio. */
     int32_t (*poll)(void *, uint32_t *, uint8_t *, size_t, size_t *);
+    /* 0: applied; positive: unsupported event (release held input, keep video);
+     * negative: platform failure (close session). A release must return 0. */
     int32_t (*input)(void *, const char *, size_t);
     void (*close)(void *);
     /* Runs on the bounded command worker, concurrently with media callbacks.

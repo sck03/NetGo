@@ -13,6 +13,6 @@ int main() {
         if (reply.at("error") != code || netgo::remote::transient_control(error)) std::abort();
         if (netgo::remote::control_error(error, output, 1, &length) != -1) std::abort();
     }
-    for (const auto* code : {"control_timeout", "control_unreachable", "ipc_failed", "context deadline exceeded", "remote_busy", "control_unavailable"})
+    for (const auto* code : {"control_timeout", "control_unreachable", "ipc_failed", "context deadline exceeded", "remote_busy", "control_unavailable", "control_capacity_exceeded"})
         if (!netgo::remote::transient_control(std::runtime_error(code))) std::abort();
 }

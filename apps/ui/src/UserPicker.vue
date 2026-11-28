@@ -15,7 +15,7 @@ watch([() => props.modelValue, () => page.value.users], () => {
   selectedUser.value = page.value.users.find(user => user.id === props.modelValue) || (selectedUser.value?.id === props.modelValue ? selectedUser.value : undefined)
 }, { immediate: true })
 let alive = true, version = 0, timer: ReturnType<typeof setTimeout> | undefined
-const query = new LatestQuery(() => props.request<UserChoices>('/netgo/v2/admin/users/choices?after=' + encodeURIComponent(after.value) + '&q=' + encodeURIComponent(search.value)), value => { page.value = value })
+const query = new LatestQuery(signal => props.request<UserChoices>('/netgo/v2/admin/users/choices?after=' + encodeURIComponent(after.value) + '&q=' + encodeURIComponent(search.value), 'GET', undefined, signal), value => { page.value = value })
 async function load(cursor = '') {
   const request = ++version
   query.invalidate(); after.value = cursor; busy.value = true; error.value = ''

@@ -12,7 +12,7 @@ v2.2 增加 [统一集成契约](INTEGRATION_CONTRACT.zh-CN.md)：单客户端�
 
 用户在会话 `01a2075c-f461-7531-b0ff-0d0de8d06a52` 最后明确要求：参考远控分析增加远程桌面和各原生客户端；目前未生产部署，可以用新数据库与新接口，不兼容旧开发数据；最后清理并推送 GitHub main。本文件据此覆盖旧方案中“其他客户端以后再做”的限制。
 
-2026-11-24 阶段源码为 0.3.0-dev、API v2、SQLite schema 2（当前版本为 schema 7，见 [当前重构记录](REFACTOR_CURRENT.zh-CN.md)）；服务端主机/授权/票据/会话已实现，Windows 已接媒体与输入/音频，Linux GTK 查看器已编译。旧 0.2.4-dev 报告仅提供历史 VPN 证据。完整跨设备媒体与设备验收仍未完成，不能将源码实现或阶段包写成五平台全部交付。
+2026-11-24 阶段源码为 0.3.0-dev、API v2、SQLite schema 2（当前版本为 schema 8，见 [当前重构记录](REFACTOR_CURRENT.zh-CN.md)）；服务端主机/授权/票据/会话已实现，Windows 已接媒体与输入/音频，Linux GTK 查看器已编译。旧 0.2.4-dev 报告仅提供历史 VPN 证据。完整跨设备媒体与设备验收仍未完成，不能将源码实现或阶段包写成五平台全部交付。
 
 用户再次确认未正式部署，允许重构及新数据/接口。因此 v1 只作为可运行的开发基线与切换前实验对象；不开发 v1↔v2 桥接、不双写、不增加旧 DTO/接口兼容分支。新版本一次采用新库和契约；完成空库初始化/回退演练并经运行验证后，旧开发程序与数据库可按归属清理。归档用于恢复，不是数据迁移要求。
 
@@ -106,7 +106,7 @@ RD0 已定位并修复现有 VPS 失败机制：原 `WorkerRelay.preferredRelayS
 
 ## 5. 新数据库与切换
 
-当前 schema 7 使用新的 NetGo SQLite 数据目录，规范化实体至少包括 users、devices、hosts、remote_grants、vpn_leases、remote_sessions、ticket_nonces、operation_keys、audit_events。声明外键、唯一键和状态约束，WAL/事务下串行化票据消费和并发控制。仍只保存 IdP/NetBird 对象引用，不跨库修改上游数据。
+当前 schema 8 使用新的 NetGo SQLite 数据目录，规范化实体至少包括 users、devices、hosts、remote_grants、vpn_leases、remote_sessions、ticket_nonces、operation_keys、audit_events。声明外键、唯一键和状态约束，WAL/事务下串行化票据消费和并发控制。仍只保存 IdP/NetBird 对象引用，不跨库修改上游数据。
 
 允许不兼容不等于允许无条件删除。实施顺序：停止本项目写入 → 归档 NetGo/上游身份/证书与所属规则清单 → 验证归档可读 → 在新目录初始化 → 成套部署 v2 → 空状态首次登录/注册/远控 → 根据摘要核验恢复旧开发栈。执行工具需显式 `--fresh-state` 与归档路径；遇到非空新目录、归档失败或外部拥有对象则停止。普通 install/upgrade 不隐式重置数据库。
 

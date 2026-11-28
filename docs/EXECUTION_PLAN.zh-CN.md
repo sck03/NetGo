@@ -4,7 +4,7 @@
 
 2026-11-27 当前实现、必要验证与平台限制见 [当前重构记录](REFACTOR_CURRENT.zh-CN.md)。下文保留架构设计与完整验收目标，不作为当前已经执行全套验收的证明。
 
-版本：2.4。修订日期：2026-11-26（Asia/Shanghai）。当前源码：0.3.0-dev / API v2 / schema 7。服务端领域、Windows 单 NetGo.exe 与 GTK 查看器已实现部分功能；逐平台构建、签名、设备及交付退出条件分别记录，不将阶段包当成五平台全部完成。
+版本：2.4。修订日期：2026-11-26（Asia/Shanghai）。当前源码：0.3.0-dev / API v2 / schema 8。服务端领域、Windows 单 NetGo.exe 与 GTK 查看器已实现部分功能；逐平台构建、签名、设备及交付退出条件分别记录，不将阶段包当成五平台全部完成。
 
 本文保留历史设计与验收目标；其中历史阶段的“尚未实现”不作为当前代码状态。当前已实现范围以 [源码追踪](IMPLEMENTATION_MATRIX.zh-CN.md)、[统一契约](INTEGRATION_CONTRACT.zh-CN.md) 和 [当前维护记录](https://github.com/sck03/NetGo/blob/cc36472058c310b7812089df60abdcc5d513e625/docs/REFACTOR_MAINTENANCE_2026-11-26.zh-CN.md) 为准。
 
@@ -495,7 +495,7 @@ docs/HISTORY.zh-CN.md        历史测试与脱敏证据索引
 - 客户端保存服务器配置、设备私钥、受保护刷新凭据、上次可用候选；日志不包含完整 token。
 - API 需要协议版本和能力协商；不兼容时明确拒绝并提示升级，不盲目尝试写入旧格式。
 
-当前源码统一使用 `/netgo/v2`、协议 2 与 schema 7，不维护旧接口、双写或旧数据库自动迁移。主机/授权/票据/设备绑定、持久 nonce、分表事务与正反/并发测试已实现。实际切换仍须完整归档原开发状态，在新目录初始化并成套部署；旧运行栈的实测不作为新版端到端证据。准确路由及实体见 REMOTE_NATIVE_PLAN §4–§5。
+当前源码统一使用 `/netgo/v2`、协议 2 与 schema 8，不维护旧接口、双写或旧数据库自动迁移。主机/授权/票据/设备绑定、持久 nonce、分表事务与正反/并发测试已实现。实际切换仍须完整归档原开发状态，在新目录初始化并成套部署；旧运行栈的实测不作为新版端到端证据。准确路由及实体见 REMOTE_NATIVE_PLAN §4–§5。
 
 ## 10. 用户流程与安装交付
 
@@ -527,7 +527,7 @@ docs/HISTORY.zh-CN.md        历史测试与脱敏证据索引
 | netgoctl auxiliary add / remove | 添加/移除备用节点；保留本地 Relay/STUN 和直达候选 |
 | netgoctl export-site | 导出脱敏站点文件 |
 | netgoctl backup / restore | 一致备份和恢复身份、数据库、配置与必要密钥 |
-| netgoctl upgrade / rollback | 校验可信清单 digest、全部产品文件及 schema/protocol；停写加密快照、切换版本目录、健康失败恢复；当前只允许 API v2/schema 7 的同源产品二进制升级，上游升级与不可逆迁移须另行演练 |
+| netgoctl upgrade / rollback | 校验可信清单 digest、全部产品文件及 schema/protocol；停写加密快照、切换版本目录、健康失败恢复；当前只允许 API v2/schema 8 的同源产品二进制升级，上游升级与不可逆迁移须另行演练 |
 | netgoctl diagnostics | 生成默认脱敏的环境与状态证据 |
 | netgoctl client import / connect / disconnect / status / profiles | Linux 诊断客户端的当前用户 Unix IPC；连接密码从终端读取 |
 

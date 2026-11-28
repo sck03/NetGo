@@ -36,7 +36,7 @@ func testRelease(t *testing.T, version string) (string, string) {
 	return root, hex.EncodeToString(h[:])
 }
 func TestReleaseRejectsTamperingAndTraversal(t *testing.T) {
-	root, digest := testRelease(t, "test")
+	root, digest := testRelease(t, "1.2.3-rc.4+ci.9")
 	if _, err := Verify(root, digest); err != nil {
 		t.Fatal(err)
 	}
@@ -44,7 +44,7 @@ func TestReleaseRejectsTamperingAndTraversal(t *testing.T) {
 	if _, err := Verify(root, digest); err == nil {
 		t.Fatal("tampered executable accepted")
 	}
-	root, _ = testRelease(t, "test")
+	root, _ = testRelease(t, "1.2.3")
 	b := []byte(strings.Repeat("0", 64) + "  ../outside\n")
 	_ = os.WriteFile(filepath.Join(root, "SHA256SUMS"), b, 0644)
 	h := sha256.Sum256(b)
@@ -61,7 +61,7 @@ func TestReleaseRecoveryOnHealthFailure(t *testing.T) {
 	old := filepath.Join(root, "releases", "old")
 	_ = os.Mkdir(old, 0755)
 	_ = os.Symlink(old, filepath.Join(root, "current"))
-	source, digest := testRelease(t, "next")
+	source, digest := testRelease(t, "1.2.4")
 	config := filepath.Join(t.TempDir(), "site.json")
 	b, _ := json.Marshal(configuration())
 	_ = os.WriteFile(config, b, 0600)

@@ -17,7 +17,8 @@ func validSearch(after, search string) bool {
 	return len(after) <= 128 && len(search) <= 512 && utf8.ValidString(search) && utf8.RuneCountInString(search) <= 128
 }
 
-// AdminRemotePage bounds both decoded hosts and their authorization graph.
+// AdminRemotePage loads hosts and live-session dependencies. Grant administration
+// has its own page, so a popular host cannot expand every inventory poll.
 func (s *Store) AdminRemotePage(ctx context.Context, c model.Credential, after, search string) (model.State, string, error) {
 	if !validSearch(after, search) {
 		return model.State{}, "", errors.New("invalid_remote_page")
@@ -38,9 +39,6 @@ func (s *Store) AdminRemotePage(ctx context.Context, c model.Credential, after, 
 		ids := make([]string, 0, len(st.Hosts))
 		for id := range st.Hosts {
 			ids = append(ids, id)
-		}
-		if err = readIDs(tx, "remote_grants", st.RemoteGrants, "host_id", ids); err != nil {
-			return st, err
 		}
 		// Only active sessions enter the live inventory.
 		raw, _ := json.Marshal(ids)

@@ -6,6 +6,7 @@ import { RequestError } from '../../../packages/ui/errors'
 import RemotePanel from './RemotePanel.vue'
 import ResourcePanel from './ResourcePanel.vue'
 import UserPanel from './UserPanel.vue'
+import AccountCreations from './AccountCreations.vue'
 import SessionPanel from './SessionPanel.vue'
 import ListPager from './ListPager.vue'
 import type { User, AdminState, AuditPage, AdminRequest, DeleteResult } from '../../../packages/ui/contracts'
@@ -16,22 +17,22 @@ const state = ref<AdminState>(emptyState())
 const pageReady = ref(false)
 const initialPassword = ref('')
 const audit = ref<AuditPage>({events:[],next_before:0}), auditBefore = ref(0)
-const auditQuery = new LatestQuery(() => admin.request<AuditPage>('/netgo/v2/admin/audit' + (auditBefore.value ? '?before=' + auditBefore.value : '')), value => { audit.value = value })
+const auditQuery = new LatestQuery(signal => admin.request<AuditPage>('/netgo/v2/admin/audit' + (auditBefore.value ? '?before=' + auditBefore.value : ''), 'GET', undefined, signal), value => { audit.value = value })
 async function auditPage(before = 0) { auditQuery.invalidate(); auditBefore.value=before; await auditQuery.run() }
 const admin = new AdminSession(active => {
   logged.value = active
   if (!active) clearSession()
 })
 let timer: ReturnType<typeof setInterval> | undefined
-const request: AdminRequest = (path, method, body) => admin.request(path, method, body)
+const request: AdminRequest = (path, method, body, signal) => admin.request(path, method, body, signal)
 async function exportDiagnostics() {
   const summary = await admin.request<AdminState>('/netgo/v2/admin/summary')
   download(summary.runtime, 'netgo-diagnostics.json')
 }
 const listAfter = ref('')
-const stateQuery = new LatestQuery(() => admin.request<Partial<AdminState>>(['overview', 'diagnostics', 'sessions', 'remote'].includes(page.value)
+const stateQuery = new LatestQuery(signal => admin.request<Partial<AdminState>>(['overview', 'diagnostics', 'sessions', 'remote'].includes(page.value)
   ? '/netgo/v2/admin/summary'
-  : '/netgo/v2/admin/state?section=' + page.value + '&after=' + encodeURIComponent(listAfter.value)), value => { state.value = { ...emptyState(), ...value }; pageReady.value = true })
+  : '/netgo/v2/admin/state?section=' + page.value + '&after=' + encodeURIComponent(listAfter.value), 'GET', undefined, signal), value => { state.value = { ...emptyState(), ...value }; pageReady.value = true })
 async function listPage(after = '') { listAfter.value = after; await refresh(true) }
 const users = computed(() => Object.values(state.value.users))
 const resources = computed(() => Object.values(state.value.resources))
@@ -162,7 +163,10 @@ onUnmounted(() => { if (timer) clearInterval(timer); stateQuery.invalidate(); au
           <button class="secondary" @click="page = 'diagnostics'">查看运行诊断</button>
         </section>
       </template>
-      <UserPanel :request="request" v-else-if="page === 'users'" :users="users" :resources="resources" :busy="busy" :create="createUser" :save="saveUser" :remove="deleteUser" />
+      <template v-else-if="page === 'users'">
+      <UserPanel :request="request" :users="users" :resources="resources" :busy="busy" :create="createUser" :save="saveUser" :remove="deleteUser" />
+        <AccountCreations :request="request" />
+      </template>
       <ResourcePanel v-else-if="page === 'resources' && state.network" :resources="resources" :network="state.network" :busy="busy" :save="saveResource" :remove="deleteResource" />
       <SessionPanel v-else-if="page === 'sessions'" :request="request" />
       <RemotePanel v-else-if="page === 'remote'" :request="request" />

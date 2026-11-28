@@ -3,18 +3,20 @@
 export class LatestQuery<T> {
   private revision = 0
   private pending: Promise<void> | undefined
-  private load: () => Promise<T>
+  private controller: AbortController | undefined
+  private load: (signal: AbortSignal) => Promise<T>
   private accept: (value: T) => void
-  constructor(load: () => Promise<T>, accept: (value: T) => void) { this.load = load; this.accept = accept }
-  invalidate() { this.revision++; this.pending = undefined }
+  constructor(load: (signal: AbortSignal) => Promise<T>, accept: (value: T) => void) { this.load = load; this.accept = accept }
+  invalidate() { this.revision++; this.controller?.abort(); this.controller = undefined; this.pending = undefined }
   run(): Promise<void> {
     if (this.pending) return this.pending
     const revision = this.revision
-    const pending = Promise.resolve().then(this.load).then(value => {
+    const controller = this.controller = new AbortController()
+    const pending = Promise.resolve().then(() => { controller.signal.throwIfAborted(); return this.load(controller.signal) }).then(value => {
       if (revision === this.revision) this.accept(value)
     }, error => {
       if (revision === this.revision) throw error
-    }).finally(() => { if (this.pending === pending) this.pending = undefined })
+    }).finally(() => { if (this.pending === pending) { this.pending = undefined; this.controller = undefined } })
     this.pending = pending
     return pending
   }

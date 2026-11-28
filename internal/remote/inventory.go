@@ -86,8 +86,10 @@ func (m *Manager) List(ctx context.Context, c model.Credential, after string) (I
 }
 
 type InventoryPage struct {
-	Inventory
-	Users map[string]string `json:"users"`
+	Hosts     []HostSummary         `json:"hosts"`
+	Sessions  []model.RemoteSession `json:"sessions"`
+	NextAfter string                `json:"next_after"`
+	Users     map[string]string     `json:"users"`
 }
 
 func (m *Manager) AdminList(ctx context.Context, c model.Credential, after, search string) (InventoryPage, error) {
@@ -103,8 +105,7 @@ func (m *Manager) AdminList(ctx context.Context, c model.Credential, after, sear
 	for id, u := range st.Users {
 		labels[id] = u.Alias
 	}
-	inventory.NextAfter = next
-	return InventoryPage{Inventory: inventory, Users: labels}, err
+	return InventoryPage{Hosts: inventory.Hosts, Sessions: inventory.Sessions, NextAfter: next, Users: labels}, err
 }
 
 func (m *Manager) inventory(c model.Credential, state model.State, lastGeneration uint64) (Inventory, error) {

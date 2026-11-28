@@ -56,6 +56,22 @@ export type DeleteResult = {
   deleted: boolean
   cleanup_pending: boolean
 }
+export type AccountCleanup = {
+  id: string
+  alias: string
+  email: string
+  name: string
+  pending: boolean
+  created_at: string
+  last_checked: string
+  status: string
+  cleanup_attempts?: number
+  cleanup_after: string
+}
+export type AccountCleanupPage = {
+  tasks: AccountCleanup[]
+  next_after: string
+}
 export type Host = {
   id: string
   name: string
@@ -133,12 +149,15 @@ export type Inventory = {
   next_generation: number
 }
 export type InventoryPage = {
-  next_after: string
   hosts: HostSummary[]
-  grants: GrantSummary[]
   sessions: RemoteSession[]
-  next_generation: number
+  next_after: string
   users: Record<string, string>
+}
+export type GrantPage = {
+  grants: GrantSummary[]
+  users: Record<string, string>
+  next_after: string
 }
 export type UserChoice = {
   id: string

@@ -9,17 +9,23 @@ import (
 // AccountCleanup reserves a creation before upstream IO and owns its compensation
 // until publication. It never stores credentials or an initial password.
 type AccountCleanup struct {
-	ID      string `json:"id"`
-	Alias   string `json:"alias"`
-	Email   string `json:"email"`
-	Name    string `json:"name"`
-	Pending bool   `json:"pending"`
+	ID          string    `json:"id"`
+	Alias       string    `json:"alias"`
+	Email       string    `json:"email"`
+	Name        string    `json:"name"`
+	Pending     bool      `json:"pending"`
+	CreatedAt   time.Time `json:"created_at"`
+	LastChecked time.Time `json:"last_checked"`
+	Status      string    `json:"status"`
 	model.CleanupRetry
 }
 
 // ReserveAccountCreation precedes the upstream POST. Alias and email reservations
 // survive restarts and fence other processes using this database as well.
 func (s *Store) ReserveAccountCreation(item AccountCleanup) error {
+	if item.CreatedAt.IsZero() {
+		item.CreatedAt = time.Now().UTC()
+	}
 	b, err := json.Marshal(item)
 	if err != nil {
 		return err

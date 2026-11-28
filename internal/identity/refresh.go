@@ -2,6 +2,11 @@ package identity
 
 import (
 	"context"
+	"crypto/aes"
+	"crypto/cipher"
+	"crypto/rand"
+	"crypto/sha256"
+	"encoding/json"
 	"errors"
 	"netgo/internal/model"
 	"strings"
@@ -17,8 +22,53 @@ func (n *Native) Refresh(ctx context.Context, c model.Credential, oldToken, refr
 	if !ok || refresh == "" || len(refresh) > 16384 {
 		return Result{}, errors.New("refresh unavailable")
 	}
+	release, ok := n.refreshing.Try(model.Hash(oldToken))
+	if !ok {
+		return Result{}, model.ErrControlUnavailable
+	}
+	defer release()
+	current, user, device, err := n.Store.Identity(ctx, model.Hash(oldToken))
+	recovering := errors.Is(err, model.ErrUnauthorized)
+	if recovering {
+		current, user, device, err = n.Store.RefreshIdentity(ctx, model.Hash(oldToken))
+	}
+	if err != nil {
+		return Result{}, model.ControlFailure(err)
+	}
+	if current.UserID != c.UserID || current.DeviceID != c.DeviceID || device.UserID != c.UserID || device.DeletePending || !user.Active(time.Now()) || !time.Now().Before(current.ExpiresAt) {
+		return Result{}, model.ErrUnauthorized
+	}
 	if e := n.Provider.UserActive(ctx, c.UserID); e != nil {
 		return Result{}, model.ControlFailure(e)
+	}
+	box, err := refreshCipher(oldToken, refresh)
+	if err != nil {
+		return Result{}, err
+	}
+	if recovering {
+		data := current.Recovery.Response
+		if len(data) < box.NonceSize() {
+			return Result{}, model.ErrUnauthorized
+		}
+		plain, err := box.Open(nil, data[:box.NonceSize()], data[box.NonceSize():], []byte(c.DeviceID))
+		if err != nil {
+			return Result{}, model.ErrUnauthorized
+		}
+		defer clear(plain)
+		var result Result
+		if err = json.Unmarshal(plain, &result); err != nil || model.Hash(result.Token) != current.TokenHash {
+			return Result{}, model.ErrUnauthorized
+		}
+		// Recheck after upstream IO; concurrent revocation must not recover a token.
+		current, user, device, err = n.Store.RefreshIdentity(ctx, model.Hash(oldToken))
+		if err != nil {
+			return Result{}, model.ControlFailure(err)
+		}
+		if current.TokenHash != model.Hash(result.Token) || !user.Active(time.Now()) || device.DeletePending || device.UserID != c.UserID || !time.Now().Before(current.ExpiresAt) {
+			return Result{}, model.ErrUnauthorized
+		}
+		result.User = user
+		return result, nil
 	}
 	t, e := p.Refresh(ctx, refresh)
 	if e != nil {
@@ -39,8 +89,23 @@ func (n *Native) Refresh(ctx context.Context, c model.Credential, oldToken, refr
 		if !u.ExpiresAt.IsZero() && u.ExpiresAt.Before(result.ExpiresAt) {
 			result.ExpiresAt = u.ExpiresAt
 		}
+		result.User = u
+		plain, err := json.Marshal(result)
+		if err != nil {
+			return err
+		}
+		defer clear(plain)
+		nonce := make([]byte, box.NonceSize())
+		if _, err = rand.Read(nonce); err != nil {
+			return err
+		}
+		until := time.Now().UTC().Add(2 * time.Minute)
+		if result.ExpiresAt.Before(until) {
+			until = result.ExpiresAt
+		}
+		recovery := &model.RefreshRecovery{PreviousHash: model.Hash(oldToken), Until: until, Response: box.Seal(nonce, nonce, plain, []byte(c.DeviceID))}
 		delete(st.Credentials, model.Hash(oldToken))
-		st.Credentials[model.Hash(result.Token)] = model.Credential{UserID: u.ID, DeviceID: d.ID, ExpiresAt: result.ExpiresAt}
+		st.Credentials[model.Hash(result.Token)] = model.Credential{UserID: u.ID, DeviceID: d.ID, ExpiresAt: result.ExpiresAt, Recovery: recovery}
 		// A signed rotation keeps the same authenticated device. Rebind active
 		// authorizations atomically; logout and unrelated credentials cannot revive them.
 		for id, remote := range st.RemoteSessions {
@@ -54,4 +119,13 @@ func (n *Native) Refresh(ctx context.Context, c model.Credential, oldToken, refr
 		return nil
 	})
 	return result, e
+}
+
+func refreshCipher(token, refresh string) (cipher.AEAD, error) {
+	key := sha256.Sum256([]byte("netgo-refresh-result-v1\x00" + token + "\x00" + refresh))
+	block, err := aes.NewCipher(key[:])
+	if err != nil {
+		return nil, err
+	}
+	return cipher.NewGCM(block)
 }

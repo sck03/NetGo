@@ -1,6 +1,6 @@
 # 执行方案与源码追踪
 
-修订：2026-11-28。当前行为、定向验证和同提交平台构建结果以 [当前重构记录](REFACTOR_CURRENT.zh-CN.md) 为准；[历史证据](HISTORY.zh-CN.md) 只对应原提交。本轮完成资源/授权编辑保护、定向存储及取消、资源选择分页、iOS/Unix 监听修复、原生界面拆分和构建契约同步；真实设备验收尚未完成。当前 API v2 / schema 7，不兼容旧开发接口和数据库。
+修订：2026-11-28。当前 API v2 / schema 8。本轮补齐刷新恢复、创建异常管理、独立授权分页、请求取消、输入容错和发布版本校验；定向验证与限制见 [当前重构记录](REFACTOR_CURRENT.zh-CN.md)。下表历史平台证据只对应各自提交，不代表本次改动已完成平台验收。
 
 | 需求 | 实现入口 | 已有验证证据（对应各自提交） | 仍须验收 |
 | --- | --- | --- | --- |
@@ -20,3 +20,10 @@
 | 交付、许可和仓库 | 七份脚本/工作流、package-*、THIRD_PARTY_NOTICES | 运行文件白名单、Go维护、秘密/缓存忽略和稳定工具链锁定 | 发行签名、72小时和完整设备证据 |
 
 局部VPN、API和生命周期成功不代表所有远控、设备或A01–A33完成。最新事实见 [进度](PROGRESS.zh-CN.md) 与 [当前重构记录](REFACTOR_CURRENT.zh-CN.md)，历史索引保留原提交的验证结果。
+
+| 本轮新增维护边界 | 源码入口 | 定向证据 |
+| --- | --- | --- |
+| 刷新恢复与防重放容量 | identity/refresh、store/queries、store/schema、api/refresh_recovery_test | 持久恢复、签名/端点/过期边界、容量分类 |
+| 创建异常管理 | accounts/cleanup_admin、store/account_cleanup_admin、ui/AccountCreations | 等待时限、存在拒绝、撤权拒绝、浏览器布局 |
+| 远控管理分页 | store/remote_grant_page、remote/grant_page、ui/RemoteGrants | 1000 授权分页、跨页版本、冲突草稿 |
+| 输入降级与版本统一 | remote-client/host、linux/input_mapping、apple/host_media、model/version | 共享主机会话回环、SemVer 构建元数据；平台原生编译待验证 |
